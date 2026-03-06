@@ -249,9 +249,10 @@ _build-bib $target_image $tag $type $config: (_rootful_load_image target_image t
     if sudo test -d "$BUILDTMP"; then
         for mf in $BUILDTMP/manifest*.json; do
             if sudo test -f "$mf"; then
-                sudo sh -c '\
-                jq --arg pname "'""${PRODUCT_NAME}"'" --arg pver "'""${PRODUCT_VERSION}"'" '\
-                ( .pipelines[]?.stages[]? |= ( if .type=="org.osbuild.lorax-script" then (.options.product.name = $pname) | (.options.product.version = $pver) | (.options.branding.release = ($pname + " " + $pver)) else . end )' "$mf" > "$mf.tmp" && mv "$mf.tmp" "$mf" || true'
+                    # Run jq under sudo with variables expanded by the current shell to avoid complex shell-quoting.
+                    sudo jq --arg pname "${PRODUCT_NAME}" --arg pver "${PRODUCT_VERSION}" \
+                        '(.pipelines[]?.stages[]? |= ( if .type=="org.osbuild.lorax-script" then (.options.product.name = $pname) | (.options.product.version = $pver) | (.options.branding.release = ($pname + " " + $pver)) else . end ))' "$mf" > "$mf.tmp" || true
+                    sudo mv -f "$mf.tmp" "$mf" || true
             fi
         done
     fi
