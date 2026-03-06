@@ -1,11 +1,7 @@
 FROM ghcr.io/ublue-os/bazzite:stable
 
-COPY build.sh /ctx/build.sh
-
-RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
-    --mount=type=cache,dst=/var/cache \
-    --mount=type=cache,dst=/var/log \
-    --mount=type=tmpfs,dst=/tmp \
-    /ctx/build.sh
+# Copy our customization script into the image and run it
+COPY build.sh /tmp/build.sh
+RUN chmod +x /tmp/build.sh && /tmp/build.sh
 
 CMD ["/bin/bash"]
