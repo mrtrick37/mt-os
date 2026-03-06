@@ -210,6 +210,26 @@ _build-bib $target_image $tag $type $config: (_rootful_load_image target_image t
             KEY_MOUNT="-v ${BUILDDIR}/pki/rpm-gpg:/etc/pki/rpm-gpg:ro"
         fi
 
+        # Attempt to extract product metadata from the image's OCI labels and pass
+        # them to bootc/lorax so lorax receives a valid product.name/product.version.
+        PRODUCT_NAME=""
+        PRODUCT_VERSION=""
+        set +e
+        # Use podman inspect JSON and jq to avoid Justfile interpolation issues
+        labels_json=$(podman inspect "${target_image}:${tag}" 2>/dev/null | jq -c '.[0].Config.Labels // {}' 2>/dev/null || true)
+        set -e
+        if [[ -n "${labels_json}" && "${labels_json}" != "null" ]]; then
+            PRODUCT_NAME=$(echo "${labels_json}" | jq -r '."org.opencontainers.image.title" // empty' || true)
+            PRODUCT_VERSION=$(echo "${labels_json}" | jq -r '."org.opencontainers.image.version" // empty' || true)
+        fi
+        # bootc-image-builder accepts --version (not --product-version)
+        if [[ -n "${PRODUCT_VERSION}" ]]; then
+            args+="--version=\"${PRODUCT_VERSION}\" "
+        fi
+
+        # Enable debug logging from bootc-image-builder to surface why lorax product/version are empty
+        args+="--log-level=debug "
+
         sudo podman run \
             --rm \
             -it \
@@ -226,6 +246,16 @@ _build-bib $target_image $tag $type $config: (_rootful_load_image target_image t
             "${target_image}:${tag}"
 
     mkdir -p output
+    # If bootc produced a manifest but lorax product/version are empty, patch them
+    if sudo test -d "$BUILDTMP"; then
+        for mf in $BUILDTMP/manifest*.json; do
+            if sudo test -f "$mf"; then
+                sudo sh -c '\
+                jq --arg pname "'""${PRODUCT_NAME}"'" --arg pver "'""${PRODUCT_VERSION}"'" '\
+                ( .pipelines[]?.stages[]? |= ( if .type=="org.osbuild.lorax-script" then (.options.product.name = $pname) | (.options.product.version = $pver) | (.options.branding.release = ($pname + " " + $pver)) else . end )' "$mf" > "$mf.tmp" && mv "$mf.tmp" "$mf" || true'
+            fi
+        done
+    fi
     # Rotate previous builds: keep last two
     sudo mkdir -p output/previous-built-iso
     if sudo test -d output/previous-built-iso/1; then

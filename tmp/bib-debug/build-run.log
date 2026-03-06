@@ -1,0 +1,8 @@
+time="2026-03-06T20:48:47Z" level=debug msg="Validating environment"
+time="2026-03-06T20:48:47Z" level=debug msg="Ensuring environment setup"
+Generating manifest manifest-iso.json
+2026/03/06 20:48:47 error: cannot build manifest: failed to inspect the image: exit status 125, stderr:
+Error: configure storage: open /var/lib/containers/storage/storage.lock: open /var/lib/containers/storage/storage.lock: read-only file system
+
+bootc-image-builder no longer pulls images, make sure to pull it before running bootc-image-builder:
+    sudo podman pull localhost/mt-os:latest

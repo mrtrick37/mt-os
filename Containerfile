@@ -5,6 +5,14 @@ COPY build_files /
 # Base Image
 FROM localhost/mt-os-base:stable
 
+# Override upstream OCI labels so downstream tooling (lorax/bootc) sees mt-OS product metadata
+LABEL org.opencontainers.image.title="mt-OS"
+LABEL org.opencontainers.image.version="43"
+LABEL org.opencontainers.image.description="mt-OS customized image"
+LABEL org.osbuild.product="mt-OS"
+LABEL org.osbuild.version="43"
+LABEL org.osbuild.branding.release="mt-OS 43"
+
 ## Other possible base images include:
 # FROM ghcr.io/ublue-os/bazzite:latest
 # FROM ghcr.io/ublue-os/bluefin-nvidia:stable

@@ -29,10 +29,10 @@ systemctl enable podman.socket
 # "mt-OS" instead of upstream branding.
 cat > /etc/os-release <<'EOF' || true
 NAME="mt-OS"
-PRETTY_NAME="mt-OS"
+PRETTY_NAME="mt-OS 43"
 ID=mt-os
-VERSION=""
-VERSION_ID=""
+VERSION="43"
+VERSION_ID="43"
 ANSI_COLOR="0;34"
 HOME_URL="https://example.org/mt-os"
 SUPPORT_URL="https://example.org/mt-os"
