@@ -1,4 +1,4 @@
-FROM ghcr.io/ublue-os/bazzite:stable
+FROM localhost/mt-os-base:stable
 
 # Copy our customization script into the image and run it
 COPY build.sh /tmp/build.sh

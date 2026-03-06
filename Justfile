@@ -213,8 +213,10 @@ _build-bib $target_image $tag $type $config: (_rootful_load_image target_image t
 
         # Attempt to extract product metadata from the image's OCI labels and pass
         # them to bootc/lorax so lorax receives a valid product.name/product.version.
-        PRODUCT_NAME=""
-        PRODUCT_VERSION=""
+        # Provide sensible defaults so installer UI shows mt-OS even when labels
+        # are missing from the base image.
+        PRODUCT_NAME="mt-OS"
+        PRODUCT_VERSION="43"
         set +e
         # Use podman inspect JSON and jq to avoid Justfile interpolation issues
         labels_json=$(podman inspect "${target_image}:${tag}" 2>/dev/null | jq -c '.[0].Config.Labels // {}' 2>/dev/null || true)

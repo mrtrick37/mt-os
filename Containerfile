@@ -14,7 +14,7 @@ LABEL org.osbuild.version="43"
 LABEL org.osbuild.branding.release="mt-OS 43"
 
 ## Other possible base images include:
-# FROM ghcr.io/ublue-os/bazzite:latest
+# FROM localhost/mt-os-base:latest
 # FROM ghcr.io/ublue-os/bluefin-nvidia:stable
 # 
 # ... and so on, here are more base images
