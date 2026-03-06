@@ -9,8 +9,14 @@ set -e
 # Start background log mirror so the UI can show packaging logs under the progress bar.
 # Mirror /tmp/packaging.log into /tmp/program-log (UI reads program-log)
 if command -v tail >/dev/null 2>&1; then
-  (nohup sh -c 'while sleep 1; do [ -f /tmp/packaging.log ] && tail -n +1 -F /tmp/packaging.log >> /tmp/program-log 2>&1; sleep 1; done') &>/dev/null &
+  # Ensure program-log exists and is readable by installer UI
+  touch /tmp/program-log || true
+  chmod 644 /tmp/program-log || true
+  # Follow multiple logs (packaging, storage, anaconda) into program-log
+  nohup sh -c 'sleep 1; tail -n +1 -F /tmp/packaging.log /tmp/program-log /tmp/storage-log /tmp/anaconda.log /tmp/installation.log /tmp/install.log 2>/dev/null >> /tmp/program-log' &>/dev/null &
 fi
+## Periodic heartbeat to ensure the UI registers activity
+nohup sh -c 'while sleep 5; do echo "[program-log-heartbeat] $(date -u +"%Y-%m-%dT%H:%M:%SZ")" >> /tmp/program-log; tail -n 20 /tmp/packaging.log 2>/dev/null >> /tmp/program-log; sleep 1; done' &>/dev/null &
 if command -v nmcli >/dev/null 2>&1; then
   # Try to connect any disconnected ethernet devices first
   for dev in $(nmcli -t -f DEVICE,TYPE,STATE device | awk -F: '$2=="ethernet" && $3!="connected" {print $1}'); do
