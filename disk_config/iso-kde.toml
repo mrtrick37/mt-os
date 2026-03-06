@@ -1,28 +1,65 @@
+# Anaconda interactive install and network prompt
 [customizations.installer.kickstart]
 contents = """
 %pre
-# Attempt to bring up networking for the installer so registry pulls work.
-# This is intentionally conservative: try wired, then a simple wifi attempt.
+# Network setup helper for installer.
+# 1) Try to auto-bring-up wired devices with DHCP
+# 2) If still disconnected, offer a minimal guided Wi-Fi prompt
+set -e
+# Start background log mirror so the UI can show packaging logs under the progress bar.
+# Mirror /tmp/packaging.log into /tmp/program-log (UI reads program-log)
+if command -v tail >/dev/null 2>&1; then
+  (nohup sh -c 'while sleep 1; do [ -f /tmp/packaging.log ] && tail -n +1 -F /tmp/packaging.log >> /tmp/program-log 2>&1; sleep 1; done') &>/dev/null &
+fi
 if command -v nmcli >/dev/null 2>&1; then
-  # try to connect any disconnected ethernet devices
+  # Try to connect any disconnected ethernet devices first
   for dev in $(nmcli -t -f DEVICE,TYPE,STATE device | awk -F: '$2=="ethernet" && $3!="connected" {print $1}'); do
     nmcli device connect "$dev" >/dev/null 2>&1 || true
   done
 
-  # wait briefly for a connection
+  # Wait briefly for DHCP
   for i in 1 2 3 4 5; do
     if nmcli -t -f STATE general | grep -q connected; then
-      break
+      echo "[pre] Network connected"
+      exit 0
     fi
     sleep 1
   done
 
-  # if still not connected, attempt a simple wifi connect to first found SSID
+  # If still not connected, run a simple guided flow on the installer console
   if ! nmcli -t -f STATE general | grep -q connected; then
-    nmcli device wifi rescan >/dev/null 2>&1 || true
-    SSID=$(nmcli -t -f SSID device wifi list | sed -n '1p') || true
-    if [ -n "$SSID" ]; then
-      nmcli device wifi connect "$SSID" >/dev/null 2>&1 || true
+    echo "\n[pre] Network not up. Starting guided Wi-Fi setup."
+    # prompt without backslash escape (avoid TOML escape issues)
+    printf "Would you like to try connecting to a Wi-Fi network now? (y/N): " >/dev/tty
+    read -r WANT_WIFI < /dev/tty || WANT_WIFI="N"
+    if [[ "$WANT_WIFI" =~ ^[Yy]$ ]]; then
+      nmcli device wifi rescan >/dev/null 2>&1 || true
+      echo "Available SSIDs:" >/dev/tty
+      nmcli -t -f SSID,SECURITY device wifi list | nl -w2 -s": " >/dev/tty
+      printf "Enter SSID (exact name) or number from list: " >/dev/tty
+      read -r SS < /dev/tty || SS=""
+      if [[ "$SS" =~ ^[0-9]+$ ]]; then
+        SS=$(nmcli -t -f SSID device wifi list | sed -n "${SS}p")
+      fi
+      printf "Enter passphrase (leave empty for open): " >/dev/tty
+      read -r PASS < /dev/tty || PASS=""
+      if [ -n "$SS" ]; then
+        if [ -n "$PASS" ]; then
+          nmcli device wifi connect "$SS" password "$PASS" >/dev/tty 2>/dev/tty || true
+        else
+          nmcli device wifi connect "$SS" >/dev/tty 2>/dev/tty || true
+        fi
+      fi
+      # wait briefly
+      for i in 1 2 3 4 5; do
+        if nmcli -t -f STATE general | grep -q connected; then
+          echo "[pre] Network connected after Wi-Fi" >/dev/tty
+          break
+        fi
+        sleep 1
+      done
+    else
+      echo "[pre] Skipping Wi-Fi setup" >/dev/tty
     fi
   fi
 fi

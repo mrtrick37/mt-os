@@ -194,8 +194,19 @@ _build-bib $target_image $tag $type $config: (_rootful_load_image target_image t
             "${target_image}:${tag}"
 
     mkdir -p output
-    sudo mv -f $BUILDTMP/* output/
-    sudo rmdir $BUILDTMP
+    # Rotate previous builds: keep last two
+    sudo mkdir -p output/previous-built-iso
+    if sudo test -d output/previous-built-iso/1; then
+        sudo rm -rf output/previous-built-iso/2 || true
+        sudo mv output/previous-built-iso/1 output/previous-built-iso/2 || true
+    fi
+    if sudo test -d output/bootiso; then
+        sudo mv output/bootiso output/previous-built-iso/1 || true
+    fi
+
+    # Move new build output into place
+    sudo mv -f $BUILDTMP/* output/ || true
+    sudo rmdir $BUILDTMP || true
     sudo chown -R $USER:$USER output/
 
 # Podman builds the image from the Containerfile and creates a bootable image
