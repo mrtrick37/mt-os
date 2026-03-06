@@ -192,7 +192,7 @@ _build-bib $target_image $tag $type $config: (_rootful_load_image target_image t
 
     args="--type ${type} "
     args+="--use-librepo=True "
-    args+="--rootfs=btrfs"
+    args+="--rootfs=btrfs "
 
     # Create build temp under $TMPDIR (fallback /tmp) so repository root isn't filled
     TMPDIR=${TMPDIR:-/tmp}
@@ -222,10 +222,8 @@ _build-bib $target_image $tag $type $config: (_rootful_load_image target_image t
             PRODUCT_NAME=$(echo "${labels_json}" | jq -r '."org.opencontainers.image.title" // empty' || true)
             PRODUCT_VERSION=$(echo "${labels_json}" | jq -r '."org.opencontainers.image.version" // empty' || true)
         fi
-        # bootc-image-builder accepts --version (not --product-version)
-        if [[ -n "${PRODUCT_VERSION}" ]]; then
-            args+="--version=\"${PRODUCT_VERSION}\" "
-        fi
+        # Do not pass --version to bootc-image-builder (it treats --version as a boolean).
+        # We patch generated manifest files below to set product/version when available.
 
         # Enable debug logging from bootc-image-builder to surface why lorax product/version are empty
         args+="--log-level=debug "
