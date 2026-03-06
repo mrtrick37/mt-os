@@ -275,6 +275,12 @@ _build-bib $target_image $tag $type $config: (_rootful_load_image target_image t
     sudo rmdir $BUILDTMP || true
     sudo chown -R $USER:$USER output/
 
+    # Print absolute path to produced ISO if present (helps CI and users find artifact)
+    if sudo test -f output/bootiso/mt-os-installer.iso; then
+        ISO_PATH=$(readlink -f output/bootiso/mt-os-installer.iso)
+        echo "Produced ISO: ${ISO_PATH}"
+    fi
+
 # Podman builds the image from the Containerfile and creates a bootable image
 # Parameters:
 #   target_image: The name of the image to build (ex. localhost/fedora)
