@@ -1,5 +1,34 @@
 [customizations.installer.kickstart]
 contents = """
+%pre
+# Attempt to bring up networking for the installer so registry pulls work.
+# This is intentionally conservative: try wired, then a simple wifi attempt.
+if command -v nmcli >/dev/null 2>&1; then
+  # try to connect any disconnected ethernet devices
+  for dev in $(nmcli -t -f DEVICE,TYPE,STATE device | awk -F: '$2=="ethernet" && $3!="connected" {print $1}'); do
+    nmcli device connect "$dev" >/dev/null 2>&1 || true
+  done
+
+  # wait briefly for a connection
+  for i in 1 2 3 4 5; do
+    if nmcli -t -f STATE general | grep -q connected; then
+      break
+    fi
+    sleep 1
+  done
+
+  # if still not connected, attempt a simple wifi connect to first found SSID
+  if ! nmcli -t -f STATE general | grep -q connected; then
+    nmcli device wifi rescan >/dev/null 2>&1 || true
+    SSID=$(nmcli -t -f SSID device wifi list | sed -n '1p') || true
+    if [ -n "$SSID" ]; then
+      nmcli device wifi connect "$SSID" >/dev/null 2>&1 || true
+    fi
+  fi
+fi
+
+%end
+
 %post
 bootc switch --mutate-in-place --transport registry ghcr.io/ublue-os/image-template:latest
 %end
