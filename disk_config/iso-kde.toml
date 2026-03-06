@@ -84,7 +84,7 @@ fi
 %end
 
 %post
-bootc switch --mutate-in-place --transport registry ghcr.io/ublue-os/image-template:latest
+bootc switch --mutate-in-place --transport registry ghcr.io/ublue-os/mt-os:latest
 %end
 """
 
