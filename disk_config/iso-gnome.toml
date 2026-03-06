@@ -3,10 +3,20 @@ contents = """
 %pre
 # Network setup helper for installer (same as KDE flow)
 set -e
+# Disable brltty (braille display service) to avoid repeated bluetooth warnings in installer logs
+if command -v systemctl >/dev/null 2>&1; then
+  systemctl stop brltty.service brltty.socket 2>/dev/null || true
+  systemctl mask brltty.service brltty.socket 2>/dev/null || true
+fi
 # Mirror logs so the installer UI can show them under the progress bar
 if command -v tail >/dev/null 2>&1; then
   touch /tmp/program-log || true
   chmod 644 /tmp/program-log || true
+  if command -v restorecon >/dev/null 2>&1; then
+    restorecon -v /tmp/program-log /run/install/program-log /var/log/anaconda/program-log 2>/dev/null || true
+  else
+    chcon -t var_log_t /tmp/program-log /run/install/program-log /var/log/anaconda/program-log 2>/dev/null || true
+  fi
   nohup sh -c 'sleep 1; tail -n +1 -F /tmp/packaging.log /tmp/program-log /tmp/storage-log /tmp/anaconda.log /tmp/installation.log /tmp/install.log 2>/dev/null >> /tmp/program-log' &>/dev/null &
 fi
 ## Periodic heartbeat to ensure the UI registers activity

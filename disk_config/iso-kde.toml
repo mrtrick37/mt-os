@@ -6,12 +6,23 @@ contents = """
 # 1) Try to auto-bring-up wired devices with DHCP
 # 2) If still disconnected, offer a minimal guided Wi-Fi prompt
 set -e
+# Disable brltty (braille display service) to avoid repeated bluetooth warnings in installer logs
+if command -v systemctl >/dev/null 2>&1; then
+  systemctl stop brltty.service brltty.socket 2>/dev/null || true
+  systemctl mask brltty.service brltty.socket 2>/dev/null || true
+fi
 # Start background log mirror so the UI can show packaging logs under the progress bar.
 # Mirror /tmp/packaging.log into /tmp/program-log (UI reads program-log)
 if command -v tail >/dev/null 2>&1; then
   # Ensure program-log exists and is readable by installer UI
   touch /tmp/program-log || true
   chmod 644 /tmp/program-log || true
+  # Ensure SELinux context so the installer UI can read the log file
+  if command -v restorecon >/dev/null 2>&1; then
+    restorecon -v /tmp/program-log /run/install/program-log /var/log/anaconda/program-log 2>/dev/null || true
+  else
+    chcon -t var_log_t /tmp/program-log /run/install/program-log /var/log/anaconda/program-log 2>/dev/null || true
+  fi
   # Follow multiple logs (packaging, storage, anaconda) into program-log
   nohup sh -c 'sleep 1; tail -n +1 -F /tmp/packaging.log /tmp/program-log /tmp/storage-log /tmp/anaconda.log /tmp/installation.log /tmp/install.log 2>/dev/null >> /tmp/program-log' &>/dev/null &
 fi
