@@ -86,7 +86,6 @@ disable = [
   "org.fedoraproject.Anaconda.Modules.Timezone"
 ]
 
-[customizations.files]
 [[customizations.files]]
 path = "/boot/grub2/grub.cfg"
 source = "iso_overlay/boot/grub2/grub.cfg"

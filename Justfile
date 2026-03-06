@@ -171,11 +171,11 @@ _build-bib $target_image $tag $type $config: (_rootful_load_image target_image t
 
         # Allow providing the repo GPG key(s) in the workspace so dnf inside the builder
         # can access file:///etc/pki/rpm-gpg/RPM-GPG-KEY-terra43-mesa (or other keys).
-        EXTRA_MOUNTS=()
+        KEY_MOUNT=""
         if [[ -f "${BUILDDIR}/RPM-GPG-KEY-terra43-mesa" ]]; then
-                EXTRA_MOUNTS+=("-v" "${BUILDDIR}/RPM-GPG-KEY-terra43-mesa:/etc/pki/rpm-gpg/RPM-GPG-KEY-terra43-mesa:ro")
+            KEY_MOUNT="-v ${BUILDDIR}/RPM-GPG-KEY-terra43-mesa:/etc/pki/rpm-gpg/RPM-GPG-KEY-terra43-mesa:ro"
         elif [[ -d "${BUILDDIR}/pki/rpm-gpg" ]]; then
-                EXTRA_MOUNTS+=("-v" "${BUILDDIR}/pki/rpm-gpg:/etc/pki/rpm-gpg:ro")
+            KEY_MOUNT="-v ${BUILDDIR}/pki/rpm-gpg:/etc/pki/rpm-gpg:ro"
         fi
 
         sudo podman run \
@@ -185,7 +185,7 @@ _build-bib $target_image $tag $type $config: (_rootful_load_image target_image t
             --pull=newer \
             --net=host \
             --security-opt label=type:unconfined_t \
-            "${EXTRA_MOUNTS[@]}" \
+            $KEY_MOUNT \
             -v $(pwd)/${config}:/config.toml:ro \
             -v $BUILDTMP:/output \
             -v /var/lib/containers/storage:/var/lib/containers/storage \
