@@ -67,19 +67,8 @@ if command -v nmcli >/dev/null 2>&1; then
   fi
 fi
 
-# Ensure installer runtime shows mt-OS branding
-cat > /etc/os-release <<'EOF' || true
-NAME="mt-OS"
-PRETTY_NAME="mt-OS 43"
-ID=fedora
-VERSION_ID=43
-HOME_URL="https://example.com/mt-os"
-EOF
-
-%end
-
 %post
-bootc switch --mutate-in-place --transport registry ghcr.io/mrtrick37/mt-os:latest
+bootc switch --mutate-in-place --transport registry ghcr.io/ublue-os/mt-os:latest
 %end
 """
 
@@ -92,10 +81,6 @@ enable = [
   "org.fedoraproject.Anaconda.Modules.Services",
   "org.fedoraproject.Anaconda.Modules.Users",
   "org.fedoraproject.Anaconda.Modules.Timezone"
-]
-
-disable = [
-  "org.fedoraproject.Anaconda.Modules.Subscription",
 ]
 
 [[customizations.files]]
@@ -111,9 +96,4 @@ mode = "0644"
 [[customizations.files]]
 path = "/EFI/BOOT/grub.cfg"
 source = "iso_overlay/EFI/BOOT/grub.cfg"
-mode = "0644"
-
-[[customizations.files]]
-path = "/etc/os-release"
-source = "iso_overlay/etc/os-release"
 mode = "0644"

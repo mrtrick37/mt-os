@@ -93,7 +93,7 @@ EOF
 %end
 
 %post
-bootc switch --mutate-in-place --transport registry ghcr.io/mrtrick37/mt-os:latest
+bootc switch --mutate-in-place --transport registry ghcr.io/ublue-os/mt-os:latest
 %end
 """
 
@@ -126,10 +126,4 @@ mode = "0644"
 path = "/EFI/BOOT/grub.cfg"
 source = "iso_overlay/EFI/BOOT/grub.cfg"
 mode = "0644"
-
-[[customizations.files]]
-path = "/etc/os-release"
-source = "iso_overlay/etc/os-release"
-mode = "0644"
-
 

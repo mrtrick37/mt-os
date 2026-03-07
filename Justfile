@@ -203,14 +203,10 @@ _build-bib $target_image $tag $type $config: (_rootful_load_image target_image t
 
     args="--type ${type} "
     args+="--use-librepo=True "
-    args+="--rootfs=btrfs "
+    args+="--rootfs=btrfs"
 
-    # Create build temp under $TMPDIR (fallback /var/tmp) so repository root isn't filled
-    TMPDIR=${TMPDIR:-/var/tmp}
-    BUILDTMP=$(mktemp -p "${TMPDIR}" -d -t _build-bib.XXXXXXXXXX)
-    # Ensure temporary build directory is cleaned on exit
-    trap 'sudo rm -rf "${BUILDTMP}" >/dev/null 2>&1 || true' EXIT
-    BUILDDIR=${PWD}
+    BUILDTMP=$(mktemp -p "${PWD}" -d -t _build-bib.XXXXXXXXXX)
+        BUILDDIR=${PWD}
 
         # Allow providing the repo GPG key(s) in the workspace so dnf inside the builder
         # can access file:///etc/pki/rpm-gpg/RPM-GPG-KEY-terra43-mesa (or other keys).
@@ -220,26 +216,6 @@ _build-bib $target_image $tag $type $config: (_rootful_load_image target_image t
         elif [[ -d "${BUILDDIR}/pki/rpm-gpg" ]]; then
             KEY_MOUNT="-v ${BUILDDIR}/pki/rpm-gpg:/etc/pki/rpm-gpg:ro"
         fi
-
-        # Attempt to extract product metadata from the image's OCI labels and pass
-        # them to bootc/lorax so lorax receives a valid product.name/product.version.
-        # Provide sensible defaults so installer UI shows mt-OS even when labels
-        # are missing from the base image.
-        PRODUCT_NAME="mt-OS"
-        PRODUCT_VERSION="43"
-        set +e
-        # Use podman inspect JSON and jq to avoid Justfile interpolation issues
-        labels_json=$(podman inspect "${target_image}:${tag}" 2>/dev/null | jq -c '.[0].Config.Labels // {}' 2>/dev/null || true)
-        set -e
-        if [[ -n "${labels_json}" && "${labels_json}" != "null" ]]; then
-            PRODUCT_NAME=$(echo "${labels_json}" | jq -r '."org.opencontainers.image.title" // empty' || true)
-            PRODUCT_VERSION=$(echo "${labels_json}" | jq -r '."org.opencontainers.image.version" // empty' || true)
-        fi
-        # Do not pass --version to bootc-image-builder (it treats --version as a boolean).
-        # We patch generated manifest files below to set product/version when available.
-
-        # Enable debug logging from bootc-image-builder to surface why lorax product/version are empty
-        args+="--log-level=debug "
 
         sudo podman run \
             --rm \
@@ -257,17 +233,6 @@ _build-bib $target_image $tag $type $config: (_rootful_load_image target_image t
             "${target_image}:${tag}"
 
     mkdir -p output
-    # If bootc produced a manifest but lorax product/version are empty, patch them
-    if sudo test -d "$BUILDTMP"; then
-        for mf in $BUILDTMP/manifest*.json; do
-            if sudo test -f "$mf"; then
-                    # Run jq under sudo with variables expanded by the current shell to avoid complex shell-quoting.
-                    sudo jq --arg pname "${PRODUCT_NAME}" --arg pver "${PRODUCT_VERSION}" \
-                        '(.pipelines[]?.stages[]? |= ( if .type=="org.osbuild.lorax-script" then (.options.product.name = $pname) | (.options.product.version = $pver) | (.options.branding.release = ($pname + " " + $pver)) else . end ))' "$mf" > "$mf.tmp" || true
-                    sudo mv -f "$mf.tmp" "$mf" || true
-            fi
-        done
-    fi
     # Rotate previous builds: keep last two
     sudo mkdir -p output/previous-built-iso
     if sudo test -d output/previous-built-iso/1; then

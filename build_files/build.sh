@@ -29,14 +29,14 @@ systemctl enable podman.socket
 # "mt-OS" instead of upstream branding.
 cat > /etc/os-release <<'EOF' || true
 NAME="mt-OS"
-PRETTY_NAME="mt-OS 43"
-ID=fedora
-VERSION="43"
-VERSION_ID="43"
+PRETTY_NAME="mt-OS"
+ID=mt-os
+VERSION=""
+VERSION_ID=""
 ANSI_COLOR="0;34"
-HOME_URL="https://example.com/mt-os"
-SUPPORT_URL="https://example.com/mt-os/support"
-BUG_REPORT_URL="https://example.com/mt-os/issues"
+HOME_URL="https://example.org/mt-os"
+SUPPORT_URL="https://example.org/mt-os"
+BUG_REPORT_URL="https://example.org/mt-os/issues"
 EOF
 
 # Remove Waydroid desktop/menu entries and related files if present
@@ -45,8 +45,6 @@ rm -f /usr/share/applications/*waydroid*.desktop || true
 rm -f /usr/local/share/applications/*waydroid*.desktop || true
 rm -f /usr/share/kservices5/*waydroid* || true
 rm -rf /usr/share/waydroid /var/lib/waydroid || true
-# Also remove common capitalized filenames
-rm -f /usr/share/applications/Waydroid.desktop || true
 
 # QA check: fail the build if any Waydroid desktop/menu files remain
 if find /usr/share/applications /usr/local/share/applications /usr/share/kservices5 -maxdepth 2 -type f -iname '*waydroid*' -print -quit | grep -q .; then

@@ -1,69 +1,100 @@
 # mt-OS
 
-> **⚠️ Hey, you. Yeah, you. This probably doesn't work yet. Seriously, don't install this on anything you care about. You have been warned. Proceed with chaotic enthusiasm.**
+This repository contains the mt-OS image template and build pipelines. It is configured to:
 
-mt-OS is a custom atomic desktop Linux image built on top of [Universal Blue's Kinoite](https://universal-blue.org/) (Fedora 43, KDE Plasma, immutable). Think of it as a Bazzite-DX-style image tailored for gaming and development — opinionated, atomic, and perpetually a work in progress.
+- Build a custom OCI image and produce disk artifacts (ISO, qcow2, raw) using `bootc-image-builder`.
+- Provide a `just build-iso-plasma` recipe which produces an installer ISO with Plasma as the default DE.
+- Mount local RPM GPG keys (e.g. `RPM-GPG-KEY-terra43-mesa` or a `pki/rpm-gpg/` directory) into the build container so DNF depsolve can access repository signing keys.
+- Include installer kickstart `%pre` helpers that prompt for networking, mirror installer logs into `/tmp/program-log` (so Anaconda shows packaging/install logs), and suppress noisy services such as `brltty`.
 
-## What is this?
+Use this repo to iterate on an image, create install media, and test the interactive installer in a VM.
 
-- **Base:** `ghcr.io/ublue-os/kinoite-main:43` — Fedora 43 KDE Plasma, atomic/immutable via bootc
-- **Delivery:** OCI container image at `ghcr.io/mrtrick37/mt-os`
-- **Updates:** `bootc upgrade` — like a system package update, but for your whole OS
+## Community
 
-## Planned Features (aka the dream)
+If you have questions about the original template, these resources may help:
 
-- [ ] [CachyOS kernel](https://github.com/CachyOS/linux-cachyos) for better desktop/gaming performance
-- [ ] Gaming tweaks (gamemode, mangohud, performance governor defaults)
-- [ ] Dev tooling baked in (distrobox, VSCode, the usual suspects)
-- [ ] Custom branding that doesn't embarrass anyone
-- [ ] Actually boots reliably on more than one machine
+- Universal Blue Forums: https://universal-blue.discourse.group/
+- Universal Blue Discord: https://discord.gg/WEu6BdFEtp
+- bootc discussion forums: https://github.com/bootc-dev/bootc/discussions
 
-## Current State
+## Quickstart / Prerequisites
 
-- [x] Builds
-- [x] Installs (sometimes)
-- [x] Boots to KDE Plasma
-- [ ] Everything else
+- `podman` or `docker` installed on the host
+- `just` installed for recipe execution
+- `sudo` access for building ISOs locally
 
-## Installation
+## Local build & testing
 
-If you're still here — respect. You can rebase an existing Fedora atomic system onto mt-OS:
+- Build ISO (local):
 
 ```bash
-bootc switch ghcr.io/mrtrick37/mt-os:latest
-```
-
-Or flash the installer ISO if you enjoy living dangerously.
-
-## Building Locally
-
-```bash
-# 1. Build the base layer (run once, or when the base changes)
-just build-base
-
-# 2. Build the main image
-just build
-
-# 3. Build a KDE Plasma installer ISO
 sudo just build-iso-plasma
 ```
 
-Requires `podman` and `just`. Must run `build-base` before `build`.
+- Capture build output to a file:
 
-## Project Structure
+```bash
+sudo just build-iso-plasma 2>&1 | tee ~/mt-os-build.log
+```
 
-- `build_base/` — base image layer, pulls from `ghcr.io/ublue-os/kinoite-main:43`
-- `Containerfile` — main image, runs `build_files/build.sh` on top of the base
-- `build_files/build.sh` — package installs, branding, tweaks
-- `disk_config/` — bootc-image-builder TOML configs for ISO/qcow2/raw artifacts
-- `iso_overlay/` — grub/isolinux/os-release branding for the installer ISO
-- `Justfile` — local build recipes
-- `.github/workflows/` — CI: builds container image and disk artifacts
+- If you need a faithful terminal transcript (records prompts), use `script` if available:
 
-## Why?
+```bash
+sudo script -q -c "just build-iso-plasma" ~/mt-os-build.script.log
+```
 
-Because stock Kinoite is great but I wanted my own thing. [Universal Blue](https://universal-blue.org/) and [Bazzite](https://bazzite.gg/) proved that building a custom atomic image is a perfectly reasonable way to do Linux in 2025.
+If the build fails during DNF depsolve complaining about a missing GPG key, put the key file into this repository root (for example `RPM-GPG-KEY-terra43-mesa`) or a `pki/rpm-gpg/` subdirectory. The `_build-bib` recipe will mount those into the build container at `/etc/pki/rpm-gpg` when present.
 
----
+CI artifacts
 
-*mt-OS is not affiliated with Universal Blue, Fedora, or anyone who actually knows what they're doing.*
+- When the GitHub Actions `build-disk.yml` workflow runs the ISO build it will upload a named artifact `mt-os-installer.iso` (in addition to the full output directory). You can download that artifact from the workflow run artifacts page.
+
+## Installer notes
+
+Kickstart files live in `disk_config/`. They include a `%pre` which:
+
+- Attempts wired DHCP and, if not connected, offers a guided Wi‑Fi prompt via the installer console.
+- Stops and masks `brltty` to reduce noisy bluetooth warnings.
+- Mirrors packaging and installer logs into `/tmp/program-log` and periodically copies them into paths Anaconda reads so the UI displays logs beneath the progress bar.
+
+If you have access to the installer shell and need to start log mirroring manually, run:
+
+```bash
+mkdir -p /tmp/program-log && \
+  tail -n +1 -F /tmp/packaging.log /tmp/storage-log /tmp/anaconda.log /tmp/installation.log /tmp/install.log 2>/dev/null >> /tmp/program-log &
+```
+
+## Where to look next
+
+- `Justfile` — recipes and `_build-bib` container invocation
+- `Containerfile` — image customization and `build_files/build.sh`
+- `disk_config/iso-kde.toml` and `disk_config/iso-gnome.toml` — kickstart entries and `%pre` customizations
+
+If you'd like, I can:
+
+- Run a quick grep to confirm all README references updated,
+- Add an FAQ section for common build failures (GPG key, depsolve), or
+- Update `build-disk.yml` docs with the mt-OS defaults.
+
+## FAQ
+
+- **Q: Build fails with "Failed to retrieve GPG key" or DNF depsolve errors mentioning `/etc/pki/rpm-gpg/RPM-GPG-KEY-*`. What do I do?**
+
+  A: Place the repository GPG key file(s) into the repository root (example: `RPM-GPG-KEY-terra43-mesa`) or under a `pki/rpm-gpg/` directory. The `_build-bib` recipe will mount matching files into the build container at `/etc/pki/rpm-gpg` so DNF can read them. Example:
+
+  ```bash
+  cp /etc/pki/rpm-gpg/RPM-GPG-KEY-terra43-mesa ~/git/mt-os/
+  git add RPM-GPG-KEY-terra43-mesa
+  git commit -m "Add terra43 mesa GPG key for builder"
+  ```
+
+- **Q: The installer UI doesn't show packaging/install logs under the progress bar. How can I make them appear?**
+
+  A: Our kickstarts attempt to mirror installer logs into `/tmp/program-log`. If you're in a running installer shell you can start mirroring immediately with:
+
+  ```bash
+  mkdir -p /tmp/program-log && \
+    tail -n +1 -F /tmp/packaging.log /tmp/storage-log /tmp/anaconda.log /tmp/installation.log /tmp/install.log 2>/dev/null >> /tmp/program-log &
+  ```
+
+  Also ensure SELinux contexts are sane (the `%pre` in the kickstart tries `restorecon` and falls back to `chcon -t var_log_t`). If logs still do not appear, paste the last 200 lines of `/tmp/program-log` here and I'll help diagnose.
