@@ -131,8 +131,6 @@ dnf5 config-manager addrepo --from-repofile=https://negativo17.org/repos/fedora-
 # Gaming packages
 dnf5 install -y --skip-unavailable \
     gamescope \
-    gamescope-libs.x86_64 \
-    gamescope-libs.i686 \
     gamescope-shaders \
     umu-launcher \
     mangohud.x86_64 \
