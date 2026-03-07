@@ -94,6 +94,7 @@ EOF
 
 %post
 bootc switch --mutate-in-place --transport registry ghcr.io/mrtrick37/mt-os:latest
+hostnamectl set-hostname mt-os
 %end
 """
 
