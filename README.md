@@ -1,8 +1,8 @@
 # mt-OS
 
-> **⚠️ Hey, you. Yeah, you. This probably doesn't work yet. Seriously, don't install this on anything you care about. You have been warned. Proceed with chaotic enthusiasm.**
+> **⚠️ Hey, you. Yeah, you. This probably doesn't work (in fact I know it doesn't currently boot with the Cachy Kernel). Seriously, don't install this on anything you care about. You have been warned. Proceed with chaotic enthusiasm.**
 
-mt-OS is a custom atomic desktop Linux image built on top of [Universal Blue's Kinoite](https://universal-blue.org/) (Fedora 43, KDE Plasma, immutable). Think of it as a gaming and development powerhouse baked into an atomic image running the CachyOS Kernel— it's opinionated, fast, and perpetually a work in progress.
+mt-OS is a custom atomic desktop Linux image built on top of [Universal Blue's Kinoite](https://universal-blue.org/) (Fedora 43, KDE Plasma, immutable). Think of it as highly customized gaming and development powerhouse baked into an atomic image — opinionated, fast, and perpetually a work in progress.
 
 ## What is this?
 
