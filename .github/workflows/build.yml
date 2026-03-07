@@ -95,7 +95,7 @@ jobs:
       - name: Build base image
         run: |
           podman build \
-            --build-arg BASE_IMAGE=quay.io/fedora/fedora-bootc:43 \
+            --build-arg BASE_IMAGE=ghcr.io/ublue-os/kinoite-main:43 \
             --tag localhost/mt-os-base:stable \
             build_base/
 
