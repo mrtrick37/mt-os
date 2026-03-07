@@ -67,6 +67,71 @@ dnf5 install -y \
     ydotool \
     tmux
 
+# Gaming tweaks — Bazzite-style
+# Enable RPM Fusion (free + nonfree) for multimedia/gaming packages
+dnf5 install -y \
+    "https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-$(rpm -E %fedora).noarch.rpm" \
+    "https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-$(rpm -E %fedora).noarch.rpm"
+
+# Enable COPRs for gaming packages
+dnf5 copr enable -y ublue-os/bazzite
+dnf5 copr enable -y ublue-os/bazzite-multilib
+dnf5 copr enable -y ublue-os/staging
+dnf5 copr enable -y ublue-os/packages
+dnf5 copr enable -y ublue-os/obs-vkcapture
+dnf5 copr enable -y ycollet/audinux
+
+# negativo17 Steam repo
+dnf5 config-manager addrepo --from-repofile=https://negativo17.org/repos/fedora-steam.repo
+
+# Gaming packages
+dnf5 install -y \
+    gamescope \
+    gamescope-libs.x86_64 \
+    gamescope-libs.i686 \
+    gamescope-shaders \
+    umu-launcher \
+    mangohud.x86_64 \
+    mangohud.i686 \
+    vkBasalt.x86_64 \
+    vkBasalt.i686 \
+    libFAudio.x86_64 \
+    libFAudio.i686 \
+    libobs_vkcapture.x86_64 \
+    libobs_glcapture.x86_64 \
+    libobs_vkcapture.i686 \
+    libobs_glcapture.i686 \
+    openxr \
+    xrandr \
+    evtest \
+    xdg-user-dirs \
+    xdg-terminal-exec \
+    steam \
+    lutris \
+    gamemode \
+    gamemode.i686 \
+    gamescope-session
+
+# KDE-specific gaming integrations
+dnf5 install -y \
+    kdeconnectd \
+    kdeplasma-addons \
+    rom-properties-kf6
+
+# Download winetricks from upstream (package version is often outdated)
+curl -sL https://raw.githubusercontent.com/Winetricks/winetricks/master/src/winetricks \
+    -o /usr/local/bin/winetricks
+chmod +x /usr/local/bin/winetricks
+
+# Disable COPRs so they don't persist in the final image
+dnf5 copr disable -y ublue-os/bazzite
+dnf5 copr disable -y ublue-os/bazzite-multilib
+dnf5 copr disable -y ublue-os/staging
+dnf5 copr disable -y ublue-os/packages
+dnf5 copr disable -y ublue-os/obs-vkcapture
+dnf5 copr disable -y ycollet/audinux
+sed -i "s/enabled=.*/enabled=0/g" /etc/yum.repos.d/fedora-steam.repo
+
 # Docker CE (repo added but disabled by default — install with --enablerepo=docker-ce-stable)
 dnf5 config-manager addrepo --from-repofile=https://download.docker.com/linux/fedora/docker-ce.repo
 sed -i "s/enabled=.*/enabled=0/g" /etc/yum.repos.d/docker-ce.repo
