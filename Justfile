@@ -116,9 +116,9 @@ sudoif command *args:
 
 # Build the base image from build_base/ and tag it as localhost/mt-os-base:stable
 # Run this once before 'just build' when working locally.
-# Override the upstream with: just build-base quay.io/fedora/fedora-bootc:43
+# Override the upstream with: just build-base ghcr.io/ublue-os/kinoite-main:43
 [group('Build')]
-build-base base_image="quay.io/fedora/fedora-bootc:43":
+build-base base_image="ghcr.io/ublue-os/kinoite-main:43":
     podman build \
         --build-arg BASE_IMAGE={{ base_image }} \
         --tag localhost/mt-os-base:stable \
