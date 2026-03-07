@@ -38,7 +38,7 @@ TMPDIR=/var/tmp dracut \
     --no-hostonly \
     --kver "${CACHYOS_KVER}" \
     --force \
-    "/usr/lib/modules/${CACHYOS_KVER}/initrd"
+    "/usr/lib/modules/${CACHYOS_KVER}/initramfs"
 
 # Remove the stock Fedora kernel so CachyOS is the only (and thus default) kernel
 rpm -qa | grep -E '^kernel-(core|modules|modules-core|modules-extra|devel)?-[0-9]' | grep -v cachyos | xargs -r dnf5 remove -y --setopt=tsflags=noscripts || true
