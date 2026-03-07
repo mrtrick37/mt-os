@@ -2,6 +2,27 @@
 
 set -ouex pipefail
 
+### CachyOS kernel — replaces the stock Fedora kernel for better desktop/gaming performance
+# CachyOS COPR: https://copr.fedorainfracloud.org/coprs/bieszczaders/kernel-cachyos/
+dnf5 copr enable -y bieszczaders/kernel-cachyos
+
+# Install CachyOS kernel packages
+dnf5 install -y \
+    kernel-cachyos \
+    kernel-cachyos-core \
+    kernel-cachyos-modules \
+    kernel-cachyos-modules-core \
+    kernel-cachyos-modules-extra \
+    kernel-cachyos-headers
+
+# Remove the stock Fedora kernel so CachyOS is the only (and thus default) kernel
+# This keeps the image lean and avoids grub confusion at boot
+rpm -qa | grep -E '^kernel-(core|modules|modules-core|modules-extra|devel)?-[0-9]' | grep -v cachyos | xargs -r dnf5 remove -y || true
+rpm -qa | grep -E '^kernel-[0-9]' | grep -v cachyos | xargs -r dnf5 remove -y || true
+
+# Disable COPR after install
+dnf5 copr disable -y bieszczaders/kernel-cachyos
+
 ### Install packages
 
 # Packages can be installed from any enabled yum repo on the image.
