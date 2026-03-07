@@ -94,7 +94,13 @@ Requires `podman` and `just`.
 
 ## Why?
 
-Because stock Kinoite is great but I wanted my own thing. [Universal Blue](https://universal-blue.org/) and [Bazzite](https://bazzite.gg/) proved that building a custom atomic image is a perfectly reasonable way to do Linux. So here we are.
+There are genuinely great gaming Linux images out there. [Bazzite](https://bazzite.gg/) is phenomenal for gaming. [Bluefin](https://projectbluefin.io/) is a dream for developers. [Nobara](https://nobaraproject.org/) patches things upstream won't touch. Each one does something really well — and none of them did everything I wanted at the same time.
+
+The alternative was distro hopping every time I needed a different tool for a different task. Gaming session? Boot Bazzite. Dev work? Switch to Bluefin. Deep system stuff? Maybe something else. That gets old fast.
+
+So instead of choosing, mt-OS just takes the best parts of each: the gaming stack from Bazzite, the developer tooling philosophy from Bluefin-DX, the CachyOS kernel for performance, and the atomic/immutable foundation from Universal Blue — all baked into one image that doesn't make you compromise.
+
+It's not for everyone. But it's exactly what I was looking for.
 
 ---
 

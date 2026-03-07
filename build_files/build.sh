@@ -2,6 +2,9 @@
 
 set -ouex pipefail
 
+### Pull all upstream package updates
+dnf5 upgrade -y
+
 ### CachyOS kernel — replaces the stock Fedora kernel for better desktop/gaming performance
 # CachyOS COPR: https://copr.fedorainfracloud.org/coprs/bieszczaders/kernel-cachyos/
 dnf5 copr enable -y bieszczaders/kernel-cachyos
@@ -32,6 +35,21 @@ if [ ! -f "/usr/lib/modules/${CACHYOS_KVER}/vmlinuz" ]; then
     fi
 fi
 
+# Ensure virtio and common storage drivers are always included in the initramfs.
+# Without this, the disk is invisible when booting in QEMU/KVM (virtio_blk/scsi)
+# or on bare-metal NVMe/SATA hardware.
+mkdir -p /etc/dracut.conf.d
+cat > /etc/dracut.conf.d/99-mt-os.conf <<'DRACUTEOF'
+# Force ostree dracut module — required for bootc/ostree deployments.
+# Without this the initramfs cannot find or mount the root filesystem.
+# dracut skips it during container builds because there is no live ostree
+# deployment to auto-detect.
+add_dracutmodules+=" ostree "
+# virtio_blk/virtio_scsi/ahci are built into the CachyOS kernel (=y),
+# so add_drivers has no effect for them. Kept for documentation.
+add_drivers+=" virtio_blk virtio_scsi virtio_pci nvme ahci "
+DRACUTEOF
+
 # Generate initramfs directly — all paths stay on the overlay filesystem so
 # no cross-device link issues. TMPDIR=/var/tmp for safety.
 TMPDIR=/var/tmp dracut \
@@ -40,9 +58,14 @@ TMPDIR=/var/tmp dracut \
     --force \
     "/usr/lib/modules/${CACHYOS_KVER}/initrd"
 
-# Remove the stock Fedora kernel so CachyOS is the only (and thus default) kernel
-rpm -qa | grep -E '^kernel-(core|modules|modules-core|modules-extra|devel)?-[0-9]' | grep -v cachyos | xargs -r dnf5 remove -y --setopt=tsflags=noscripts || true
-rpm -qa | grep -E '^kernel-[0-9]' | grep -v cachyos | xargs -r dnf5 remove -y --setopt=tsflags=noscripts || true
+# Remove the stock Fedora kernel so CachyOS is the only (and thus default) kernel.
+# dnf5 refuses to remove kernel-core if it considers it the "running" kernel in
+# the container build environment, so we remove the module directory directly and
+# clean up the RPM DB with rpm --nodeps.
+for OLD_KVER in $(ls /usr/lib/modules/ | grep -v "${CACHYOS_KVER}"); do
+    rm -rf "/usr/lib/modules/${OLD_KVER}"
+done
+rpm -qa | grep -E '^kernel' | grep -v cachyos | xargs -r rpm --nodeps -e 2>/dev/null || true
 
 # Disable COPR after install
 dnf5 copr disable -y bieszczaders/kernel-cachyos
@@ -126,7 +149,7 @@ dnf5 copr enable -y ublue-os/obs-vkcapture
 dnf5 copr enable -y ycollet/audinux
 
 # negativo17 Steam repo
-dnf5 config-manager addrepo --from-repofile=https://negativo17.org/repos/fedora-steam.repo
+dnf5 config-manager addrepo --overwrite --from-repofile=https://negativo17.org/repos/fedora-steam.repo
 
 # Gaming packages
 dnf5 install -y --skip-unavailable \
@@ -160,6 +183,7 @@ dnf5 install -y \
     rom-properties-kf6
 
 # Download winetricks from upstream (package version is often outdated)
+mkdir -p /usr/local/bin
 curl -sL https://raw.githubusercontent.com/Winetricks/winetricks/master/src/winetricks \
     -o /usr/local/bin/winetricks
 chmod +x /usr/local/bin/winetricks
