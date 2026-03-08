@@ -233,6 +233,22 @@ systemctl enable docker.socket
 systemctl enable podman.socket
 systemctl enable libvirtd.socket
 
+# Homebrew — system-wide install to /home/linuxbrew (= /var/home/linuxbrew at runtime)
+# Wheel group members can install/update formulae without sudo.
+dnf5 install -y gcc glibc-devel libxcrypt-compat patch ruby
+git clone https://github.com/Homebrew/brew /home/linuxbrew/.linuxbrew
+# Make wheel group the owner so any wheel user can run brew
+chown -R root:wheel /home/linuxbrew/.linuxbrew
+chmod -R g+w /home/linuxbrew/.linuxbrew
+find /home/linuxbrew/.linuxbrew -type d -exec chmod g+s {} \;
+# Add brew to PATH for all login shells
+cat > /etc/profile.d/homebrew.sh <<'BREWEOF'
+if [ -d /home/linuxbrew/.linuxbrew ]; then
+    eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+fi
+BREWEOF
+chmod +x /etc/profile.d/homebrew.sh
+
 # Ensure the built image advertises the mt-OS product name. Some boot/installer
 # menus derive their display strings from `/etc/os-release` or similar metadata.
 # We overwrite or create `/etc/os-release` with mt-OS values so boot menus show
