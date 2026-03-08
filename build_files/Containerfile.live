@@ -50,6 +50,8 @@ RUN chmod +x /usr/bin/forge-install-launcher \
 COPY build_files/calamares/settings.conf            /etc/calamares/settings.conf
 COPY build_files/calamares/modules/                 /etc/calamares/modules/
 COPY build_files/calamares/branding/forge/          /usr/share/calamares/branding/forge/
+# Custom jobmodule: reads selected disk from globalStorage after partition runs
+COPY build_files/calamares-modules/forge-predisksetup/ /usr/lib/calamares/modules/forge-predisksetup/
 
 # Allow liveuser to launch Calamares as root.
 # forge-install-launcher uses 'sudo -E calamares' so calamares gets root

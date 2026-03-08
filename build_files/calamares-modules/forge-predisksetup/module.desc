@@ -1,0 +1,5 @@
+---
+type:      jobmodule
+name:      forge-predisksetup
+interface: python
+requires:  []

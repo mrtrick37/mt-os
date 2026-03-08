@@ -1,43 +1,15 @@
 #!/usr/bin/bash
 # forge-install-launcher — Forge live ISO installer launcher
 #
-# Runs as the live user (liveuser).  Shows a kdialog disk selector, writes the
-# chosen device to /tmp/forge-target-disk, then escalates and launches Calamares.
+# Runs as liveuser; escalates Calamares to root.
+# Disk selection happens inside the Calamares wizard (partition module).
+#
+# Display note: Wayland compositors reject root client connections, so we
+# force Qt to use XWayland (xcb) where root access is unrestricted.
 
 set -euo pipefail
 
-# ── Disk selection ────────────────────────────────────────────────────────────
-mapfile -t DISKS < <(lsblk -dpno NAME,SIZE,MODEL \
-    | grep -Ev 'loop|sr[0-9]' \
-    | awk '{printf "%s\t%s %s\n", $1, $2, $3}')
-
-if [[ ${#DISKS[@]} -eq 0 ]]; then
-    kdialog --title "Install Forge" \
-        --error "No suitable disks found.\n\nConnect a disk and try again."
-    exit 1
-fi
-
-MENU_ARGS=()
-for entry in "${DISKS[@]}"; do
-    DEV=$(printf '%s' "${entry}" | cut -f1)
-    DESC=$(printf '%s' "${entry}" | cut -f2)
-    MENU_ARGS+=("${DEV}" "${DEV}  ${DESC}")
-done
-
-SELECTED=$(kdialog \
-    --title "Install Forge" \
-    --menu "Select the disk to install Forge onto.\n\nAll data on the selected disk will be erased." \
-    "${MENU_ARGS[@]}") || exit 0
-
-kdialog \
-    --title "Install Forge" \
-    --warningyesno "Erase ALL DATA on ${SELECTED} and install Forge 43?\n\nThis cannot be undone." \
-    || exit 0
-
-# Write selected disk for Calamares shellprocess to read
-printf '%s' "${SELECTED}" > /tmp/forge-target-disk
-
-# ── Launch Calamares as root, preserving the display environment ─────────────
-# Calamares must run as root so it can perform chroot checks and call bootc.
-# liveuser has passwordless sudo; -E preserves Wayland/X11 display vars.
-exec sudo -E calamares
+exec sudo \
+    --preserve-env=DISPLAY,WAYLAND_DISPLAY,XDG_RUNTIME_DIR,DBUS_SESSION_BUS_ADDRESS,XAUTHORITY \
+    env QT_QPA_PLATFORM=xcb \
+    calamares
