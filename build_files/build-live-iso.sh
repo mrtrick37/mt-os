@@ -185,7 +185,9 @@ fi
 
 # ── 6. Assemble ISO ───────────────────────────────────────────────────────────
 echo "==> Assembling ISO: ${OUTPUT_DIR}/${ISO_NAME}"
-mkdir -p "${OUTPUT_DIR}"
+# output/ may be owned by root from a previous BIB/sudo build — use sudo mkdir
+sudo mkdir -p "${OUTPUT_DIR}"
+sudo chown "$(id -u):$(id -g)" "${OUTPUT_DIR}"
 
 XORRISO_ARGS=(
     -as mkisofs
