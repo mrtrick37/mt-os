@@ -50,3 +50,19 @@ RUN KVER=$(ls /usr/lib/modules/ | grep cachyos | head -1) \
 
 # Update branding for the live session
 RUN sed -i 's/^PRETTY_NAME=.*/PRETTY_NAME="Forge 43 Live"/' /etc/os-release
+
+# Prepare for squashfs live boot.
+# machine-id must be "uninitialized" so systemd generates a volatile one;
+# a real machine-id from the container build causes systemd to abort in a
+# plain-rootfs (non-ostree) live environment.
+# Mask ostree/bootc services that require a real ostree deployment — they
+# don't exist in the squashfs live root and will cause early systemd failure.
+RUN echo "uninitialized" > /etc/machine-id \
+    && systemctl mask \
+        ostree-remount.service \
+        ostree-prepare-root.service \
+        rpm-ostree-countme.service \
+        rpm-ostree-countme.timer \
+        bootc-fetch-apply-updates.service \
+        bootc-fetch-apply-updates.timer \
+    || true
