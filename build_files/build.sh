@@ -258,20 +258,74 @@ SUPPORT_URL="https://example.com/forge/support"
 BUG_REPORT_URL="https://example.com/forge/issues"
 EOF
 
-# Set Breeze Dark as the default KDE theme for all new users via /etc/skel
+# ── Forge Look-and-Feel package ───────────────────────────────────────────────
+# Custom LnF that wraps Breeze Dark and sets a solid black wallpaper on ALL
+# screens via a plasmoidsetupscripts JS file — this covers every containment
+# ID regardless of how many monitors are connected.
+LNF_DIR=/usr/share/plasma/look-and-feel/org.kde.forge
+mkdir -p "${LNF_DIR}/contents/plasmoidsetupscripts"
+
+cat > "${LNF_DIR}/metadata.json" <<'METAEOF'
+{
+    "KPackageStructure": "Plasma/LookAndFeel",
+    "KPlugin": {
+        "Authors": [{"Email": "", "Name": "Forge"}],
+        "Description": "Forge — Breeze Dark with solid black wallpaper",
+        "Id": "org.kde.forge",
+        "Name": "Forge",
+        "Version": "1.0"
+    },
+    "X-Plasma-API": "2.0"
+}
+METAEOF
+
+cat > "${LNF_DIR}/contents/defaults" <<'DEFAULTSEOF'
+[kdeglobals][General]
+ColorScheme=BreezeDark
+
+[kdeglobals][KDE]
+widgetStyle=breeze
+
+[Wallpaper]
+wallpaperPlugin=org.kde.color
+DEFAULTSEOF
+
+# This script runs when the LnF is applied (first login / plasma-apply-lookandfeel).
+# It iterates every desktop containment so all monitors get the black wallpaper.
+cat > "${LNF_DIR}/contents/plasmoidsetupscripts/org.kde.plasma.desktop.js" <<'JSEOF'
+var allDesktops = desktops();
+for (var i = 0; i < allDesktops.length; i++) {
+    var d = allDesktops[i];
+    d.wallpaperPlugin = "org.kde.color";
+    d.currentConfigGroup = ["Wallpaper", "org.kde.color", "General"];
+    d.writeConfig("Color", "0,0,0,255");
+}
+JSEOF
+
+# ── Default KDE theme for all new users via /etc/skel ─────────────────────────
 mkdir -p /etc/skel/.config
 cat > /etc/skel/.config/kdeglobals <<'KDEEOF'
 [General]
 ColorScheme=BreezeDark
 
 [KDE]
-LookAndFeelPackage=org.kde.breezedark.desktop
+LookAndFeelPackage=org.kde.forge
 KDEEOF
 
 cat > /etc/skel/.config/plasmarc <<'PLASMAEOF'
 [Theme]
 name=breeze-dark
 PLASMAEOF
+
+# Seed containment 1 with the black wallpaper so it's set even before the
+# LnF setup script runs on first login.
+cat > /etc/skel/.config/plasma-org.kde.plasma.desktop-appletsrc <<'PLASMADESKTOPEOF'
+[Containments][1]
+wallpaperplugin=org.kde.color
+
+[Containments][1][Wallpaper][org.kde.color][General]
+Color=0,0,0,255
+PLASMADESKTOPEOF
 
 # Remove Waydroid desktop/menu entries and related files if present
 # (some base images include a Waydroid helper that we don't ship in mt-OS)
