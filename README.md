@@ -1,8 +1,15 @@
 # Forge
 
-> **⚠️ Don't install this on anything you care about. You've been warned. Proceed with chaotic enthusiasm. Current state: Should install directly, live iso boots to plasma desktop just fine, Calamares installer inside live iso is currently broken**
+Forge is a custom atomic desktop Linux image. It's an opinionated gaming and development workstation OS — immutable, container-native, and perpetually a work in progress.
 
-Forge is a custom atomic desktop Linux image built on [Universal Blue Kinoite](https://universal-blue.org/) (Fedora 43, KDE Plasma). It's an opinionated gaming and development workstation OS — immutable, container-native, and perpetually a work in progress.
+
+**⚠️ Don't install this on anything you care about. You've been warned. Proceed with chaotic enthusiasm.
+
+## Current state: 
+
+- Should install directly and rebase from existing bootc works (still needs love though)
+- Live iso boots to plasma desktop just fine
+- Calamares installer inside live iso is currently broken**
 
 ## What's in it
 
