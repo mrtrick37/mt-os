@@ -2,19 +2,44 @@
 # forge-install-launcher — Start Anaconda WebUI and open the installer in Brave.
 #
 # Runs as liveuser; escalates Anaconda services to root via sudo.
-# The WebUI is served by webui-cockpit-ws on port 80 (localhost only).
+# webui-cockpit-ws serves the WebUI on port 80 (localhost only).
+# anaconda.service provides the installation backend.
 
-set -euo pipefail
+set -uo pipefail
 
-# Start Anaconda backend (requires root)
-sudo systemctl start anaconda.service
+echo "=== Forge Installer ==="
+echo ""
 
-# Start the WebUI front-end web server (requires root)
-sudo systemctl start webui-cockpit-ws.service
+# Start the WebUI web server first (less likely to fail than the full backend)
+echo "Starting webui-cockpit-ws.service..."
+if ! sudo systemctl start webui-cockpit-ws.service 2>&1; then
+    echo ""
+    echo "ERROR: Could not start webui-cockpit-ws.service" >&2
+    echo "Status:" >&2
+    sudo systemctl status webui-cockpit-ws.service --no-pager 2>&1 || true
+    read -r -p "Press Enter to exit..."
+    exit 1
+fi
 
-# Give the services a moment to bind before opening the browser
-sleep 2
+# Start the Anaconda installation backend
+echo "Starting anaconda.service..."
+sudo systemctl start anaconda.service 2>&1 || {
+    echo "WARNING: anaconda.service did not start cleanly (may be okay)" >&2
+    sudo systemctl status anaconda.service --no-pager 2>&1 || true
+}
 
-# Open the installer in Brave (runs as liveuser — no root needed)
+# Give services time to bind
+echo "Waiting for installer to be ready..."
+for i in $(seq 1 10); do
+    if curl -s --connect-timeout 1 http://127.0.0.1/ &>/dev/null; then
+        echo "Ready."
+        break
+    fi
+    echo "  ($i/10)..."
+    sleep 1
+done
+
+echo ""
+echo "Opening installer..."
 brave-browser --no-sandbox \
     --app="http://127.0.0.1/cockpit/@localhost/anaconda-webui/index.html"

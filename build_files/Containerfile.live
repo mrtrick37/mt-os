@@ -18,6 +18,7 @@ RUN dnf5 install -y dracut-live syslinux grub2-efi-x64 grub2-pc gparted && dnf5 
 RUN dnf5 install -y \
         --releasever=44 \
         --setopt=install_weak_deps=False \
+        --disablerepo='rpmfusion*' \
         anaconda-webui \
         anaconda-core \
         anaconda-tui \
@@ -57,7 +58,7 @@ RUN mkdir -p /home/liveuser/Desktop /home/liveuser/.config \
         > /home/liveuser/.config/kdeglobals \
     && printf '[Theme]\nname=breeze-dark\n' \
         > /home/liveuser/.config/plasmarc \
-    && printf '[Desktop Entry]\nName=Install Forge\nComment=Install Forge 43 to this computer\nExec=/usr/bin/forge-install-launcher\nIcon=drive-harddisk\nTerminal=false\nType=Application\nCategories=System;\n' \
+    && printf '[Desktop Entry]\nName=Install Forge\nComment=Install Forge 43 to this computer\nExec=/usr/bin/forge-install-launcher\nIcon=drive-harddisk\nTerminal=true\nType=Application\nCategories=System;\n' \
         > /home/liveuser/Desktop/install-forge.desktop \
     && chmod +x /home/liveuser/Desktop/install-forge.desktop \
     && chown -R liveuser:liveuser /home/liveuser/
