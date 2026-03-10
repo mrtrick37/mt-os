@@ -3,7 +3,6 @@
 # Built by build-live-iso.sh; not pushed to the registry.
 
 FROM localhost/forge:latest
-SHELL ["/bin/bash", "-c"]
 
 # dracut-live: dmsquash-live module for squashfs live boot.
 # syslinux: isolinux.bin for BIOS El Torito boot.
@@ -48,6 +47,11 @@ RUN chmod +x /usr/bin/forge-install-launcher \
     && chmod +x /usr/bin/forge-install
 
 # ── Calamares configuration ───────────────────────────────────────────────────
+# Remove any Calamares config the RPM may have installed — its settings.conf can
+# reference scripts we don't ship (e.g. /usr/local/bin/slowloris) and takes
+# precedence over /etc/calamares/ in Qt's XDG search path.
+RUN rm -rf /etc/calamares /etc/xdg/calamares
+
 COPY build_files/calamares/settings.conf            /etc/calamares/settings.conf
 COPY build_files/calamares/modules/                 /etc/calamares/modules/
 COPY build_files/calamares/branding/forge/          /usr/share/calamares/branding/forge/

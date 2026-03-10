@@ -11,5 +11,5 @@ set -euo pipefail
 
 exec sudo \
     --preserve-env=DISPLAY,WAYLAND_DISPLAY,XDG_RUNTIME_DIR,DBUS_SESSION_BUS_ADDRESS,XAUTHORITY \
-    env QT_QPA_PLATFORM=xcb \
+    env QT_QPA_PLATFORM=xcb XDG_CONFIG_HOME=/etc \
     calamares
