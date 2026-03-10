@@ -125,7 +125,7 @@ build-base base_image="ghcr.io/ublue-os/kinoite-main:43":
         build_base/
 
 # Build the image using the specified parameters
-build $target_image=image_name $tag=default_tag:
+build $target_image=image_name $tag=default_tag: build-base
     #!/usr/bin/env bash
 
     BUILD_ARGS=()
