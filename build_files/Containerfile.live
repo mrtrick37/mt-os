@@ -50,7 +50,9 @@ RUN chmod +x /usr/bin/forge-install-launcher \
 # Remove any Calamares config the RPM may have installed — its settings.conf can
 # reference scripts we don't ship (e.g. /usr/local/bin/slowloris) and takes
 # precedence over /etc/calamares/ in Qt's XDG search path.
-RUN rm -rf /etc/calamares /etc/xdg/calamares
+RUN rm -rf /etc/calamares /etc/xdg/calamares \
+    && rm -f /usr/share/calamares/modules/shellprocess.conf \
+             /usr/share/calamares/settings.conf
 
 COPY build_files/calamares/settings.conf            /etc/calamares/settings.conf
 COPY build_files/calamares/modules/                 /etc/calamares/modules/

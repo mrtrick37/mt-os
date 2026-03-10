@@ -94,9 +94,9 @@ sudo mksquashfs "${ROOTFS}" "${ISO_DIR}/LiveOS/squashfs.img" \
 
 # ── 5a. GRUB config + dark theme (shared by EFI and BIOS GRUB2) ─────────────
 echo "==> Writing GRUB config and theme"
-LIVE_ARGS="root=live:CDLABEL=${VOLID} rd.live.image rd.live.overlay=tmpfs selinux=0 splash"
-PERSISTENT_ARGS="root=live:CDLABEL=${VOLID} rd.live.image rd.live.overlay=LABEL=forge-overlay rd.live.overlayfs=1 selinux=0 splash"
-INSTALL_ARGS="root=live:CDLABEL=${VOLID} rd.live.image rd.live.overlay=tmpfs selinux=0"
+LIVE_ARGS="root=live:CDLABEL=${VOLID} rd.live.image rd.live.overlay=tmpfs selinux=0 quiet splash"
+PERSISTENT_ARGS="root=live:CDLABEL=${VOLID} rd.live.image rd.live.overlay=LABEL=forge-overlay rd.live.overlayfs=1 selinux=0 quiet splash"
+INSTALL_ARGS="root=live:CDLABEL=${VOLID} rd.live.image rd.live.overlay=tmpfs selinux=0 quiet splash"
 
 # Write the theme file
 cat > "${ISO_DIR}/boot/grub2/themes/forge/theme.txt" << 'THEMEEOF'
