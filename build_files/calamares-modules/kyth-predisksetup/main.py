@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-# forge-predisksetup — Calamares jobmodule
+# kyth-predisksetup — Calamares jobmodule
 #
 # Runs after the partition module's exec jobs complete.
 # Reads the target disk device from globalStorage (set by partition module's
-# FillGlobalStorageJob) and writes it to /tmp/forge-target-disk for the
-# shellprocess@forge-install step to consume.
+# FillGlobalStorageJob) and writes it to /tmp/kyth-target-disk for the
+# shellprocess@kyth-install step to consume.
 
 import re
 import libcalamares
@@ -45,10 +45,10 @@ def run():
         )
 
     try:
-        with open("/tmp/forge-target-disk", "w") as f:
+        with open("/tmp/kyth-target-disk", "w") as f:
             f.write(disk)
     except OSError as e:
         return ("Installation error", f"Could not record target disk: {e}")
 
-    libcalamares.utils.debug(f"forge-predisksetup: target disk → {disk}")
+    libcalamares.utils.debug(f"kyth-predisksetup: target disk → {disk}")
     return None

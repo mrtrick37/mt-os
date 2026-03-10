@@ -123,7 +123,7 @@ cat > /usr/bin/mt-os-install << 'SCRIPTEOF'
 #!/bin/bash
 # Launches Anaconda with the mt-OS installation kickstart.
 # The kickstart uses `ostreecontainer` to pull and install mt-OS from
-# ghcr.io/mrtrick37/forge:latest — requires network access.
+# ghcr.io/mrtrick37/kyth:latest — requires network access.
 exec pkexec liveinst --kickstart /usr/share/mt-os/install.ks "$@"
 SCRIPTEOF
 chmod +x /usr/bin/mt-os-install
@@ -142,7 +142,7 @@ timezone America/New_York
 network --bootproto=dhcp --device=link --activate
 
 # Pull mt-OS OCI image from registry and install it to disk
-ostreecontainer --url=ghcr.io/mrtrick37/forge:latest --transport=registry --no-signature-verification
+ostreecontainer --url=ghcr.io/mrtrick37/kyth:latest --transport=registry --no-signature-verification
 
 %packages
 %end
@@ -150,15 +150,15 @@ INSTALLEOF
 
 # ── OS branding ────────────────────────────────────────────────────────────
 cat > /etc/os-release << 'OSEOF'
-NAME="Forge"
+NAME="Kyth"
 PRETTY_NAME="mt-OS 43 Live"
 ID=fedora
 VERSION="43"
 VERSION_ID="43"
 ANSI_COLOR="0;34"
-HOME_URL="https://example.com/forge"
-SUPPORT_URL="https://example.com/forge/support"
-BUG_REPORT_URL="https://example.com/forge/issues"
+HOME_URL="https://example.com/kyth"
+SUPPORT_URL="https://example.com/kyth/support"
+BUG_REPORT_URL="https://example.com/kyth/issues"
 OSEOF
 %end
 

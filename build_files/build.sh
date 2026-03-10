@@ -264,37 +264,37 @@ fi
 BREWEOF
 chmod +x /etc/profile.d/homebrew.sh
 
-# Ensure the built image advertises the Forge product name. Some boot/installer
+# Ensure the built image advertises the Kyth product name. Some boot/installer
 # menus derive their display strings from `/etc/os-release` or similar metadata.
-# We overwrite or create `/etc/os-release` with Forge values so boot menus show
-# "Forge" instead of upstream branding.
+# We overwrite or create `/etc/os-release` with Kyth values so boot menus show
+# "Kyth" instead of upstream branding.
 cat > /etc/os-release <<'EOF' || true
-NAME="Forge"
-PRETTY_NAME="Forge 43"
+NAME="Kyth"
+PRETTY_NAME="Kyth 43"
 ID=fedora
 VERSION="43"
 VERSION_ID="43"
 ANSI_COLOR="0;34"
-HOME_URL="https://example.com/forge"
-SUPPORT_URL="https://example.com/forge/support"
-BUG_REPORT_URL="https://example.com/forge/issues"
+HOME_URL="https://example.com/kyth"
+SUPPORT_URL="https://example.com/kyth/support"
+BUG_REPORT_URL="https://example.com/kyth/issues"
 EOF
 
-# ── Forge Look-and-Feel package ───────────────────────────────────────────────
+# ── Kyth Look-and-Feel package ───────────────────────────────────────────────
 # Custom LnF that wraps Breeze Dark and sets a solid black wallpaper on ALL
 # screens via a plasmoidsetupscripts JS file — this covers every containment
 # ID regardless of how many monitors are connected.
-LNF_DIR=/usr/share/plasma/look-and-feel/org.kde.forge
+LNF_DIR=/usr/share/plasma/look-and-feel/org.kde.kyth
 mkdir -p "${LNF_DIR}/contents/plasmoidsetupscripts"
 
 cat > "${LNF_DIR}/metadata.json" <<'METAEOF'
 {
     "KPackageStructure": "Plasma/LookAndFeel",
     "KPlugin": {
-        "Authors": [{"Email": "", "Name": "Forge"}],
-        "Description": "Forge — Breeze Dark with solid black wallpaper",
-        "Id": "org.kde.forge",
-        "Name": "Forge",
+        "Authors": [{"Email": "", "Name": "Kyth"}],
+        "Description": "Kyth — Breeze Dark with solid black wallpaper",
+        "Id": "org.kde.kyth",
+        "Name": "Kyth",
         "Version": "1.0"
     },
     "X-Plasma-API": "2.0"
@@ -331,7 +331,7 @@ cat > /etc/skel/.config/kdeglobals <<'KDEEOF'
 ColorScheme=BreezeDark
 
 [KDE]
-LookAndFeelPackage=org.kde.forge
+LookAndFeelPackage=org.kde.kyth
 KDEEOF
 
 cat > /etc/skel/.config/plasmarc <<'PLASMAEOF'
@@ -344,7 +344,7 @@ PLASMAEOF
 # file. This autostart script runs once on first login, finds every kickoff
 # applet in the appletsrc, sets its icon to the KDE logo, then removes itself.
 mkdir -p /usr/local/bin
-cat > /usr/local/bin/forge-set-kickoff-icon <<'KICKOFICONEOF'
+cat > /usr/local/bin/kyth-set-kickoff-icon <<'KICKOFICONEOF'
 #!/bin/bash
 # Find all Kickoff applet sections in the appletsrc and set icon=kde (KDE logo).
 APRC="${HOME}/.config/plasma-org.kde.plasma.desktop-appletsrc"
@@ -357,16 +357,16 @@ if [[ -f "$APRC" ]]; then
     done < <(grep -B1 'plugin=org.kde.plasma.kickoff' "$APRC" | grep '^\[')
 fi
 # Remove self so it only runs once
-rm -f "${HOME}/.config/autostart/forge-set-kickoff-icon.desktop"
+rm -f "${HOME}/.config/autostart/kyth-set-kickoff-icon.desktop"
 KICKOFICONEOF
-chmod +x /usr/local/bin/forge-set-kickoff-icon
+chmod +x /usr/local/bin/kyth-set-kickoff-icon
 
 mkdir -p /etc/skel/.config/autostart
-cat > /etc/skel/.config/autostart/forge-set-kickoff-icon.desktop <<'AUTOSTARTEOF'
+cat > /etc/skel/.config/autostart/kyth-set-kickoff-icon.desktop <<'AUTOSTARTEOF'
 [Desktop Entry]
 Type=Application
-Name=Forge: Set Kickoff Icon
-Exec=/usr/local/bin/forge-set-kickoff-icon
+Name=Kyth: Set Kickoff Icon
+Exec=/usr/local/bin/kyth-set-kickoff-icon
 X-KDE-autostart-after=panel
 Hidden=false
 NoDisplay=true

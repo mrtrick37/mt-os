@@ -1,10 +1,10 @@
-NAME="Forge"
-PRETTY_NAME="Forge 43"
+NAME="Kyth"
+PRETTY_NAME="Kyth 43"
 ID=fedora
 VERSION_ID=43
-HOME_URL="https://example.com/forge"
-SUPPORT_URL="https://example.com/forge/support"
-BUG_REPORT_URL="https://example.com/forge/bugs"
+HOME_URL="https://example.com/kyth"
+SUPPORT_URL="https://example.com/kyth/support"
+BUG_REPORT_URL="https://example.com/kyth/bugs"
 ANSI_COLOR="0;34"
 VARIANT="desktop"
 VARIANT_ID=fedora-desktop

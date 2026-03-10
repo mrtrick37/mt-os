@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# build-live-iso.sh — Build a full live desktop ISO for Forge.
+# build-live-iso.sh — Build a full live desktop ISO for Kyth.
 #
 # Flow:
-#   1. Build Containerfile.live (extends forge with live support)
+#   1. Build Containerfile.live (extends kyth with live support)
 #   2. Export the container filesystem to a temporary rootfs
 #   3. Copy kernel + live initramfs out of the rootfs
 #   4. mksquashfs the rootfs → LiveOS/squashfs.img
@@ -17,18 +17,18 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 OUTPUT_DIR="${REPO_ROOT}/output/live-iso"
-ISO_NAME="forge-live.iso"
-VOLID="Forge-43-Live"
+ISO_NAME="kyth-live.iso"
+VOLID="Kyth-43-Live"
 
 TMPDIR_BASE="${TMPDIR:-/var/tmp}"
-WORK=$(mktemp -d -p "${TMPDIR_BASE}" forge-live.XXXXXXXXXX)
+WORK=$(mktemp -d -p "${TMPDIR_BASE}" kyth-live.XXXXXXXXXX)
 ROOTFS="${WORK}/rootfs"
 ISO_DIR="${WORK}/iso"
 
 cleanup() {
     echo "==> Cleaning up ${WORK}"
     sudo rm -rf "${WORK}" 2>/dev/null || true
-    podman rmi localhost/forge-live:build 2>/dev/null || true
+    podman rmi localhost/kyth-live:build 2>/dev/null || true
 }
 trap cleanup EXIT
 
@@ -46,19 +46,19 @@ mkdir -p \
     "${ISO_DIR}/LiveOS" \
     "${ISO_DIR}/images/pxeboot" \
     "${ISO_DIR}/EFI/BOOT" \
-    "${ISO_DIR}/boot/grub2/themes/forge" \
+    "${ISO_DIR}/boot/grub2/themes/kyth" \
     "${ISO_DIR}/isolinux"
 
 # ── 1. Build live variant container ─────────────────────────────────────────
 echo "==> Building live container variant (this takes a while)"
 podman build \
     -f "${SCRIPT_DIR}/Containerfile.live" \
-    -t localhost/forge-live:build \
+    -t localhost/kyth-live:build \
     "${REPO_ROOT}"
 
 # ── 2. Export container filesystem ──────────────────────────────────────────
 echo "==> Exporting container filesystem to ${ROOTFS}"
-CONTAINER=$(podman create localhost/forge-live:build /bin/true)
+CONTAINER=$(podman create localhost/kyth-live:build /bin/true)
 podman export "${CONTAINER}" \
     | sudo tar -xC "${ROOTFS}" \
         --exclude='./proc/*' \
@@ -95,12 +95,12 @@ sudo mksquashfs "${ROOTFS}" "${ISO_DIR}/LiveOS/squashfs.img" \
 # ── 5a. GRUB config + dark theme (shared by EFI and BIOS GRUB2) ─────────────
 echo "==> Writing GRUB config and theme"
 LIVE_ARGS="root=live:CDLABEL=${VOLID} rd.live.image rd.live.overlay=tmpfs selinux=0 quiet splash"
-PERSISTENT_ARGS="root=live:CDLABEL=${VOLID} rd.live.image rd.live.overlay=LABEL=forge-overlay rd.live.overlayfs=1 selinux=0 quiet splash"
+PERSISTENT_ARGS="root=live:CDLABEL=${VOLID} rd.live.image rd.live.overlay=LABEL=kyth-overlay rd.live.overlayfs=1 selinux=0 quiet splash"
 INSTALL_ARGS="root=live:CDLABEL=${VOLID} rd.live.image rd.live.overlay=tmpfs selinux=0 quiet systemd.unit=anaconda.target inst.webui inst.ks=file:///run/install/ks.cfg"
 
 # Write the theme file
-cat > "${ISO_DIR}/boot/grub2/themes/forge/theme.txt" << 'THEMEEOF'
-# Forge GRUB2 dark theme
+cat > "${ISO_DIR}/boot/grub2/themes/kyth/theme.txt" << 'THEMEEOF'
+# Kyth GRUB2 dark theme
 
 title-text: ""
 desktop-color: "#0d1117"
@@ -130,7 +130,7 @@ terminal-border: "0"
     left   = 0%
     width  = 100%
     height = 50
-    text   = "FORGE 43"
+    text   = "KYTH 43"
     font   = "DejaVu Sans Bold 28"
     color  = "#61afef"
     align  = "center"
@@ -143,8 +143,8 @@ for src_font in \
     "${ROOTFS}/usr/share/fonts/dejavu-sans-fonts/DejaVuSans.ttf" \
     "${ROOTFS}/usr/share/fonts/dejavu/DejaVuSans.ttf"; do
     if [[ -f "${src_font}" ]]; then
-        grub2-mkfont -s 14 -o "${ISO_DIR}/boot/grub2/themes/forge/dejavusans14.pf2" "${src_font}" 2>/dev/null || true
-        grub2-mkfont -s 28 -o "${ISO_DIR}/boot/grub2/themes/forge/dejavusansbold28.pf2" "${src_font}" 2>/dev/null || true
+        grub2-mkfont -s 14 -o "${ISO_DIR}/boot/grub2/themes/kyth/dejavusans14.pf2" "${src_font}" 2>/dev/null || true
+        grub2-mkfont -s 28 -o "${ISO_DIR}/boot/grub2/themes/kyth/dejavusansbold28.pf2" "${src_font}" 2>/dev/null || true
         break
     fi
 done
@@ -176,9 +176,9 @@ if loadfont /boot/grub2/unicode.pf2; then
     set gfxmode=auto
     terminal_output gfxterm
     # Bundled DejaVu fonts for the theme labels
-    loadfont /boot/grub2/themes/forge/dejavusans14.pf2 || true
-    loadfont /boot/grub2/themes/forge/dejavusansbold28.pf2 || true
-    set theme=/boot/grub2/themes/forge/theme.txt
+    loadfont /boot/grub2/themes/kyth/dejavusans14.pf2 || true
+    loadfont /boot/grub2/themes/kyth/dejavusansbold28.pf2 || true
+    set theme=/boot/grub2/themes/kyth/theme.txt
 else
     # Text-mode fallback: dark colors
     set color_normal=light-gray/black
@@ -188,22 +188,22 @@ else
 fi
 
 # ── Boot entries ───────────────────────────────────────────────────────────────
-menuentry "Try Forge Live" --class fedora --class gnu-linux --class os {
+menuentry "Try Kyth Live" --class fedora --class gnu-linux --class os {
     linux /images/pxeboot/vmlinuz ${LIVE_ARGS}
     initrd /images/pxeboot/initrd.img
 }
 
-menuentry "Try Forge Live (Persistent)" --class fedora --class gnu-linux --class os {
+menuentry "Try Kyth Live (Persistent)" --class fedora --class gnu-linux --class os {
     linux /images/pxeboot/vmlinuz ${PERSISTENT_ARGS}
     initrd /images/pxeboot/initrd.img
 }
 
-menuentry "Install Forge" --class fedora --class gnu-linux --class os {
+menuentry "Install Kyth" --class fedora --class gnu-linux --class os {
     linux /images/pxeboot/vmlinuz ${INSTALL_ARGS}
     initrd /images/pxeboot/initrd.img
 }
 
-menuentry "Check media and boot Forge Live" --class fedora --class gnu-linux --class os {
+menuentry "Check media and boot Kyth Live" --class fedora --class gnu-linux --class os {
     linux /images/pxeboot/vmlinuz ${LIVE_ARGS} rd.live.check
     initrd /images/pxeboot/initrd.img
 }
@@ -252,7 +252,7 @@ mcopy -i "${EFI_IMG}" "${ISO_DIR}/EFI/BOOT/grub.cfg" ::/EFI/BOOT/grub.cfg
 # readable filesystem (FS0 = the ISO). This launches GRUB directly.
 cat > "${ISO_DIR}/startup.nsh" << 'NSHEOF'
 @echo -off
-echo Booting Forge...
+echo Booting Kyth...
 fs0:\EFI\BOOT\BOOTX64.EFI
 NSHEOF
 
@@ -301,7 +301,7 @@ if ! "${HAVE_BIOS_GRUB}" && sudo test -f "${ISOLINUX_BIN}"; then
     cat > "${ISO_DIR}/isolinux/isolinux.cfg" << ISOLINUXEOF
 default vesamenu.c32
 timeout 100
-menu title Forge 43 Live
+menu title Kyth 43 Live
 
 menu color screen     37;40    #a0000000 #00000000 std
 menu color border     30;44    #00000000 #00000000 std
@@ -322,22 +322,22 @@ menu tabmsgrow 18
 menu helpmsgrow 20
 
 label live
-  menu label Try Forge Live
+  menu label Try Kyth Live
   kernel /images/pxeboot/vmlinuz
   append initrd=/images/pxeboot/initrd.img ${LIVE_ARGS}
 
 label persistent
-  menu label Try Forge Live (Persistent)
+  menu label Try Kyth Live (Persistent)
   kernel /images/pxeboot/vmlinuz
   append initrd=/images/pxeboot/initrd.img ${PERSISTENT_ARGS}
 
 label install
-  menu label Install Forge
+  menu label Install Kyth
   kernel /images/pxeboot/vmlinuz
   append initrd=/images/pxeboot/initrd.img ${INSTALL_ARGS}
 
 label check
-  menu label Check media and boot Forge Live
+  menu label Check media and boot Kyth Live
   kernel /images/pxeboot/vmlinuz
   append initrd=/images/pxeboot/initrd.img ${LIVE_ARGS} rd.live.check
 ISOLINUXEOF

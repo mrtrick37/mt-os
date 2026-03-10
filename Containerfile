@@ -3,18 +3,18 @@ FROM scratch AS ctx
 COPY build_files /
 
 # Base Image
-FROM localhost/forge-base:stable
+FROM localhost/kyth-base:stable
 
 # Override upstream OCI labels so downstream tooling (lorax/bootc) sees mt-OS product metadata
-LABEL org.opencontainers.image.title="Forge"
+LABEL org.opencontainers.image.title="Kyth"
 LABEL org.opencontainers.image.version="43"
-LABEL org.opencontainers.image.description="Forge customized image"
-LABEL org.osbuild.product="Forge"
+LABEL org.opencontainers.image.description="Kyth customized image"
+LABEL org.osbuild.product="Kyth"
 LABEL org.osbuild.version="43"
-LABEL org.osbuild.branding.release="Forge 43"
+LABEL org.osbuild.branding.release="Kyth 43"
 
 ## Other possible base images include:
-# FROM localhost/forge-base:latest
+# FROM localhost/kyth-base:latest
 # FROM ghcr.io/ublue-os/bluefin-nvidia:stable
 # 
 # ... and so on, here are more base images

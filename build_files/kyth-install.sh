@@ -1,14 +1,14 @@
 #!/usr/bin/bash
-# forge-install — Live ISO installer for Forge
+# kyth-install — Live ISO installer for Kyth
 #
-# Uses 'bootc install to-disk' to write Forge to the selected disk.
-# Pulls the final image from ghcr.io/mrtrick37/forge:latest (requires network).
+# Uses 'bootc install to-disk' to write Kyth to the selected disk.
+# Pulls the final image from ghcr.io/mrtrick37/kyth:latest (requires network).
 #
-# Runs via the "Install Forge" desktop icon on the live ISO.
+# Runs via the "Install Kyth" desktop icon on the live ISO.
 
 set -euo pipefail
 
-TARGET_IMGREF="ghcr.io/mrtrick37/forge:latest"
+TARGET_IMGREF="ghcr.io/mrtrick37/kyth:latest"
 
 # Must run as root
 if [[ $EUID -ne 0 ]]; then
@@ -24,7 +24,7 @@ mapfile -t DISKS < <(lsblk -dpno NAME,SIZE,MODEL \
 
 if [[ ${#DISKS[@]} -eq 0 ]]; then
     if command -v kdialog &>/dev/null; then
-        kdialog --title "Install Forge" --error "No suitable disks found."
+        kdialog --title "Install Kyth" --error "No suitable disks found."
     else
         echo "ERROR: No suitable disks found." >&2
     fi
@@ -41,18 +41,18 @@ if command -v kdialog &>/dev/null; then
     done
 
     SELECTED=$(kdialog \
-        --title "Install Forge" \
-        --menu "Select the disk to install Forge onto.\n\nWARNING: ALL DATA on the selected disk will be erased." \
+        --title "Install Kyth" \
+        --menu "Select the disk to install Kyth onto.\n\nWARNING: ALL DATA on the selected disk will be erased." \
         "${MENU_ARGS[@]}") || exit 0
 
     kdialog \
-        --title "Install Forge" \
-        --warningyesno "ERASE ALL DATA on ${SELECTED} and install Forge?\n\nThis cannot be undone." \
+        --title "Install Kyth" \
+        --warningyesno "ERASE ALL DATA on ${SELECTED} and install Kyth?\n\nThis cannot be undone." \
         || exit 0
 else
     # Fallback: plain terminal UI
     echo ""
-    echo "=== Install Forge ==="
+    echo "=== Install Kyth ==="
     echo ""
     echo "Available disks:"
     for entry in "${DISKS[@]}"; do
@@ -66,7 +66,7 @@ else
 fi
 
 # ── Install ───────────────────────────────────────────────────────────────────
-echo "Installing Forge to ${SELECTED} from ${TARGET_IMGREF} ..."
+echo "Installing Kyth to ${SELECTED} from ${TARGET_IMGREF} ..."
 echo "This will take a while depending on your internet connection."
 echo ""
 
@@ -75,10 +75,10 @@ bootc install to-disk \
     "${SELECTED}"
 
 echo ""
-echo "Installation complete. You can now reboot into Forge."
+echo "Installation complete. You can now reboot into Kyth."
 
 if command -v kdialog &>/dev/null; then
     kdialog \
-        --title "Install Forge" \
-        --msgbox "Installation complete!\n\nRemove the live USB and reboot to start Forge."
+        --title "Install Kyth" \
+        --msgbox "Installation complete!\n\nRemove the live USB and reboot to start Kyth."
 fi

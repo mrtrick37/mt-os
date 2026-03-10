@@ -1,4 +1,4 @@
-export image_name := env("IMAGE_NAME", "forge") # output image name, usually same as repo name, change as needed
+export image_name := env("IMAGE_NAME", "kyth") # output image name, usually same as repo name, change as needed
 export default_tag := env("DEFAULT_TAG", "latest")
 export bib_image := env("BIB_IMAGE", "quay.io/centos-bootc/bootc-image-builder:latest")
 
@@ -121,7 +121,7 @@ sudoif command *args:
 build-base base_image="ghcr.io/ublue-os/kinoite-main:43":
     podman build \
         --build-arg BASE_IMAGE={{ base_image }} \
-        --tag localhost/forge-base:stable \
+        --tag localhost/kyth-base:stable \
         build_base/
 
 # Build the image using the specified parameters
@@ -282,14 +282,14 @@ _build-bib $target_image $tag $type $config: (_rootful_load_image target_image t
     sudo mv -f $BUILDTMP/* output/ || true
     # Rename standard install ISO to a consistent mt-OS filename
     if sudo test -f output/bootiso/install.iso; then
-        sudo mv -f output/bootiso/install.iso output/bootiso/forge-installer.iso || true
+        sudo mv -f output/bootiso/install.iso output/bootiso/kyth-installer.iso || true
     fi
     sudo rmdir $BUILDTMP || true
     sudo chown -R $USER:$USER output/
 
     # Print absolute path to produced ISO if present (helps CI and users find artifact)
-    if sudo test -f output/bootiso/forge-installer.iso; then
-        ISO_PATH=$(readlink -f output/bootiso/forge-installer.iso)
+    if sudo test -f output/bootiso/kyth-installer.iso; then
+        ISO_PATH=$(readlink -f output/bootiso/kyth-installer.iso)
         echo "Produced ISO: ${ISO_PATH}"
     fi
 
@@ -315,10 +315,10 @@ build-raw $target_image=("localhost/" + image_name) $tag=default_tag: && (_build
 [group('Build Virtal Machine Image')]
 build-iso $target_image=("localhost/" + image_name) $tag=default_tag: && (_build-bib target_image tag "iso" "disk_config/iso.toml")
 
-# Build a full live desktop ISO (boots to the complete Forge KDE environment;
-# "Install Forge" desktop icon installs from ghcr.io/mrtrick37/forge:latest)
+# Build a full live desktop ISO (boots to the complete Kyth KDE environment;
+# "Install Kyth" desktop icon installs from ghcr.io/mrtrick37/kyth:latest)
 # Requires: xorriso squashfs-tools mtools dosfstools
-# Run 'just build' first to have localhost/forge:latest available.
+# Run 'just build' first to have localhost/kyth:latest available.
 [group('Build Virtal Machine Image')]
 build-live-iso:
     #!/usr/bin/env bash
@@ -332,7 +332,7 @@ run-live-iso:
     #!/usr/bin/bash
     set -eoux pipefail
 
-    image_file="output/live-iso/forge-live.iso"
+    image_file="output/live-iso/kyth-live.iso"
     if [[ ! -f "${image_file}" ]]; then
         just build-live-iso
     fi
@@ -383,7 +383,7 @@ _run-vm $target_image $tag $type $config:
     # Determine the image file based on the type
     image_file="output/${type}/disk.${type}"
     if [[ $type == iso ]]; then
-        image_file="output/bootiso/forge-installer.iso"
+        image_file="output/bootiso/kyth-installer.iso"
     fi
 
     # Build the image if it does not exist

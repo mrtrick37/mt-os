@@ -69,18 +69,18 @@ fi
 
 # Ensure installer runtime shows mt-OS branding
 cat > /etc/os-release <<'EOF' || true
-NAME="Forge"
-PRETTY_NAME="Forge 43"
+NAME="Kyth"
+PRETTY_NAME="Kyth 43"
 ID=fedora
 VERSION_ID=43
-HOME_URL="https://example.com/forge"
+HOME_URL="https://example.com/kyth"
 EOF
 
 %end
 
 %post
-bootc switch --mutate-in-place --transport registry ghcr.io/mrtrick37/forge:latest
-hostnamectl set-hostname forge
+bootc switch --mutate-in-place --transport registry ghcr.io/mrtrick37/kyth:latest
+hostnamectl set-hostname kyth
 %end
 """
 

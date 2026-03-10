@@ -1,12 +1,12 @@
 #!/usr/bin/bash
-# forge-install-launcher — Simple disk-selection GUI that runs bootc install.
+# kyth-install-launcher — Simple disk-selection GUI that runs bootc install.
 #
 # Runs as liveuser; escalates bootc to root via sudo.
 # Uses kdialog for disk selection and progress display.
 
 set -uo pipefail
 
-TARGET_IMGREF="ghcr.io/mrtrick37/forge:latest"
+TARGET_IMGREF="ghcr.io/mrtrick37/kyth:latest"
 
 # ── Build disk list for kdialog ───────────────────────────────────────────────
 DISK_ARGS=()
@@ -17,25 +17,25 @@ while IFS= read -r disk; do
 done < <(lsblk -dpno NAME 2>/dev/null | grep -Ev 'loop|sr[0-9]')
 
 if [[ ${#DISK_ARGS[@]} -eq 0 ]]; then
-    kdialog --error "No installable disks found." --title "Forge Installer"
+    kdialog --error "No installable disks found." --title "Kyth Installer"
     exit 1
 fi
 
 DISK=$(kdialog \
-    --title "Install Forge 43" \
-    --menu "Select the disk to install Forge on.\n\nWARNING: The selected disk will be completely erased." \
+    --title "Install Kyth 43" \
+    --menu "Select the disk to install Kyth on.\n\nWARNING: The selected disk will be completely erased." \
     "${DISK_ARGS[@]}")
 
 [[ -z "${DISK}" ]] && exit 0   # user cancelled
 
 # ── Confirm ───────────────────────────────────────────────────────────────────
 kdialog --warningyesno \
-    "This will ERASE ALL DATA on ${DISK} and install Forge 43.\n\nAre you sure?" \
+    "This will ERASE ALL DATA on ${DISK} and install Kyth 43.\n\nAre you sure?" \
     --title "Confirm Installation" || exit 0
 
 # ── Run bootc install in a terminal ──────────────────────────────────────────
 konsole --noclose -e bash -c "
-    echo '=== Forge 43 Installation ==='
+    echo '=== Kyth 43 Installation ==='
     echo 'Target disk : ${DISK}'
     echo 'Image       : ${TARGET_IMGREF}'
     echo ''

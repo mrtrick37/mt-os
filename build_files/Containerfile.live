@@ -1,8 +1,8 @@
-# Live ISO variant of Forge
-# Extends the full Forge image with live session + Anaconda WebUI installer.
+# Live ISO variant of Kyth
+# Extends the full Kyth image with live session + Anaconda WebUI installer.
 # Built by build-live-iso.sh; not pushed to the registry.
 
-FROM localhost/forge:latest
+FROM localhost/kyth:latest
 
 # ── Live boot + BIOS/EFI boot helpers ────────────────────────────────────────
 # dracut-live:    dmsquash-live module for squashfs live boot
@@ -47,7 +47,7 @@ RUN mkdir -p /etc/sddm.conf.d \
     && printf '[Autologin]\nUser=liveuser\nSession=plasma\n\n[Theme]\nCurrent=breeze\n' \
         > /etc/sddm.conf.d/autologin.conf
 
-# ── Liveuser home: Breeze Dark + "Install Forge" desktop shortcut ─────────────
+# ── Liveuser home: Breeze Dark + "Install Kyth" desktop shortcut ─────────────
 # Disable Steam autostart — it crashes in the live tmpfs environment.
 RUN mkdir -p /home/liveuser/Desktop /home/liveuser/.config \
         /home/liveuser/.config/autostart \
@@ -57,19 +57,19 @@ RUN mkdir -p /home/liveuser/Desktop /home/liveuser/.config \
         > /home/liveuser/.config/kdeglobals \
     && printf '[Theme]\nname=breeze-dark\n' \
         > /home/liveuser/.config/plasmarc \
-    && printf '[Desktop Entry]\nName=Install Forge\nComment=Install Forge 43 to this computer\nExec=/usr/bin/forge-install-launcher\nIcon=drive-harddisk\nTerminal=true\nType=Application\nCategories=System;\n' \
-        > /home/liveuser/Desktop/install-forge.desktop \
-    && chmod +x /home/liveuser/Desktop/install-forge.desktop \
+    && printf '[Desktop Entry]\nName=Install Kyth\nComment=Install Kyth 43 to this computer\nExec=/usr/bin/kyth-install-launcher\nIcon=drive-harddisk\nTerminal=true\nType=Application\nCategories=System;\n' \
+        > /home/liveuser/Desktop/install-kyth.desktop \
+    && chmod +x /home/liveuser/Desktop/install-kyth.desktop \
     && chown -R liveuser:liveuser /home/liveuser/
 
-# ── Forge installer launcher ──────────────────────────────────────────────────
-COPY build_files/forge-install-launcher  /usr/bin/forge-install-launcher
-RUN chmod +x /usr/bin/forge-install-launcher
+# ── Kyth installer launcher ──────────────────────────────────────────────────
+COPY build_files/kyth-install-launcher  /usr/bin/kyth-install-launcher
+RUN chmod +x /usr/bin/kyth-install-launcher
 
 # ── Kickstart file for Anaconda ───────────────────────────────────────────────
-# Placed at /etc/anaconda/forge.ks; dracut --include embeds it into the
+# Placed at /etc/anaconda/kyth.ks; dracut --include embeds it into the
 # live initramfs at /run/install/ks.cfg so inst.ks=file:///run/install/ks.cfg works.
-COPY build_files/anaconda/forge.ks  /etc/anaconda/forge.ks
+COPY build_files/anaconda/kyth.ks  /etc/anaconda/kyth.ks
 
 # ── Rebuild initramfs with dmsquash-live + anaconda modules ───────────────────
 # TMPDIR=/var/tmp avoids the EXDEV cross-device rename issue on tmpfs /tmp.
@@ -77,7 +77,7 @@ RUN KVER=$(ls /usr/lib/modules/ | grep cachyos | head -1) \
     && TMPDIR=/var/tmp dracut \
         --no-hostonly \
         --add "dmsquash-live livenet anaconda" \
-        --include /etc/anaconda/forge.ks /run/install/ks.cfg \
+        --include /etc/anaconda/kyth.ks /run/install/ks.cfg \
         --kver "${KVER}" \
         --force \
         "/usr/lib/modules/${KVER}/initramfs-live" \
@@ -85,7 +85,7 @@ RUN KVER=$(ls /usr/lib/modules/ | grep cachyos | head -1) \
     && echo "Live initramfs built for ${KVER}"
 
 # ── OS-release branding ───────────────────────────────────────────────────────
-RUN sed -i 's/^PRETTY_NAME=.*/PRETTY_NAME="Forge 43 Live"/' /etc/os-release
+RUN sed -i 's/^PRETTY_NAME=.*/PRETTY_NAME="Kyth 43 Live"/' /etc/os-release
 
 # ── Plymouth theme ────────────────────────────────────────────────────────────
 RUN plymouth-set-default-theme spinner

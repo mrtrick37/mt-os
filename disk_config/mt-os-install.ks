@@ -8,7 +8,7 @@ timezone America/New_York
 network --bootproto=dhcp --device=link --activate
 
 # Install mt-OS OCI image from ghcr.io
-ostreecontainer --url=ghcr.io/mrtrick37/forge:latest --transport=registry --no-signature-verification
+ostreecontainer --url=ghcr.io/mrtrick37/kyth:latest --transport=registry --no-signature-verification
 
 %packages
 %end

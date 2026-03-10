@@ -1,5 +1,5 @@
-# Pull the upstream Fedora bootc base and apply Forge branding.
-# Build with: podman build -t localhost/forge-base:stable build_base/
+# Pull the upstream Fedora bootc base and apply Kyth branding.
+# Build with: podman build -t localhost/kyth-base:stable build_base/
 # Override the base via: podman build --build-arg BASE_IMAGE=ghcr.io/ublue-os/kinoite-main:43 build_base/
 ARG BASE_IMAGE=ghcr.io/ublue-os/kinoite-main:43
 FROM ${BASE_IMAGE}

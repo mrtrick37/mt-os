@@ -1,6 +1,6 @@
-# Forge
+# Kyth
 
-Forge is a custom atomic desktop Linux image. It's an opinionated gaming and development workstation OS — immutable, container-native, and perpetually a work in progress.
+Kyth is a custom atomic desktop Linux image. It's an opinionated gaming and development workstation OS — immutable, container-native, and perpetually a work in progress.
 
 
 **⚠️ Don't install this on anything you care about. You've been warned. Proceed with chaotic enthusiasm.
@@ -42,21 +42,21 @@ Forge is a custom atomic desktop Linux image. It's an opinionated gaming and dev
 
 ### Live ISO (recommended)
 
-Boot the live ISO to try Forge without installing. The full KDE desktop runs from RAM. Click **Install Forge** on the desktop to launch the graphical installer.
+Boot the live ISO to try Kyth without installing. The full KDE desktop runs from RAM. Click **Install Kyth** on the desktop to launch the graphical installer.
 
 The installer wizard walks through:
 1. **Timezone** — interactive world map with GeoIP auto-detection
 2. **Disk selection** — automatic erase-disk mode by default; manual partitioning available
-3. **Install** — pulls `ghcr.io/mrtrick37/forge:latest` and writes it to disk via `bootc`
+3. **Install** — pulls `ghcr.io/mrtrick37/kyth:latest` and writes it to disk via `bootc`
 
 GParted is available in the live session for pre-install partition management.
 
-Grab the live ISO from [GitHub Releases](https://github.com/mrtrick37/forge/releases) or build it locally (see below).
+Grab the live ISO from [GitHub Releases](https://github.com/mrtrick37/kyth/releases) or build it locally (see below).
 
 ### Rebase from an existing Fedora atomic system
 
 ```bash
-bootc switch ghcr.io/mrtrick37/forge:latest
+bootc switch ghcr.io/mrtrick37/kyth:latest
 ```
 
 ### Installer ISO
@@ -102,9 +102,9 @@ build_files/
   build.sh               Kernel swap, package installs, branding, tweaks
   Containerfile.live     Live ISO variant (adds live session, Calamares installer)
   build-live-iso.sh      Assembles the live ISO (squashfs + GRUB2 + UEFI/BIOS boot)
-  forge-calamares-install.sh   Calamares shellprocess: runs bootc install, applies timezone
-  forge-install-launcher       Launches Calamares as root from the live desktop
-  forge-install.sh       Fallback terminal installer
+  kyth-calamares-install.sh   Calamares shellprocess: runs bootc install, applies timezone
+  kyth-install-launcher       Launches Calamares as root from the live desktop
+  kyth-install.sh       Fallback terminal installer
   calamares/             Calamares wizard config (settings, modules, branding)
 disk_config/
   iso-kde.toml           BIB config for the Anaconda KDE installer ISO
@@ -117,7 +117,7 @@ Justfile                 Local build recipes
 
 ## Updates
 
-Once installed, Forge updates like any bootc system:
+Once installed, Kyth updates like any bootc system:
 
 ```bash
 ujust update
@@ -125,7 +125,7 @@ ujust update
 bootc upgrade
 ```
 
-Updates pull the latest image from `ghcr.io/mrtrick37/forge:latest`. The CI rebuilds and publishes a fresh image (including all upstream package updates) on every push to `main`.
+Updates pull the latest image from `ghcr.io/mrtrick37/kyth:latest`. The CI rebuilds and publishes a fresh image (including all upstream package updates) on every push to `main`.
 
 ## Why
 
@@ -133,4 +133,4 @@ Stock Kinoite is great. I wanted my own thing. [Universal Blue](https://universa
 
 ---
 
-*Forge is not affiliated with Universal Blue, Fedora, CachyOS, or anyone who actually knows what they're doing.*
+*Kyth is not affiliated with Universal Blue, Fedora, CachyOS, or anyone who actually knows what they're doing.*

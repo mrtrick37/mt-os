@@ -1,5 +1,5 @@
 ---
 type:      jobmodule
-name:      forge-predisksetup
+name:      kyth-predisksetup
 interface: python
 requires:  []
