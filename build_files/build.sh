@@ -333,6 +333,39 @@ cat > /etc/skel/.config/plasmarc <<'PLASMAEOF'
 name=breeze-dark
 PLASMAEOF
 
+# ── First-login script: set Kickoff launcher icon to KDE logo ─────────────────
+# Plasma assigns applet IDs dynamically, so we can't hardcode them in a config
+# file. This autostart script runs once on first login, finds every kickoff
+# applet in the appletsrc, sets its icon to the KDE logo, then removes itself.
+mkdir -p /usr/local/bin
+cat > /usr/local/bin/forge-set-kickoff-icon <<'KICKOFICONEOF'
+#!/bin/bash
+# Find all Kickoff applet sections in the appletsrc and set icon=kde (KDE logo).
+APRC="${HOME}/.config/plasma-org.kde.plasma.desktop-appletsrc"
+if [[ -f "$APRC" ]]; then
+    while IFS= read -r section; do
+        grp="${section//[\[\]]/}"
+        kwriteconfig6 --file "$APRC" --group "$grp" \
+            --subgroup "Configuration" --subgroup "General" \
+            --key icon kde 2>/dev/null || true
+    done < <(grep -B1 'plugin=org.kde.plasma.kickoff' "$APRC" | grep '^\[')
+fi
+# Remove self so it only runs once
+rm -f "${HOME}/.config/autostart/forge-set-kickoff-icon.desktop"
+KICKOFICONEOF
+chmod +x /usr/local/bin/forge-set-kickoff-icon
+
+mkdir -p /etc/skel/.config/autostart
+cat > /etc/skel/.config/autostart/forge-set-kickoff-icon.desktop <<'AUTOSTARTEOF'
+[Desktop Entry]
+Type=Application
+Name=Forge: Set Kickoff Icon
+Exec=/usr/local/bin/forge-set-kickoff-icon
+X-KDE-autostart-after=panel
+Hidden=false
+NoDisplay=true
+AUTOSTARTEOF
+
 # Seed containment 1 with the black wallpaper so it's set even before the
 # LnF setup script runs on first login.
 cat > /etc/skel/.config/plasma-org.kde.plasma.desktop-appletsrc <<'PLASMADESKTOPEOF'
