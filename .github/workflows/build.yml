@@ -98,6 +98,11 @@ jobs:
           sep-labels: "\n"
           sep-annotations: "\n"
 
+      - name: Configure git identity
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
       - name: Build base image
         run: |
           podman build \
@@ -117,29 +122,6 @@ jobs:
           tags: ${{ steps.metadata.outputs.tags }}
           labels: ${{ steps.metadata.outputs.labels }}
           oci: false
-
-      # Rechunk splits the image into evenly-sized layers (~1 GB each) for better
-      # resumability when pushing/pulling. It does not affect download speed.
-      # https://github.com/hhd-dev/rechunk
-      - name: Run Rechunker
-        id: rechunk
-        uses: ublue-os/legacy-rechunk@a925083d9af7cb04b3e2a6e8c01bfa495f38b710 # v1.0.0
-        with:
-          rechunk: 'ghcr.io/ublue-os/legacy-rechunk:v1.0.0-x86_64'
-          ref: "localhost/${{ env.IMAGE_NAME }}:${{ env.DEFAULT_TAG }}"
-          prev-ref: "${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.DEFAULT_TAG }}"
-          skip_compression: true
-          version: "43"
-          labels: ${{ steps.metadata.outputs.labels }}
-
-      # Load the rechunked image back into podman storage and apply all tags
-      - name: Load rechunked image into podman
-        run: |
-          IMAGE=$(podman pull ${{ steps.rechunk.outputs.ref }})
-          sudo rm -rf ${{ steps.rechunk.outputs.output }}
-          for tag in ${{ steps.metadata.outputs.tags }}; do
-            podman tag $IMAGE ${{ env.IMAGE_NAME }}:$tag
-          done
 
       # These `if` statements are so that pull requests for your custom images do not make it publish any packages under your name without you knowing
       # They also check if the runner is on the default branch so that things like the merge queue (if you enable it), are going to work
