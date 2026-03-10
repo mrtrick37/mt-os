@@ -38,10 +38,9 @@ RUN useradd -c "Live User" -G wheel liveuser \
     && chmod 440 /etc/sudoers.d/liveuser
 
 # ── Allow liveuser to start Anaconda services as root ─────────────────────────
-RUN printf 'liveuser ALL=(root) NOPASSWD: /usr/bin/systemctl start anaconda.service\n\
-liveuser ALL=(root) NOPASSWD: /usr/bin/systemctl start webui-cockpit-ws.service\n' \
-    > /etc/sudoers.d/liveuser-anaconda \
-    && chmod 440 /etc/sudoers.d/liveuser-anaconda
+RUN printf 'liveuser ALL=(root) NOPASSWD: /usr/bin/bootc\n' \
+    > /etc/sudoers.d/liveuser-bootc \
+    && chmod 440 /etc/sudoers.d/liveuser-bootc
 
 # ── SDDM auto-login into Plasma Wayland, Breeze theme ────────────────────────
 RUN mkdir -p /etc/sddm.conf.d \
