@@ -182,7 +182,16 @@ dnf5 install -y --skip-unavailable \
     steam \
     lutris \
     gamemode \
-    gamemode.i686
+    gamemode.i686 \
+    libXScrnSaver \
+    libXScrnSaver.i686 \
+    libxcb.i686 \
+    libatomic \
+    libatomic.i686 \
+    mesa-libGL.i686 \
+    mesa-dri-drivers.i686 \
+    nss \
+    nss.i686
 
 # KDE-specific gaming integrations
 dnf5 install -y \
@@ -223,6 +232,12 @@ gpgkey=https://packages.microsoft.com/keys/microsoft.asc
 REPOEOF
 sed -i "s/enabled=.*/enabled=0/g" /etc/yum.repos.d/vscode.repo
 dnf5 -y install --enablerepo=code code
+
+# Steam: disable CEF browser sandbox — required on bootc/ostree systems where
+# user namespace restrictions prevent the Chromium sandbox from initialising,
+# causing steamwebhelper to SEGV at startup.
+mkdir -p /etc/environment.d
+echo 'STEAM_DISABLE_BROWSER_SANDBOX=1' > /etc/environment.d/steam.conf
 
 systemctl enable podman.socket
 systemctl enable libvirtd.socket
