@@ -3,7 +3,7 @@
 Kyth is a custom atomic desktop Linux image. It's an opinionated gaming and development workstation OS — immutable, container-native, and perpetually a work in progress.
 
 
-**⚠️ Don't install this on anything you care about. You've been warned. Proceed with chaotic enthusiasm.
+⚠️ Kyth is currently a work in progress. Don't install this on anything you care about. You've been warned. Proceed with chaotic enthusiasm.
 
 ## Current state: 
 
