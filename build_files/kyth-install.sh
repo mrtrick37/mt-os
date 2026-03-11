@@ -71,6 +71,7 @@ echo "This will take a while depending on your internet connection."
 echo ""
 
 bootc install to-disk \
+    --source-imgref "${TARGET_IMGREF}" \
     --target-imgref "${TARGET_IMGREF}" \
     "${SELECTED}"
 

@@ -220,7 +220,11 @@ echo "==> Creating UEFI EFI boot image"
 # hardcoded prefix pointing at an installed OS and cannot find configs on an
 # ISO — a standalone image with grub2-mkimage is required.
 GRUB_EFI_BUILT=false
+# Prefer host grub2-efi modules; fall back to those installed in the container rootfs.
 GRUB_X64_MODS="/usr/lib/grub/x86_64-efi"
+if [[ ! -d "${GRUB_X64_MODS}" && -d "${ROOTFS}/usr/lib/grub/x86_64-efi" ]]; then
+    GRUB_X64_MODS="${ROOTFS}/usr/lib/grub/x86_64-efi"
+fi
 
 if [[ -d "${GRUB_X64_MODS}" ]] && command -v grub2-mkimage &>/dev/null; then
     # Embed a tiny config that searches all CD-ROM and disk paths for our grub.cfg

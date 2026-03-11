@@ -38,9 +38,9 @@ RUN useradd -c "Live User" -G wheel liveuser \
     && chmod 440 /etc/sudoers.d/liveuser
 
 # ── Allow liveuser to start Anaconda services as root ─────────────────────────
-RUN printf 'liveuser ALL=(root) NOPASSWD: /usr/bin/bootc\n' \
-    > /etc/sudoers.d/liveuser-bootc \
-    && chmod 440 /etc/sudoers.d/liveuser-bootc
+RUN printf 'liveuser ALL=(root) NOPASSWD: /usr/bin/systemctl start cockpit.socket anaconda.service\n' \
+    > /etc/sudoers.d/liveuser-anaconda \
+    && chmod 440 /etc/sudoers.d/liveuser-anaconda
 
 # ── SDDM auto-login into Plasma Wayland, Breeze theme ────────────────────────
 RUN mkdir -p /etc/sddm.conf.d \
@@ -57,7 +57,7 @@ RUN mkdir -p /home/liveuser/Desktop /home/liveuser/.config \
         > /home/liveuser/.config/kdeglobals \
     && printf '[Theme]\nname=breeze-dark\n' \
         > /home/liveuser/.config/plasmarc \
-    && printf '[Desktop Entry]\nName=Install Kyth\nComment=Install Kyth 43 to this computer\nExec=/usr/bin/kyth-install-launcher\nIcon=drive-harddisk\nTerminal=true\nType=Application\nCategories=System;\n' \
+    && printf '[Desktop Entry]\nName=Install Kyth\nComment=Install Kyth 43 to this computer\nExec=/usr/bin/kyth-install-launcher\nIcon=drive-harddisk\nTerminal=false\nType=Application\nCategories=System;\n' \
         > /home/liveuser/Desktop/install-kyth.desktop \
     && chmod +x /home/liveuser/Desktop/install-kyth.desktop \
     && chown -R liveuser:liveuser /home/liveuser/

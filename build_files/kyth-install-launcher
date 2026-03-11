@@ -1,54 +1,22 @@
 #!/usr/bin/bash
-# kyth-install-launcher — Simple disk-selection GUI that runs bootc install.
+# kyth-install-launcher — Launch Anaconda WebUI installer for Kyth
 #
-# Runs as liveuser; escalates bootc to root via sudo.
-# Uses kdialog for disk selection and progress display.
+# Starts the Anaconda backend + cockpit-ws, then opens the WebUI in a browser.
+# Runs as liveuser; escalates service start via sudo.
 
-set -uo pipefail
+set -euo pipefail
 
-TARGET_IMGREF="ghcr.io/mrtrick37/kyth:latest"
+# ── Start Anaconda + cockpit services ─────────────────────────────────────────
+sudo systemctl start cockpit.socket anaconda.service
 
-# ── Build disk list for kdialog ───────────────────────────────────────────────
-DISK_ARGS=()
-while IFS= read -r disk; do
-    size=$(lsblk -dno SIZE "${disk}" 2>/dev/null || echo "?")
-    model=$(lsblk -dno MODEL "${disk}" 2>/dev/null | xargs || echo "Unknown")
-    DISK_ARGS+=("${disk}" "${size} — ${model}")
-done < <(lsblk -dpno NAME 2>/dev/null | grep -Ev 'loop|sr[0-9]')
-
-if [[ ${#DISK_ARGS[@]} -eq 0 ]]; then
-    kdialog --error "No installable disks found." --title "Kyth Installer"
-    exit 1
-fi
-
-DISK=$(kdialog \
-    --title "Install Kyth 43" \
-    --menu "Select the disk to install Kyth on.\n\nWARNING: The selected disk will be completely erased." \
-    "${DISK_ARGS[@]}")
-
-[[ -z "${DISK}" ]] && exit 0   # user cancelled
-
-# ── Confirm ───────────────────────────────────────────────────────────────────
-kdialog --warningyesno \
-    "This will ERASE ALL DATA on ${DISK} and install Kyth 43.\n\nAre you sure?" \
-    --title "Confirm Installation" || exit 0
-
-# ── Run bootc install in a terminal ──────────────────────────────────────────
-konsole --noclose -e bash -c "
-    echo '=== Kyth 43 Installation ==='
-    echo 'Target disk : ${DISK}'
-    echo 'Image       : ${TARGET_IMGREF}'
-    echo ''
-    echo 'Pulling image and writing to disk — this will take a while...'
-    echo ''
-    sudo bootc install to-disk --target-imgref '${TARGET_IMGREF}' '${DISK}'
-    EXIT=\$?
-    echo ''
-    if [[ \$EXIT -eq 0 ]]; then
-        echo '=== Installation complete! ==='
-        echo 'You can now reboot and remove the live media.'
-    else
-        echo '=== Installation FAILED (exit code \$EXIT) ==='
+# ── Wait for the WebUI to respond (up to 20 seconds) ─────────────────────────
+echo "Waiting for Anaconda WebUI..."
+for i in $(seq 1 20); do
+    if curl -sf --max-time 1 http://localhost:9090/anaconda-webui/ &>/dev/null; then
+        break
     fi
-    read -r -p 'Press Enter to close...'
-"
+    sleep 1
+done
+
+# ── Open in browser ───────────────────────────────────────────────────────────
+xdg-open http://localhost:9090/anaconda-webui
