@@ -3,7 +3,7 @@
 Custom atomic desktop Linux image. It's an opinionated gaming and development container-native desktop OS. 
 
 
-⚠️ Kyth is currently a work in progress. 
+⚠️ Work in progres ⚠️
 
 Don't install this on anything you care about. 
 
