@@ -35,7 +35,7 @@ depmod -a "${CACHYOS_KVER}"
 # (kernel RPMs may put it in /boot; bootc needs it at /usr/lib/modules/<kver>/vmlinuz)
 if [ ! -f "/usr/lib/modules/${CACHYOS_KVER}/vmlinuz" ]; then
     if [ -f "/boot/vmlinuz-${CACHYOS_KVER}" ]; then
-        cp "/boot/vmlinuz-${CACHYOS_KVER}" "/usr/lib/modules/${CACHYOS_KVER}/vmlinuz"
+        cp --no-preserve=all "/boot/vmlinuz-${CACHYOS_KVER}" "/usr/lib/modules/${CACHYOS_KVER}/vmlinuz" 2>/dev/null
     fi
 fi
 
@@ -207,7 +207,7 @@ git clone --depth=1 --branch "$MESA_GIT_BRANCH" "$MESA_GIT_REPO" /tmp/mesa-git
 cd /tmp/mesa-git
 
 # Install build dependencies (Fedora)
-dnf5 install -y --skip-unavailable meson ninja-build gcc gcc-c++ python3-mako python3-ply python3-six libdrm-devel libX11-devel libXext-devel libXdamage-devel libXfixes-devel libXrandr-devel libXrender-devel libxcb-devel libxshmfence-devel libXxf86vm-devel expat-devel libvdpau-devel libva-devel wayland-devel wayland-protocols-devel elfutils-libelf-devel llvm-devel spirv-tools-devel zlib-devel zlib-ng-devel libselinux-devel libffi-devel libglvnd-devel libgbm-devel libEGL-devel libGL-devel glslang # Added glslang for glslangValidator
+dnf5 install -y --skip-unavailable meson ninja-build gcc gcc-c++ python3-mako python3-ply python3-six libdrm-devel libX11-devel libXext-devel libXdamage-devel libXfixes-devel libXrandr-devel libXrender-devel libxcb-devel libxshmfence-devel libXxf86vm-devel expat-devel libvdpau-devel libva-devel wayland-devel wayland-protocols-devel elfutils-libelf-devel llvm-devel spirv-tools-devel zlib-devel zlib-ng-devel libselinux-devel libffi-devel libglvnd-devel libgbm-devel libEGL-devel libGL-devel glslang rustc cargo bindgen
 # Build mesa-git with custom options
 echo "Building mesa-git with options: $MESA_BUILD_OPTIONS"
 meson setup build $MESA_BUILD_OPTIONS
