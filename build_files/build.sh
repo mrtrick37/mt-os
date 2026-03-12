@@ -218,6 +218,51 @@ dnf5 copr disable -y ublue-os/obs-vkcapture
 dnf5 copr disable -y ycollet/audinux
 sed -i "s/enabled=.*/enabled=0/g" /etc/yum.repos.d/fedora-steam.repo
 
+### GPU drivers
+
+# ── AMD ───────────────────────────────────────────────────────────────────────
+# amdgpu is in the CachyOS kernel; radv (Vulkan) comes from the base image.
+# Add VA-API/VDPAU for hardware video decode and radeontop for monitoring.
+dnf5 install -y \
+    mesa-va-drivers \
+    mesa-vdpau-drivers \
+    libva-utils \
+    radeontop
+
+# ── NVIDIA ────────────────────────────────────────────────────────────────────
+# akmod-nvidia installs the NVIDIA akmod framework; the actual kernel module is
+# built on first boot by the akmods service using the running kernel's headers.
+# kernel-cachyos-devel is already in this image so akmods has what it needs.
+#
+# Covers all Maxwell+ GPUs (GTX 750 and newer).
+# For Turing+ (RTX 20xx+), nvidia-open (NVIDIA's open-source module) is an
+# alternative but akmod-nvidia works universally across all generations.
+dnf5 install -y \
+    akmod-nvidia \
+    xorg-x11-drv-nvidia \
+    xorg-x11-drv-nvidia-cuda \
+    xorg-x11-drv-nvidia-cuda-libs \
+    xorg-x11-drv-nvidia-power \
+    nvidia-settings \
+    nvidia-vaapi-driver
+
+# Enable DRM kernel mode-setting for NVIDIA — required for Wayland and for
+# suspend/resume. Set via modprobe.d (no kernel cmdline changes needed).
+# nouveau is automatically blacklisted by the nvidia packages.
+mkdir -p /etc/modprobe.d
+cat > /etc/modprobe.d/nvidia-kyth.conf <<'NVIDIAEOF'
+# Enable KMS for Wayland and proper suspend/resume
+options nvidia-drm modeset=1 fbdev=1
+# Preserve video memory across suspend so the display recovers cleanly
+options nvidia NVreg_PreserveVideoMemoryAllocations=1
+NVIDIAEOF
+
+# Enable NVIDIA power management service for suspend/resume
+systemctl enable nvidia-suspend.service \
+                 nvidia-hibernate.service \
+                 nvidia-resume.service \
+                 nvidia-persistenced.service 2>/dev/null || true
+
 ### Performance tuning
 
 # ── Kernel sysctl parameters ──────────────────────────────────────────────────
