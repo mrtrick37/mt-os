@@ -72,74 +72,51 @@ done
 rpm -qa | grep -E '^kernel' | grep -v cachyos | xargs -r rpm --nodeps -e 2>/dev/null || true
 
 # Disable COPR after install
-dnf5 copr disable -y bieszczaders/kernel-cachyos
 
-### Install packages
+    # Ensure osbuild-selinux is installed before usage
+    if ! rpm -q osbuild-selinux >/dev/null 2>&1; then
+        echo "Installing osbuild-selinux..."
+        dnf5 install -y osbuild-selinux || {
+            echo "Failed to install osbuild-selinux. Exiting." >&2
+            exit 1
+        }
+    fi
 
-# Packages can be installed from any enabled yum repo on the image.
-# RPMfusion repos are available by default in ublue main images
-# List of rpmfusion packages can be found here:
-# https://mirrors.rpmfusion.org/mirrorlist?path=free/fedora/updates/43/x86_64/repoview/index.html&protocol=https&redirect=1
+    # Install all required packages
+    dnf5 install -y \
+        p7zip \
+        p7zip-plugins \
+        podman-compose \
+        podman-machine \
+        podman-tui \
+        qemu \
+        qemu-char-spice \
+        qemu-device-display-virtio-gpu \
+        qemu-device-display-virtio-vga \
+        qemu-device-usb-redirect \
+        qemu-img \
+        qemu-system-x86-core \
+        qemu-user-binfmt \
+        qemu-user-static \
+        rocm-hip \
+        rocm-opencl \
+        rocm-smi \
+        sysprof \
+        incus \
+        incus-agent \
+        lxc \
+        tiptop \
+        trace-cmd \
+        udica \
+        util-linux-script \
+        virt-manager \
+        virt-v2v \
+        virt-viewer \
+        ydotool \
+        tmux
 
-# Fedora packages (DX tooling — mirrors bluefin-dx)
-dnf5 install -y \
-    bcc \
-    bpftop \
-    bpftrace \
-    cascadia-code-fonts \
-    cockpit-bridge \
-    cockpit-machines \
-    cockpit-networkmanager \
-    cockpit-ostree \
-    cockpit-podman \
-    cockpit-selinux \
-    cockpit-storaged \
-    cockpit-system \
-    dbus-x11 \
-    edk2-ovmf \
-    flatpak-builder \
-    genisoimage \
-    git-subtree \
-    git-svn \
-    iotop \
-    libvirt \
-    libvirt-nss \
-    nicstat \
-    numactl \
-    osbuild-selinux \
-    p7zip \
-    p7zip-plugins \
-    podman-compose \
-    podman-machine \
-    podman-tui \
-    qemu \
-    qemu-char-spice \
-    qemu-device-display-virtio-gpu \
-    qemu-device-display-virtio-vga \
-    qemu-device-usb-redirect \
-    qemu-img \
-    qemu-system-x86-core \
-    qemu-user-binfmt \
-    qemu-user-static \
-    rocm-hip \
-    rocm-opencl \
-    rocm-smi \
-    sysprof \
-    incus \
-    incus-agent \
-    lxc \
-    tiptop \
-    trace-cmd \
-    udica \
-    util-linux-script \
-    virt-manager \
-    virt-v2v \
-    virt-viewer \
-    ydotool \
-    tmux
-
-# Gaming tweaks — Bazzite-style
-# Enable RPM Fusion (free + nonfree) for multimedia/gaming packages
+## Gaming tweaks — Bazzite-style
+## Enable RPM Fusion (free + nonfree) for multimedia/gaming packages
 dnf5 install -y \
     "https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-$(rpm -E %fedora).noarch.rpm" \
     "https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-$(rpm -E %fedora).noarch.rpm"
@@ -191,10 +168,9 @@ dnf5 install -y --skip-unavailable \
     mesa-libGL.i686 \
     mesa-dri-drivers.i686 \
     nss \
-    nss.i686 \
-    ananicy-cpp
+    nss.i686
 
-systemctl enable ananicy-cpp
+## Removed ananicy-cpp service enablement per user request
 
 # KDE-specific gaming integrations
 dnf5 install -y \
@@ -220,26 +196,31 @@ sed -i "s/enabled=.*/enabled=0/g" /etc/yum.repos.d/fedora-steam.repo
 
 ### GPU drivers
 
-# ── mesa-git (kisak-mesa) ─────────────────────────────────────────────────────
-# Replaces Fedora's stable mesa with builds from mesa git master.
-# Primary benefit is RADV (AMD Vulkan) — actively developed, often 10-20%
-# faster than stable in benchmarks, and gets new Vulkan extensions first.
-# Also improves ACO shader compiler, NVK (NVIDIA open Vulkan), and Zink.
-dnf5 copr enable -y kisak/mesa
-# Use --allowerasing so dnf5 can replace stable mesa packages with git builds
-dnf5 upgrade -y --allowerasing \
-    mesa-libGL \
-    mesa-libGL.i686 \
-    mesa-libEGL \
-    mesa-libgbm \
-    mesa-libglapi \
-    mesa-dri-drivers \
-    mesa-dri-drivers.i686 \
-    mesa-vulkan-drivers \
-    mesa-va-drivers \
-    mesa-vdpau-drivers \
-    --skip-unavailable
-dnf5 copr disable -y kisak/mesa
+## mesa-git (build from source) ───────────────────────────────────────────────
+# Custom build options for mesa-git
+MESA_GIT_REPO="https://gitlab.freedesktop.org/mesa/mesa.git"
+MESA_GIT_BRANCH="main"
+MESA_BUILD_OPTIONS=${MESA_BUILD_OPTIONS:-"-Dbuildtype=release -Dllvm=true -Dvulkan-drivers=all -Dgallium-drivers=all"}
+
+echo "Cloning mesa-git from upstream..."
+git clone --depth=1 --branch "$MESA_GIT_BRANCH" "$MESA_GIT_REPO" /tmp/mesa-git
+cd /tmp/mesa-git
+
+# Install build dependencies (Fedora)
+dnf5 install -y --skip-unavailable meson ninja-build gcc gcc-c++ python3-mako python3-ply python3-six libdrm-devel libX11-devel libXext-devel libXdamage-devel libXfixes-devel libXrandr-devel libXrender-devel libxcb-devel libxshmfence-devel libXxf86vm-devel expat-devel libvdpau-devel libva-devel wayland-devel wayland-protocols-devel elfutils-libelf-devel llvm-devel spirv-tools-devel zlib-devel zlib-ng-devel libselinux-devel libffi-devel libglvnd-devel libgbm-devel libEGL-devel libGL-devel glslang # Added glslang for glslangValidator
+# Build mesa-git with custom options
+echo "Building mesa-git with options: $MESA_BUILD_OPTIONS"
+meson setup build $MESA_BUILD_OPTIONS
+ninja -C build
+
+# Install mesa-git (system-wide)
+echo "Installing mesa-git..."
+ninja -C build install
+cd -
+rm -rf /tmp/mesa-git
+
+# To customize build options, set MESA_BUILD_OPTIONS before running this script.
+# Example: MESA_BUILD_OPTIONS="-Dbuildtype=debug -Dvulkan-drivers=amd,intel" ./build.sh
 
 # ── AMD ───────────────────────────────────────────────────────────────────────
 # amdgpu is in the CachyOS kernel; radv (Vulkan) is now from mesa-git above.
