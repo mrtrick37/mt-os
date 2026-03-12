@@ -191,7 +191,10 @@ dnf5 install -y --skip-unavailable \
     mesa-libGL.i686 \
     mesa-dri-drivers.i686 \
     nss \
-    nss.i686
+    nss.i686 \
+    ananicy-cpp
+
+systemctl enable ananicy-cpp
 
 # KDE-specific gaming integrations
 dnf5 install -y \
@@ -214,6 +217,81 @@ dnf5 copr disable -y ublue-os/packages
 dnf5 copr disable -y ublue-os/obs-vkcapture
 dnf5 copr disable -y ycollet/audinux
 sed -i "s/enabled=.*/enabled=0/g" /etc/yum.repos.d/fedora-steam.repo
+
+### Performance tuning
+
+# ── Kernel sysctl parameters ──────────────────────────────────────────────────
+mkdir -p /etc/sysctl.d
+cat > /etc/sysctl.d/99-kyth.conf <<'SYSCTLEOF'
+# Memory — reduce swap aggression and background compaction stutter
+vm.swappiness = 10
+vm.compaction_proactiveness = 0
+vm.dirty_ratio = 10
+vm.dirty_background_ratio = 5
+vm.page_lock_unfairness = 1
+
+# Network — activate BBRv3 (built into CachyOS kernel)
+net.core.default_qdisc = fq
+net.ipv4.tcp_congestion_control = bbr
+
+# Scheduler
+kernel.sched_autogroup_enabled = 1
+
+# Disable split-lock mitigation — some older/ported games use split-lock ops
+kernel.split_lock_mitigate = 0
+SYSCTLEOF
+
+# Load tcp_bbr module at boot so the BBRv3 sysctl takes effect
+echo 'tcp_bbr' > /etc/modules-load.d/bbr.conf
+
+# ── Transparent Huge Pages → madvise ─────────────────────────────────────────
+# 'always' (kernel default) forces THP on all allocations and causes stutter.
+# 'madvise' lets apps that benefit (e.g. JVMs, some game engines) opt in.
+mkdir -p /etc/tmpfiles.d
+cat > /etc/tmpfiles.d/kyth-thp.conf <<'THPEOF'
+w! /sys/kernel/mm/transparent_hugepage/enabled - - - - madvise
+w! /sys/kernel/mm/transparent_hugepage/defrag  - - - - defer+madvise
+THPEOF
+
+# ── NTSYNC ────────────────────────────────────────────────────────────────────
+# CachyOS kernel ships the ntsync module. The udev rule gives the 'users' group
+# access to /dev/ntsync so Wine/Proton can use NT synchronization primitives
+# (faster and lower-latency than esync/fsync for Windows game compatibility).
+echo 'KERNEL=="ntsync", GROUP="users", MODE="0660"' \
+    > /usr/lib/udev/rules.d/99-ntsync.rules
+
+# Enable NTSYNC globally for all Proton/Wine sessions
+cat > /etc/environment.d/ntsync.conf <<'NTSYNCEOF'
+PROTON_USE_NTSYNC=1
+NTSYNCEOF
+
+# ── zram — compressed swap in RAM ─────────────────────────────────────────────
+# Prevents OOM kills during heavy gaming/dev sessions without the latency of
+# disk swap. zstd gives the best compression/speed tradeoff.
+# Capped at 8 GB so zram doesn't eat all RAM on large-memory systems.
+cat > /etc/systemd/zram-generator.conf <<'ZRAMEOF'
+[zram0]
+zram-size = min(ram / 2, 8192)
+compression-algorithm = zstd
+ZRAMEOF
+
+# ── gamemode configuration ────────────────────────────────────────────────────
+# Applied when a game calls gamemoderun or uses the gamemode SDL hook.
+# renice/ioprio: game process gets higher CPU + I/O scheduling priority.
+# gpu: switches AMD GPU to high-performance power profile during gameplay.
+cat > /etc/gamemode.ini <<'GAMEMODEEOF'
+[general]
+renice = 10
+ioprio = 0
+
+[cpu]
+park_cores = no
+pin_cores = yes
+
+[gpu]
+apply_gpu_optimisations = accept-responsibility
+amd_performance_level = high
+GAMEMODEEOF
 
 # Brave Browser — replaces Firefox
 dnf5 remove -y firefox || true
