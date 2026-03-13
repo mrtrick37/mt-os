@@ -9,6 +9,7 @@ dnf5 install -y mesa-dri-drivers mesa-vulkan-drivers
 # ...existing code...
 #!/bin/bash
 
+
 set -ouex pipefail
 
 # Add rpmfusion free and nonfree repositories for Fedora 43 and 44
@@ -17,12 +18,13 @@ dnf5 install -y https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-r
 dnf5 install -y https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-44.noarch.rpm || true
 dnf5 install -y https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-44.noarch.rpm || true
 
-### Pull all upstream package updates
-# Exclude kernel packages — the stock kernel is replaced by CachyOS below,
-# and upgrading it here would trigger dracut in the %posttrans scriptlet which
-# fails in container builds (EXDEV cross-device rename via tmpfs /tmp).
-# Exclude gamescope* — conflicts with Bazzite's gamescope-libs-ba147.
+# Always upgrade all packages (except kernel/gamescope) before graphics/mesa installs
 dnf5 upgrade -y --exclude='kernel*' --exclude='gamescope*'
+
+# Ensure latest mesa and graphics drivers
+dnf5 upgrade -y mesa* mesa-dri-drivers mesa-vulkan-drivers mesa-libGL mesa-libGLU mesa-libEGL mesa-libgbm mesa-libxatracker mesa-libOpenCL || true
+dnf5 upgrade -y xorg-x11-drv-amdgpu xorg-x11-drv-nouveau xorg-x11-drv-intel xorg-x11-drv-vesa xorg-x11-drv-vmware xorg-x11-drv-qxl xorg-x11-drv-nvidia || true
+
 
 ### CachyOS kernel — replaces the stock Fedora kernel for better desktop/gaming performance
 # CachyOS COPR: https://copr.fedorainfracloud.org/coprs/bieszczaders/kernel-cachyos/
