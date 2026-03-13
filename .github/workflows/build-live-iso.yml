@@ -1,0 +1,34 @@
+name: Build Live ISO
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build-live-iso:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Fedora container
+        uses: fedora-actions/setup-fedora@v2
+        with:
+          version: 39
+
+      - name: Install dependencies
+        run: |
+          sudo dnf install -y podman just xorriso squashfs-tools mtools dosfstools
+
+      - name: Build Live ISO
+        run: |
+          just build-live-iso
+
+      - name: Upload ISO artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: kyth-live-iso
+          path: output/live-iso/kyth-live.iso
+          if-no-files-found: error
