@@ -134,11 +134,11 @@ build-base base_image="ghcr.io/ublue-os/kinoite-main:43":
         --load \
         --pull \
         --build-arg BASE_IMAGE={{ base_image }} \
-        --tag localhost/kyth:latest \
+        --tag ghcr.io/mrtrick37/kyth:latest \
         build_base/
 
 # Build the image using the specified parameters
-build $target_image=image_name $tag=default_tag: build-base
+build $target_image="ghcr.io/mrtrick37/kyth" $tag=default_tag: build-base
     #!/usr/bin/env bash
 
     BUILD_ARGS=()

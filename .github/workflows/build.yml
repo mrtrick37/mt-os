@@ -107,7 +107,7 @@ jobs:
         run: |
           docker build \
             --build-arg BASE_IMAGE=ghcr.io/ublue-os/kinoite-main:43 \
-            --tag localhost/kyth-base:stable \
+            --tag ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:${{ env.DEFAULT_TAG }} \
             build_base/
 
       - name: Build Image
@@ -145,19 +145,19 @@ jobs:
         timeout-minutes: 60
         run: |
           echo "${{ github.token }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
-          IMAGE_FULL="${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}"
+          IMAGE_FULL="ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}"
           DIGEST=""
           for tag in ${{ steps.metadata.outputs.tags }}; do
             for attempt in 1 2 3; do
-              echo "Pushing ${{ env.IMAGE_NAME }}:$tag (attempt $attempt)..."
-              if docker push "${{ env.IMAGE_NAME }}:$tag"; then
+              echo "Pushing $IMAGE_FULL:$tag (attempt $attempt)..."
+              if docker push "$IMAGE_FULL:$tag"; then
                 break
               fi
               [ $attempt -lt 3 ] && sleep 30
             done
           done
           # Capture digest of the primary tag for cosign
-          DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "${{ env.IMAGE_NAME }}:${{ env.DEFAULT_TAG }}" 2>/dev/null | cut -d@ -f2 || true)
+          DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "$IMAGE_FULL:${{ env.DEFAULT_TAG }}" 2>/dev/null | cut -d@ -f2 || true)
           echo "digest=${DIGEST}" >> $GITHUB_OUTPUT
 
       # This section is optional and only needs to be enabled if you plan on distributing
