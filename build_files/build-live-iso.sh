@@ -15,6 +15,7 @@
 
 set -euo pipefail
 
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 OUTPUT_DIR="${REPO_ROOT}/output/live-iso"
@@ -25,6 +26,18 @@ TMPDIR_BASE="${TMPDIR:-/var/tmp}"
 WORK=$(mktemp -d -p "${TMPDIR_BASE}" kyth-live.XXXXXXXXXX)
 ROOTFS="${WORK}/rootfs"
 ISO_DIR="${WORK}/iso"
+
+# Container engine detection
+CONTAINER_ENGINE=""
+if command -v podman &>/dev/null; then
+    CONTAINER_ENGINE="podman"
+elif command -v docker &>/dev/null && docker info &>/dev/null; then
+    CONTAINER_ENGINE="docker"
+else
+    echo "ERROR: No working container engine found (podman or docker)." >&2
+    exit 1
+fi
+echo "==> Using container engine: ${CONTAINER_ENGINE}"
 
 cleanup() {
     echo "==> Cleaning up ${WORK}"
@@ -54,35 +67,66 @@ mkdir -p \
 
 # ── 1. Build live variant container ─────────────────────────────────────────
 echo "==> Building live container variant (this takes a while)"
-podman build \
-    --userns=host \
-    -f "${SCRIPT_DIR}/Containerfile.live" \
-    -t kyth-live:build \
-    "${REPO_ROOT}"
+if [[ "${CONTAINER_ENGINE}" == "podman" ]]; then
+    podman build \
+        --userns=host \
+        -f "${SCRIPT_DIR}/Containerfile.live" \
+        -t kyth-live:build \
+        "${REPO_ROOT}"
+else
+    docker build \
+        -f "${SCRIPT_DIR}/Containerfile.live" \
+        -t kyth-live:build \
+        "${REPO_ROOT}"
+fi
 
 # ── 2. Export container filesystem ──────────────────────────────────────────
 echo "==> Exporting container filesystem to ${ROOTFS} (this may take several minutes...)"
-CONTAINER=$(podman create --userns=host kyth-live:build /bin/true)
-if command -v pv >/dev/null 2>&1; then
-    echo "==> Using pv to show export progress."
-    podman export "${CONTAINER}" | pv | \
-        sudo tar -xC "${ROOTFS}" \
-            --exclude='proc/*' \
-            --exclude='sys/*' \
-            --exclude='dev/*' \
-            --exclude='run/*' \
-            2> >(grep -v 'xattr' >&2)
+if [[ "${CONTAINER_ENGINE}" == "podman" ]]; then
+    CONTAINER=$(podman create --userns=host kyth-live:build /bin/true)
+    if command -v pv >/dev/null 2>&1; then
+        echo "==> Using pv to show export progress."
+        podman export "${CONTAINER}" | pv | \
+            sudo tar -xC "${ROOTFS}" \
+                --exclude='proc/*' \
+                --exclude='sys/*' \
+                --exclude='dev/*' \
+                --exclude='run/*' \
+                2> >(grep -v 'xattr' >&2)
+    else
+        podman export "${CONTAINER}" | \
+            sudo tar -xC "${ROOTFS}" \
+                --exclude='proc/*' \
+                --exclude='sys/*' \
+                --exclude='dev/*' \
+                --exclude='run/*' \
+                2> >(grep -v 'xattr' >&2)
+    fi
+    echo "==> Container export complete."
+    podman rm "${CONTAINER}"
 else
-    podman export "${CONTAINER}" | \
-        sudo tar -xC "${ROOTFS}" \
-            --exclude='proc/*' \
-            --exclude='sys/*' \
-            --exclude='dev/*' \
-            --exclude='run/*' \
-            2> >(grep -v 'xattr' >&2)
+    CONTAINER=$(docker create kyth-live:build /bin/true)
+    if command -v pv >/dev/null 2>&1; then
+        echo "==> Using pv to show export progress."
+        docker export "${CONTAINER}" | pv | \
+            sudo tar -xC "${ROOTFS}" \
+                --exclude='proc/*' \
+                --exclude='sys/*' \
+                --exclude='dev/*' \
+                --exclude='run/*' \
+                2> >(grep -v 'xattr' >&2)
+    else
+        docker export "${CONTAINER}" | \
+            sudo tar -xC "${ROOTFS}" \
+                --exclude='proc/*' \
+                --exclude='sys/*' \
+                --exclude='dev/*' \
+                --exclude='run/*' \
+                2> >(grep -v 'xattr' >&2)
+    fi
+    echo "==> Container export complete."
+    docker rm "${CONTAINER}"
 fi
-echo "==> Container export complete."
-podman rm "${CONTAINER}"
 
 # ── 3. Kernel + live initramfs ───────────────────────────────────────────────
 echo "==> Locating kernel and live initramfs"

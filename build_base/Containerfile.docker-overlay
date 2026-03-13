@@ -1,0 +1,20 @@
+# bootc overlay Containerfile for Docker and Docker Compose
+FROM registry.fedoraproject.org/fedora:43
+
+# Install Docker and Docker Compose
+RUN dnf5 install -y docker docker-compose && \
+    dnf5 clean all
+
+# Enable Docker service if present
+RUN if [ -x /usr/bin/systemctl ]; then \
+        systemctl enable docker || true; \
+    fi
+
+# Enable Docker service (will be available after overlay is applied)
+RUN systemctl enable docker || true
+
+# Optional: Add documentation label
+LABEL org.kyth.overlay="docker-docker-compose"
+LABEL org.opencontainers.image.description="bootc overlay for Docker and Docker Compose"
+
+# No entrypoint or CMD needed
