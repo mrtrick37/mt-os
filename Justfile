@@ -129,7 +129,11 @@ build-base base_image="ghcr.io/ublue-os/kinoite-main:43":
         echo "$USER is already in the docker group."
     fi
 
-    docker pull {{ base_image }} || true
+    if ! docker image inspect {{ base_image }} >/dev/null 2>&1; then
+        docker pull {{ base_image }}
+    else
+        echo "Base image {{ base_image }} already present locally. Skipping pull."
+    fi
     docker buildx build \
         --load \
         --pull \

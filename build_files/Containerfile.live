@@ -12,8 +12,83 @@ FROM localhost/kyth:latest
 # gparted:        disk utility available on live desktop
 RUN dnf5 install -y dracut-live syslinux grub2-efi-x64 grub2-pc gparted && dnf5 clean all
 
-# ── Ensure Plasma and SDDM are installed ─────────────────────────────────────
-RUN dnf5 install -y plasma-workspace sddm && dnf5 clean all
+
+# ── Ensure Plasma, SDDM, and session dependencies are installed ───────────────
+RUN dnf5 install -y \
+    plasma-workspace \
+    plasma-desktop \
+    sddm \
+    xorg-x11-server-Xorg \
+    xorg-x11-xinit \
+    xorg-x11-drivers \
+    xorg-x11-drv-vesa \
+    xorg-x11-drv-fbdev \
+    xorg-x11-drv-evdev \
+    xorg-x11-drv-libinput \
+    xorg-x11-drv-modesetting \
+    xorg-x11-drv-synaptics \
+    xorg-x11-drv-vmmouse \
+    xorg-x11-drv-vmware \
+    xorg-x11-drv-qxl \
+    xorg-x11-drv-intel \
+    xorg-x11-drv-nouveau \
+    xorg-x11-drv-ati \
+    xorg-x11-drv-amdgpu \
+    xorg-x11-drv-wacom \
+    xorg-x11-drv-openchrome \
+    xorg-x11-drv-sis \
+    xorg-x11-drv-siliconmotion \
+    xorg-x11-drv-voodoo \
+    xorg-x11-drv-geode \
+    xorg-x11-drv-ast \
+    xorg-x11-drv-armsoc \
+    xorg-x11-drv-dummy \
+    xorg-x11-drv-omap \
+    xorg-x11-drv-tdfx \
+    xorg-x11-drv-trident \
+    xorg-x11-drv-v4l \
+    xorg-x11-drv-vesa \
+    xorg-x11-drv-evdev \
+    xorg-x11-drv-libinput \
+    xorg-x11-drv-modesetting \
+    xorg-x11-drv-synaptics \
+    xorg-x11-drv-vmmouse \
+    xorg-x11-drv-vmware \
+    xorg-x11-drv-qxl \
+    xorg-x11-drv-intel \
+    xorg-x11-drv-nouveau \
+    xorg-x11-drv-ati \
+    xorg-x11-drv-amdgpu \
+    xorg-x11-drv-wacom \
+    xorg-x11-drv-openchrome \
+    xorg-x11-drv-sis \
+    xorg-x11-drv-siliconmotion \
+    xorg-x11-drv-voodoo \
+    xorg-x11-drv-geode \
+    xorg-x11-drv-ast \
+    xorg-x11-drv-armsoc \
+    xorg-x11-drv-dummy \
+    xorg-x11-drv-omap \
+    xorg-x11-drv-tdfx \
+    xorg-x11-drv-trident \
+    xorg-x11-drv-v4l \
+    plasma-workspace-x11 \
+    plasma-workspace-wayland \
+    kde-settings-pulseaudio \
+    kde-cli-tools \
+    kde-gtk-config \
+    kwin \
+    konsole \
+    dolphin \
+    ark \
+    kate \
+    gwenview \
+    okular \
+    systemsettings \
+    sddm-breeze \
+    breeze-icon-theme \
+    breeze-cursor-theme \
+    --skip-broken && dnf5 clean all
 
 # ── Enable SDDM and graphical.target ─────────────────────────────────────────
 RUN systemctl enable sddm && systemctl set-default graphical.target
@@ -52,10 +127,20 @@ RUN if [ -f /etc/pam.d/cockpit ]; then \
         sed -i '1s/^/auth\tsufficient\tpam_succeed_if.so user = liveuser\n/' /etc/pam.d/cockpit; \
     fi
 
-# ── SDDM auto-login into Plasma Wayland, Breeze theme ────────────────────────
+# ── SDDM auto-login into Plasma X11 session, Breeze theme ────────────────────
 RUN mkdir -p /etc/sddm.conf.d \
-    && printf '[Autologin]\nUser=liveuser\nSession=plasma\n\n[Theme]\nCurrent=breeze\n' \
-        > /etc/sddm.conf.d/autologin.conf
+    && if [ -f /usr/share/xsessions/plasma.desktop ]; then \
+        session="plasma"; \
+    elif [ -f /usr/share/xsessions/plasma-x11.desktop ]; then \
+        session="plasma-x11"; \
+    elif [ -f /usr/share/wayland-sessions/plasma.desktop ]; then \
+        session="plasma"; \
+    elif [ -f /usr/share/wayland-sessions/plasma-wayland.desktop ]; then \
+        session="plasma-wayland"; \
+    else \
+        session="plasma"; \
+    fi; \
+    printf '[Autologin]\nUser=liveuser\nSession=%s\n\n[Theme]\nCurrent=breeze\n' "$session" > /etc/sddm.conf.d/autologin.conf
 
 # ── Liveuser home: Breeze Dark + "Install Kyth" desktop shortcut ─────────────
 # Disable Steam autostart — it crashes in the live tmpfs environment.
