@@ -3,7 +3,7 @@ FROM scratch AS ctx
 COPY build_files /
 
 # Base Image
-FROM kyth-base:stable
+FROM localhost/kyth-base:stable
 
 # Override upstream OCI labels so downstream tooling (lorax/bootc) sees mt-OS product metadata
 LABEL org.opencontainers.image.title="Kyth"

@@ -95,27 +95,15 @@ RUN mkdir -p /etc/systemd/system/anaconda.service.d \
 # --include embeds kyth.ks at /run/install/ks.cfg for the direct-boot path.
 # TMPDIR=/var/tmp avoids EXDEV cross-device rename errors on tmpfs /tmp.
 RUN KVER=$(ls /usr/lib/modules/ | grep cachyos | head -1) \
-    && if [ -z "$KVER" ]; then \
-        TMPDIR=/var/tmp dracut \
-            --no-hostonly \
-            --add "dmsquash-live livenet anaconda" \
-            --include /etc/anaconda/kyth.ks /run/install/ks.cfg \
-            --no-kernel \
-            --force \
-            /initramfs-live \
-            2> >(grep -Ev 'xattr|fail to copy' >&2); \
-        echo "Live initramfs built with --no-kernel"; \
-    else \
-        TMPDIR=/var/tmp dracut \
-            --no-hostonly \
-            --add "dmsquash-live livenet anaconda" \
-            --include /etc/anaconda/kyth.ks /run/install/ks.cfg \
-            --kver "$KVER" \
-            --force \
-            "/usr/lib/modules/$KVER/initramfs-live" \
-            2> >(grep -Ev 'xattr|fail to copy' >&2); \
-        echo "Live initramfs built for $KVER"; \
-    fi
+    && TMPDIR=/var/tmp dracut \
+        --no-hostonly \
+        --add "dmsquash-live livenet anaconda" \
+        --include /etc/anaconda/kyth.ks /run/install/ks.cfg \
+        --kver "$KVER" \
+        --force \
+        "/usr/lib/modules/$KVER/initramfs-live" \
+        2> >(grep -Ev 'xattr|fail to copy' >&2) \
+    && echo "Live initramfs built for $KVER"
 
 # ── OS-release branding ───────────────────────────────────────────────────────
 RUN sed -i 's/^PRETTY_NAME=.*/PRETTY_NAME="Kyth 43 Live"/' /etc/os-release
