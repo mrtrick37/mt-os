@@ -1,3 +1,4 @@
+# ...existing code...
 #!/bin/bash
 set -euo pipefail
 

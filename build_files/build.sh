@@ -10,7 +10,7 @@ dnf5 install -y \
 # Install AMD and Nvidia drivers
 # AMD drivers (already included in mesa, mesa-dri-drivers, mesa-vulkan-drivers)
 dnf5 install -y mesa-dri-drivers mesa-vulkan-drivers
-# Nvidia driver installation temporarily removed
+# ...existing code...
 #!/bin/bash
 
 set -ouex pipefail
