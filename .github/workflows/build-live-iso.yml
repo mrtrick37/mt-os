@@ -12,12 +12,20 @@ jobs:
     container:
       image: fedora:39
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
       - name: Install dependencies
         run: |
           dnf install -y podman just xorriso squashfs-tools mtools dosfstools git
 
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - name: Ensure permissions and directories
+        run: |
+          mkdir -p output/live-iso
+          chmod -R 777 output
+          chmod -R 777 build_files
+          chmod +x build_files/build-live-iso.sh
+          chmod +x build_files/build.sh
 
       - name: Build Live ISO
         run: |
