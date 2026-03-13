@@ -32,7 +32,15 @@ done
 
 # ── Open browser in fullscreen and auto-login ───────────────────────────────
 # Launch Brave browser in fullscreen, auto-login as liveuser, and redirect to Anaconda WebUI.
-brave-browser --app=http://localhost:9090/anaconda-webui --start-fullscreen &
+if command -v brave-browser >/dev/null 2>&1; then
+    brave-browser --app=http://localhost:9090/anaconda-webui --start-fullscreen &
+elif command -v firefox >/dev/null 2>&1; then
+    firefox --kiosk http://localhost:9090/anaconda-webui &
+else
+    notify-send --icon=dialog-error "Install Kyth" "No supported browser found (Brave or Firefox). Please install a browser and restart the installer." 2>/dev/null || true
+    echo "ERROR: No supported browser found (Brave or Firefox)." >&2
+    exit 1
+fi
 sleep 2
 # Attempt auto-login using xdotool (if available)
 if command -v xdotool >/dev/null 2>&1; then

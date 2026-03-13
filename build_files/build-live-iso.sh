@@ -15,6 +15,12 @@
 
 set -euo pipefail
 
+# Ensure base image exists locally before building live ISO
+if ! docker image inspect localhost/kyth:latest >/dev/null 2>&1; then
+    echo "Base image localhost/kyth:latest not found. Building base image..."
+    just build-base || { echo "Failed to build base image."; exit 1; }
+fi
+
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
@@ -28,23 +34,18 @@ ROOTFS="${WORK}/rootfs"
 ISO_DIR="${WORK}/iso"
 
 # Container engine detection
-CONTAINER_ENGINE=""
-if command -v podman &>/dev/null; then
-    CONTAINER_ENGINE="podman"
-elif command -v docker &>/dev/null && docker info &>/dev/null; then
-    CONTAINER_ENGINE="docker"
-else
-    echo "ERROR: No working container engine found (podman or docker)." >&2
+if ! command -v docker &>/dev/null || ! docker info &>/dev/null; then
+    echo "ERROR: Docker is not installed or not running." >&2
     exit 1
 fi
-echo "==> Using container engine: ${CONTAINER_ENGINE}"
+echo "==> Using container engine: docker"
 
 cleanup() {
     echo "==> Cleaning up ${WORK}"
     sudo rm -rf "${WORK}" 2>/dev/null || true
-    podman rmi kyth-live:build 2>/dev/null || true
+    docker rmi kyth-live:build 2>/dev/null || true
     # Deep cleanup: remove all unused containers, images, volumes, networks, and build cache
-    podman system prune -af 2>/dev/null || true
+    docker system prune -af 2>/dev/null || true
 }
 trap cleanup EXIT
 
@@ -67,66 +68,34 @@ mkdir -p \
 
 # ── 1. Build live variant container ─────────────────────────────────────────
 echo "==> Building live container variant (this takes a while)"
-if [[ "${CONTAINER_ENGINE}" == "podman" ]]; then
-    podman build \
-        --userns=host \
-        -f "${SCRIPT_DIR}/Containerfile.live" \
-        -t kyth-live:build \
-        "${REPO_ROOT}"
-else
-    docker build \
-        -f "${SCRIPT_DIR}/Containerfile.live" \
-        -t kyth-live:build \
-        "${REPO_ROOT}"
-fi
+docker build \
+    -f "${SCRIPT_DIR}/Containerfile.live" \
+    -t kyth-live:build \
+    "${REPO_ROOT}"
 
 # ── 2. Export container filesystem ──────────────────────────────────────────
 echo "==> Exporting container filesystem to ${ROOTFS} (this may take several minutes...)"
-if [[ "${CONTAINER_ENGINE}" == "podman" ]]; then
-    CONTAINER=$(podman create --userns=host kyth-live:build /bin/true)
-    if command -v pv >/dev/null 2>&1; then
-        echo "==> Using pv to show export progress."
-        podman export "${CONTAINER}" | pv | \
-            sudo tar -xC "${ROOTFS}" \
-                --exclude='proc/*' \
-                --exclude='sys/*' \
-                --exclude='dev/*' \
-                --exclude='run/*' \
-                2> >(grep -v 'xattr' >&2)
-    else
-        podman export "${CONTAINER}" | \
-            sudo tar -xC "${ROOTFS}" \
-                --exclude='proc/*' \
-                --exclude='sys/*' \
-                --exclude='dev/*' \
-                --exclude='run/*' \
-                2> >(grep -v 'xattr' >&2)
-    fi
-    echo "==> Container export complete."
-    podman rm "${CONTAINER}"
+CONTAINER=$(docker create kyth-live:build /bin/true)
+if command -v pv >/dev/null 2>&1; then
+    echo "==> Using pv to show export progress."
+    docker export "${CONTAINER}" | pv | \
+        sudo tar -xC "${ROOTFS}" \
+            --exclude='proc/*' \
+            --exclude='sys/*' \
+            --exclude='dev/*' \
+            --exclude='run/*' \
+            2> >(grep -v 'xattr' >&2)
 else
-    CONTAINER=$(docker create kyth-live:build /bin/true)
-    if command -v pv >/dev/null 2>&1; then
-        echo "==> Using pv to show export progress."
-        docker export "${CONTAINER}" | pv | \
-            sudo tar -xC "${ROOTFS}" \
-                --exclude='proc/*' \
-                --exclude='sys/*' \
-                --exclude='dev/*' \
-                --exclude='run/*' \
-                2> >(grep -v 'xattr' >&2)
-    else
-        docker export "${CONTAINER}" | \
-            sudo tar -xC "${ROOTFS}" \
-                --exclude='proc/*' \
-                --exclude='sys/*' \
-                --exclude='dev/*' \
-                --exclude='run/*' \
-                2> >(grep -v 'xattr' >&2)
-    fi
-    echo "==> Container export complete."
-    docker rm "${CONTAINER}"
+    docker export "${CONTAINER}" | \
+        sudo tar -xC "${ROOTFS}" \
+            --exclude='proc/*' \
+            --exclude='sys/*' \
+            --exclude='dev/*' \
+            --exclude='run/*' \
+            2> >(grep -v 'xattr' >&2)
 fi
+echo "==> Container export complete."
+docker rm "${CONTAINER}"
 
 # ── 3. Kernel + live initramfs ───────────────────────────────────────────────
 echo "==> Locating kernel and live initramfs"

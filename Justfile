@@ -134,7 +134,7 @@ build-base base_image="ghcr.io/ublue-os/kinoite-main:43":
         --load \
         --pull \
         --build-arg BASE_IMAGE={{ base_image }} \
-        --tag kyth-base:stable \
+        --tag localhost/kyth:latest \
         build_base/
 
 # Build the image using the specified parameters
@@ -359,9 +359,9 @@ run-live-iso:
     echo "Connect to http://localhost:${port}"
 
     (sleep 30 && xdg-open http://localhost:"$port") &
-    podman run \
+    docker run \
         --rm --privileged \
-        --pull=newer \
+        --pull always \
         --publish "127.0.0.1:${port}:8006" \
         --env "CPU_CORES=4" \
         --env "RAM_SIZE=8G" \
