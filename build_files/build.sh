@@ -103,9 +103,6 @@ rpm -qa | grep -E '^kernel' | grep -v cachyos | xargs -r rpm --nodeps -e 2>/dev/
     dnf5 install -y \
         p7zip \
         p7zip-plugins \
-        podman-compose \
-        podman-machine \
-        podman-tui \
         qemu \
         qemu-char-spice \
         qemu-device-display-virtio-gpu \
@@ -404,7 +401,7 @@ code --no-sandbox --user-data-dir=/tmp/vscode-install \
 mkdir -p /etc/environment.d
 echo 'STEAM_DISABLE_BROWSER_SANDBOX=1' > /etc/environment.d/steam.conf
 
-systemctl enable podman.socket
+systemctl enable libvirtd.socket
 systemctl enable libvirtd.socket
 
 # Homebrew — system-wide install to /home/linuxbrew (= /var/home/linuxbrew at runtime)

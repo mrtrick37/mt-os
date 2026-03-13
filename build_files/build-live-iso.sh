@@ -28,7 +28,7 @@ ISO_DIR="${WORK}/iso"
 cleanup() {
     echo "==> Cleaning up ${WORK}"
     sudo rm -rf "${WORK}" 2>/dev/null || true
-    podman rmi localhost/kyth-live:build 2>/dev/null || true
+    docker rmi kyth-live:build 2>/dev/null || true
 }
 trap cleanup EXIT
 
@@ -51,22 +51,22 @@ mkdir -p \
 
 # ── 1. Build live variant container ─────────────────────────────────────────
 echo "==> Building live container variant (this takes a while)"
-podman build \
+docker build \
     -f "${SCRIPT_DIR}/Containerfile.live" \
-    -t localhost/kyth-live:build \
+    -t kyth-live:build \
     "${REPO_ROOT}"
 
 # ── 2. Export container filesystem ──────────────────────────────────────────
 echo "==> Exporting container filesystem to ${ROOTFS}"
-CONTAINER=$(podman create localhost/kyth-live:build /bin/true)
-podman export "${CONTAINER}" \
+CONTAINER=$(docker create kyth-live:build /bin/true)
+docker export "${CONTAINER}" \
     | sudo tar -xC "${ROOTFS}" \
         --exclude='./proc/*' \
         --exclude='./sys/*' \
         --exclude='./dev/*' \
         --exclude='./run/*' \
         2> >(grep -v 'xattr' >&2)
-podman rm "${CONTAINER}"
+docker rm "${CONTAINER}"
 
 # ── 3. Kernel + live initramfs ───────────────────────────────────────────────
 echo "==> Locating kernel and live initramfs"
