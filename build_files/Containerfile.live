@@ -18,7 +18,6 @@ RUN dnf5 install -y dracut-live syslinux grub2-efi-x64 grub2-pc gparted && dnf5 
 RUN dnf5 install -y \
         --releasever=44 \
         --setopt=install_weak_deps=False \
-        --disablerepo='rpmfusion*' \
         anaconda-webui \
         anaconda-core \
         anaconda-tui \

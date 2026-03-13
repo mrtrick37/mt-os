@@ -11,6 +11,12 @@ dnf5 install -y mesa-dri-drivers mesa-vulkan-drivers
 
 set -ouex pipefail
 
+# Add rpmfusion free and nonfree repositories for Fedora 43 and 44
+dnf5 install -y https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-43.noarch.rpm || true
+dnf5 install -y https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-43.noarch.rpm || true
+dnf5 install -y https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-44.noarch.rpm || true
+dnf5 install -y https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-44.noarch.rpm || true
+
 ### Pull all upstream package updates
 # Exclude kernel packages — the stock kernel is replaced by CachyOS below,
 # and upgrading it here would trigger dracut in the %posttrans scriptlet which
