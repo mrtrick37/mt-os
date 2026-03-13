@@ -123,9 +123,14 @@ rpm -qa | grep -E '^kernel' | grep -v cachyos | xargs -r rpm --nodeps -e 2>/dev/
 ## Gaming tweaks — Bazzite-style
 ## Gaming tweaks — Bazzite-style
 # Install gamescope from Fedora BEFORE enabling Bazzite COPR.
-# The Bazzite COPR ships gamescope-libs-ba147 which conflicts with the stock
-# gamescope package. Installing first pins us to the Fedora version.
-dnf5 install -y gamescope
+        dnf5 install -y akmods kmodtool grubby nvidia-kmod-common --repo=rpmfusion-nonfree --repo=rpmfusion-nonfree-updates --repo=rpmfusion-free --skip-unavailable --setopt=optional_metadata_types=filelists --skip-broken || {
+            echo "Failed to install NVIDIA dependencies. Attempting fallback." >&2
+            echo "Trying grubby-minimal and improved options..."
+            dnf5 install -y akmods kmodtool grubby-minimal nvidia-kmod-common --repo=rpmfusion-nonfree --repo=rpmfusion-nonfree-updates --repo=rpmfusion-free --skip-unavailable --setopt=optional_metadata_types=filelists --skip-broken || {
+                echo "Fallback also failed."
+                exit 1
+            }
+        }
 
 # Enable COPRs for gaming packages
 dnf5 copr enable -y ublue-os/bazzite
