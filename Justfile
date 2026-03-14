@@ -113,6 +113,60 @@ clean-live-cache:
 [group('Utility')]
 clean-all: clean-output clean-docker clean-live-cache
 
+# Nuclear purge: reclaim maximum disk space.
+# Removes ALL _build* temp dirs, old ISOs, stale /var/tmp build dirs,
+# dangling Docker/Podman image layers, and Docker build cache.
+# Keeps: current output/bootiso, output/live-iso, and all named images.
+[group('Utility')]
+purge:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    echo "── Stale _build* temp dirs in project root ───────────────────────────────"
+    shopt -s nullglob
+    build_dirs=( _build* )
+    if [[ ${#build_dirs[@]} -gt 0 ]]; then
+        sudo rm -rf "${build_dirs[@]}"
+        printf '  removed: %s\n' "${build_dirs[@]}"
+    else
+        echo "  (none)"
+    fi
+
+    echo ""
+    echo "── /var/tmp/kyth-live.* build dirs ──────────────────────────────────────"
+    if sudo find /var/tmp -maxdepth 1 -name "kyth-live.*" -print -exec rm -rf {} + 2>/dev/null | grep -q .; then
+        echo "  Done"
+    else
+        echo "  (none)"
+    fi
+
+    echo ""
+    echo "── Old output artefacts (previous-built-iso, archive, manifest backups) ──"
+    sudo rm -rf output/previous-built-iso output/archive 2>/dev/null || true
+    sudo rm -f  output/manifest-iso.json.bak 2>/dev/null || true
+    sudo chown -R "$(id -u):$(id -g)" output/ 2>/dev/null || true
+    echo "  Done"
+
+    echo ""
+    echo "── Docker build cache ────────────────────────────────────────────────────"
+    docker builder prune -f
+
+    echo ""
+    echo "── Docker dangling image layers ──────────────────────────────────────────"
+    docker image prune -f
+
+    echo ""
+    echo "── Podman dangling image layers ──────────────────────────────────────────"
+    if command -v podman &>/dev/null; then
+        podman image prune -f
+    else
+        echo "  (podman not found)"
+    fi
+
+    echo ""
+    echo "── Result ────────────────────────────────────────────────────────────────"
+    df -h "$(pwd)"
+
 # Safely remove local build temp dirs and fix ownership of output/
 [group('Utility')]
 cleanup:

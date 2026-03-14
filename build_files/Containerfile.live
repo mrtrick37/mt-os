@@ -16,7 +16,7 @@ FROM localhost/kyth:latest
 # plymouth-plugin-script: provides /usr/lib64/plymouth/script.so for script themes
 # librsvg2-tools:       rsvg-convert used to render kyth-logo.svg → PNG for Plymouth
 RUN dnf5 install -y dracut-live syslinux grub2-efi-x64 grub2-efi-x64-modules grub2-pc gparted \
-    plymouth-plugin-script librsvg2-tools && dnf5 clean all
+    plymouth-plugin-script librsvg2-tools podman && dnf5 clean all
 
 # ── Calamares graphical installer ─────────────────────────────────────────────
 # calamares pulls kpmcore (partition module) as a dependency.

@@ -172,6 +172,23 @@ def run():
     _log("unmounting partition module mounts")
     _umount_recursive(old_root_mount)
 
+    # Also unmount any other partitions of the target disk that may be mounted
+    # (e.g. swap, EFI) — the partition module may have mounted more than rootMountPoint.
+    _log(f"unmounting any remaining mounts on {disk}")
+    try:
+        lsblk = subprocess.run(
+            ["lsblk", "-n", "-o", "MOUNTPOINT", disk],
+            capture_output=True, text=True, check=True,
+        )
+        for mp in lsblk.stdout.splitlines():
+            mp = mp.strip()
+            if mp and mp != "[SWAP]":
+                _umount_recursive(mp)
+        # Deactivate swap partitions on the disk
+        subprocess.run(["swapoff", "--all"], capture_output=True)
+    except subprocess.CalledProcessError:
+        pass
+
     # ── 3. Run bootc install to-disk ─────────────────────────────────────────
     # The Calamares partition exec job already formatted the disk before this
     # module runs.  Destroy its partition table and filesystem signatures so
@@ -181,34 +198,59 @@ def run():
         ["sgdisk", "--zap-all", disk],   # destroy GPT + MBR partition tables
         ["wipefs", "-a", disk],           # remove any remaining filesystem signatures
         ["partprobe", disk],              # tell the kernel to reread the (now empty) table
+        ["udevadm", "settle"],            # wait for udev to finish processing events
     ):
         try:
             subprocess.run(cmd, check=True, capture_output=True)
         except subprocess.CalledProcessError:
             pass  # best-effort; bootc will fail with a clear error if disk is unusable
 
+    # Pre-flight: confirm the bundled OCI image directory exists.
+    imgref_path = BUNDLED_IMGREF.removeprefix("oci:")
+    if not os.path.isdir(imgref_path):
+        return (
+            "Installation error",
+            f"Bundled OS image not found at {imgref_path}.\n"
+            "The live ISO may be incomplete.",
+        )
+    _log(f"source image confirmed at {imgref_path}")
+
     _log(f"running: bootc install to-disk {disk}")
     libcalamares.job.setprogress(0.03)
 
+    import tempfile as _tempfile
+    log_fd, log_path = _tempfile.mkstemp(prefix="bootc-install.", suffix=".log")
+    os.close(log_fd)
+    _log(f"bootc output log: {log_path}")
+
     try:
-        result = subprocess.run(
-            [
-                "bootc", "install", "to-disk",
-                "--source-imgref", BUNDLED_IMGREF,
-                "--target-imgref", TARGET_IMGREF,
-                disk,
-            ],
-            check=True,
-            capture_output=True,
-            text=True,
-        )
+        with open(log_path, "w") as log_fh:
+            result = subprocess.run(
+                [
+                    "bootc", "install", "to-disk",
+                    "--source-imgref", BUNDLED_IMGREF,
+                    "--target-imgref", TARGET_IMGREF,
+                    "--filesystem", "xfs",
+                    "--skip-fetch-check",   # don't reach out to registry during install
+                    disk,
+                ],
+                check=True,
+                stdout=log_fh,
+                stderr=subprocess.STDOUT,  # merge stderr into same log
+                env={**os.environ, "TMPDIR": "/var/tmp"},
+            )
     except subprocess.CalledProcessError as e:
-        detail = (e.stderr or e.stdout or "").strip()
-        _log(f"bootc stderr: {detail}")
+        try:
+            with open(log_path) as lf:
+                detail = lf.read().strip()
+        except OSError:
+            detail = ""
+        _log(f"bootc exit code: {e.returncode}")
+        _log(f"bootc output: {detail!r}")
+        body = detail if detail else f"No output captured. Check {log_path} and journalctl for details."
         return (
             "Installation failed",
-            f"bootc install to-disk failed (exit code {e.returncode}).\n\n"
-            + (detail if detail else "Check that the selected disk is not in use and try again."),
+            f"bootc install to-disk failed (exit code {e.returncode}).\n\n{body}",
         )
 
     libcalamares.job.setprogress(0.90)
