@@ -1,6 +1,5 @@
 ---
-type:      jobmodule
-name:      kyth-bootcinstall
-interface: python
-script:    main.py
-requires:  []
+type:       "job"
+name:       "kyth-bootcinstall"
+interface:  "python"
+script:     "main.py"

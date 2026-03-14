@@ -1,6 +1,5 @@
 ---
-type:      jobmodule
-name:      kyth-umount
-interface: python
-script:    main.py
-requires:  []
+type:       "job"
+name:       "kyth-umount"
+interface:  "python"
+script:     "main.py"

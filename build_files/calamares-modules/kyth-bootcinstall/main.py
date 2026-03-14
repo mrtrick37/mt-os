@@ -179,17 +179,24 @@ def run():
     libcalamares.job.setprogress(0.03)
 
     try:
-        _run([
-            "bootc", "install", "to-disk",
-            "--source-imgref", BUNDLED_IMGREF,
-            "--target-imgref", TARGET_IMGREF,
-            disk,
-        ])
+        result = subprocess.run(
+            [
+                "bootc", "install", "to-disk",
+                "--source-imgref", BUNDLED_IMGREF,
+                "--target-imgref", TARGET_IMGREF,
+                disk,
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
     except subprocess.CalledProcessError as e:
+        detail = (e.stderr or e.stdout or "").strip()
+        _log(f"bootc stderr: {detail}")
         return (
             "Installation failed",
-            f"bootc install to-disk failed (exit code {e.returncode}).\n"
-            "Check that the selected disk is not in use and try again.",
+            f"bootc install to-disk failed (exit code {e.returncode}).\n\n"
+            + (detail if detail else "Check that the selected disk is not in use and try again."),
         )
 
     libcalamares.job.setprogress(0.90)

@@ -129,9 +129,9 @@ COPY build_files/calamares/modules              /etc/calamares/modules
 #   to create the user account and write the hostname.
 # kyth-umount: recursive umount of the outer root-partition mount when done.
 COPY build_files/calamares-modules/kyth-bootcinstall \
-     /usr/lib/calamares/modules/kyth-bootcinstall
+     /usr/lib64/calamares/modules/kyth-bootcinstall
 COPY build_files/calamares-modules/kyth-umount \
-     /usr/lib/calamares/modules/kyth-umount
+     /usr/lib64/calamares/modules/kyth-umount
 
 # ── Kyth Calamares launcher (desktop icon handler) ────────────────────────────
 # Wraps 'sudo -E calamares' so liveuser's passwordless sudo runs it as root
