@@ -110,18 +110,16 @@ jobs:
             --tag ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:${{ env.DEFAULT_TAG }} \
             build_base/
 
-      - name: Build Image
-        id: build_image
-        uses: redhat-actions/buildah-build@7a95fa7ee0f02d552a32753e7414641a04307056 # v2
-        with:
-          containerfiles: |
-            build_base/Containerfile
-          # Postfix image name with -custom to make it a little more descriptive
-          # Syntax: https://docs.github.com/en/actions/learn-github-actions/expressions#format
-          image: ${{ env.IMAGE_NAME }}
-          tags: ${{ steps.metadata.outputs.tags }}
-          labels: ${{ steps.metadata.outputs.labels }}
-          oci: false
+      # Tag the docker-built image with all metadata tags (date variants, etc.)
+      # so the Push To GHCR step can find them in the docker store.
+      # The previous buildah-build step was building the same Containerfile into
+      # a separate buildah store, making the date tags invisible to docker push.
+      - name: Tag date variants
+        run: |
+          IMAGE_FULL="ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}"
+          for tag in ${{ steps.metadata.outputs.tags }}; do
+            docker tag "${IMAGE_FULL}:${{ env.DEFAULT_TAG }}" "${IMAGE_FULL}:${tag}" || true
+          done
 
       # These `if` statements are so that pull requests for your custom images do not make it publish any packages under your name without you knowing
       # They also check if the runner is on the default branch so that things like the merge queue (if you enable it), are going to work
