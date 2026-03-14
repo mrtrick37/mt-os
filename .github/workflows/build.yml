@@ -19,6 +19,10 @@ env:
   IMAGE_NAME: "${{ github.event.repository.name }}"  # output image name, usually same as repo name
   IMAGE_REGISTRY: "ghcr.io/${{ github.repository_owner }}"  # do not edit
   DEFAULT_TAG: "latest"
+  # Opt into Node.js 24 for all actions — required before June 2026 when Node 20 is dropped.
+  # Remove this line once docker/login-action and docker/metadata-action pins are updated
+  # to SHA-pinned releases that natively target Node.js 24.
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref || github.run_id }}
