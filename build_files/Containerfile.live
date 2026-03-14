@@ -5,12 +5,13 @@
 FROM localhost/kyth:latest
 
 # ── Live boot + BIOS/EFI boot helpers ────────────────────────────────────────
-# dracut-live:    dmsquash-live module for squashfs live boot
-# syslinux:       isolinux.bin for BIOS El Torito boot
-# grub2-efi-x64:  grubx64.efi for UEFI boot
-# grub2-pc:       i386-pc GRUB modules for BIOS GRUB2
-# gparted:        disk utility available on live desktop
-RUN dnf5 install -y dracut-live syslinux grub2-efi-x64 grub2-pc gparted && dnf5 clean all
+# dracut-live:          dmsquash-live module for squashfs live boot
+# syslinux:             isolinux.bin for BIOS El Torito boot
+# grub2-efi-x64:        grubx64.efi pre-built EFI binary
+# grub2-efi-x64-modules: .mod files grub2-mkimage needs to build BOOTX64.EFI
+# grub2-pc:             i386-pc GRUB modules for BIOS GRUB2
+# gparted:              disk utility available on live desktop
+RUN dnf5 install -y dracut-live syslinux grub2-efi-x64 grub2-efi-x64-modules grub2-pc gparted && dnf5 clean all
 
 
 # ── Ensure Plasma, SDDM, and session dependencies are installed ───────────────

@@ -297,7 +297,13 @@ EMBEDEOF
     GRUB_EFI_BUILT=true
     echo "    UEFI EFI binary: built with grub2-mkimage (x86_64-efi)"
 else
-    echo "WARNING: grub2-mkimage or /usr/lib/grub/x86_64-efi not found — UEFI boot will not work" >&2
+    # Abort rather than silently producing an unbootable ISO.
+    # On the host: sudo dnf install grub2-tools-minimal
+    # grub2-efi-x64-modules is installed in the container and should be
+    # picked up via the ROOTFS fallback above.
+    echo "ERROR: Cannot build BOOTX64.EFI — grub2-mkimage or x86_64-efi modules not found." >&2
+    echo "       Install on host: sudo dnf install grub2-tools-minimal" >&2
+    exit 1
 fi
 
 # Create a small FAT image containing the EFI files (El Torito EFI boot)
