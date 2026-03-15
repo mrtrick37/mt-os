@@ -41,7 +41,7 @@ echo "  Partition layout that will be created on $TARGET:"
 echo "    p1  1MB    BIOS boot"
 echo "    p2  512MB  EFI"
 echo "    p3  20GB   Scratch (host podman temp during image pull)"
-echo "    p4  rest   Root (Kyth OS — also provides /var/tmp for bootc)"
+echo "    p4  rest   Root (Kyth OS — mounted as /sysroot, provides /var/tmp for bootc)"
 echo ""
 echo "WARNING: ALL DATA on $TARGET will be erased."
 echo ""
@@ -140,7 +140,7 @@ podman \
     --pid=host \
     --security-opt label=disable \
     -v /dev:/dev \
-    -v "${ROOT_MOUNT}:/target" \
+    -v "${ROOT_MOUNT}:/sysroot" \
     -v /run/containers:/run/containers \
     -v /var/lib/containers:/var/lib/containers \
     -v "${STORAGE_CONF}:/etc/containers/storage.conf:ro" \
@@ -148,7 +148,7 @@ podman \
     "$IMAGE" \
     bootc install to-filesystem \
         --source-imgref "containers-storage:${IMAGE}" \
-        /target
+        /sysroot
 
 # ── Done ──────────────────────────────────────────────────────────────────────
 
