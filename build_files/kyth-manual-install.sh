@@ -92,6 +92,13 @@ TMPDIR="$SCRATCH_MOUNT/tmp" podman \
     --tmpdir "$SCRATCH_MOUNT/tmp" \
     pull "$IMAGE"
 
+echo ""
+echo "==> Exporting image to OCI directory on scratch..."
+mkdir -p "$SCRATCH_MOUNT/kyth-oci"
+podman \
+    --root "$SCRATCH_MOUNT/containers" \
+    push "$IMAGE" "oci:${SCRATCH_MOUNT}/kyth-oci:latest"
+
 # ── Mount target root and install ─────────────────────────────────────────────
 
 echo ""
@@ -111,11 +118,11 @@ podman \
     --security-opt label=disable \
     -v /dev:/dev \
     -v "${ROOT_MOUNT}:/target" \
-    -v "$SCRATCH_MOUNT/containers:/var/lib/containers" \
     -v /run/containers:/run/containers \
+    -v "${SCRATCH_MOUNT}/kyth-oci:/var/kyth-oci:ro" \
     "$IMAGE" \
     bootc install to-filesystem \
-        --source-imgref "containers-storage:${IMAGE}" \
+        --source-imgref "oci:/var/kyth-oci:latest" \
         /target
 
 # ── Done ──────────────────────────────────────────────────────────────────────
