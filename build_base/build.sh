@@ -112,26 +112,23 @@ EOF
 mkdir -p /usr/lib/kyth
 cat > /usr/lib/kyth/sddm-display-setup <<'SETUPEOF'
 #!/bin/bash
-CONF=/etc/sddm.conf.d/10-display-server.conf
-# Only switch to Wayland if we are confirmed to be on real hardware.
-# If systemd-detect-virt exits non-zero (not a VM), upgrade to Wayland.
-# Any other outcome leaves the X11 default in place.
+# X11 is kept as the display server for both VMs and bare-metal installs.
+# SDDM's Wayland greeter mode (DisplayServer=wayland) requires kwin_wayland to
+# initialise successfully as a compositor, which fails silently on many GPU
+# configurations and leaves a black screen at boot.  Users who want a Wayland
+# KDE session can select "Plasma (Wayland)" from the SDDM session menu, or
+# switch the default in KDE System Settings → Startup → Login Screen (SDDM).
 if systemd-detect-virt -q 2>/dev/null; then
-    # Running in a VM — keep the X11 default already in ${CONF}
     echo "kyth-sddm-setup: VM detected, keeping X11 display server"
 else
-    echo "kyth-sddm-setup: bare-metal detected, switching to Wayland"
-    cat > "${CONF}" <<'EOF'
-[General]
-DisplayServer=wayland
-EOF
+    echo "kyth-sddm-setup: bare-metal detected, keeping X11 display server"
 fi
 SETUPEOF
 chmod +x /usr/lib/kyth/sddm-display-setup
 
 cat > /usr/lib/systemd/system/kyth-sddm-setup.service <<'UNITEOF'
 [Unit]
-Description=Kyth: configure SDDM display server for current hardware
+Description=Kyth: validate SDDM display server configuration
 Before=sddm.service
 After=local-fs.target
 
