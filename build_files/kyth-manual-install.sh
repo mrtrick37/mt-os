@@ -66,20 +66,12 @@ done < <(findmnt -rno TARGET | grep -E "^/var/mnt/tmp" | sort -r || true)
 echo ""
 echo "==> Creating scratch partition on $USB using all free space..."
 
-# Use parted to create a partition in the remaining free space
-START_MB=$(parted -s "$USB" unit MB print free \
-    | awk '/Free Space/ {print $1}' \
-    | tail -1 \
-    | tr -d 'MB')
+# Fix GPT backup header location (common on USB drives written from smaller ISOs)
+echo "    Fixing GPT backup header..."
+sgdisk -e "$USB" 2>/dev/null || true
 
-if [[ -z "$START_MB" ]]; then
-    echo "ERROR: No free space found on $USB." >&2
-    echo "       Check 'parted $USB unit MB print free'" >&2
-    exit 1
-fi
-
-echo "    Free space starts at ${START_MB}MB"
-parted -s "$USB" mkpart primary ext4 "${START_MB}MB" 100%
+# Create a new partition using all remaining free space (partition number 0 = next available)
+sgdisk -n 0:0:0 -t 0:8300 "$USB"
 
 # Re-read partition table and wait for the new partition node to appear
 partprobe "$USB" 2>/dev/null || true
