@@ -33,39 +33,30 @@ jobs:
       - name: Log in to GHCR
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Pull, flatten, and push base image to GHCR
+      - name: Pull and flatten base image
         # kyth:latest is built on kinoite-main:43 which already has 100+ layers.
         # Docker's overlay2 driver hard-limits images to 128 layers total, so
         # Containerfile.live's additional layers cause "max depth exceeded" on pull.
-        # Flatten all layers into one and push as :flat-base so buildx can pull
-        # it from GHCR — buildx cannot see images tagged in the local daemon.
+        # Flattening the base into a single layer brings the total to ~19 layers.
         run: |
           BASE_IMAGE="ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:latest"
-          FLAT_IMAGE="ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:flat-base"
           docker pull "${BASE_IMAGE}"
           CID=$(docker create "${BASE_IMAGE}")
-          docker export "${CID}" | docker import - "${FLAT_IMAGE}"
+          docker export "${CID}" | docker import - kyth-flat:latest
           docker rm "${CID}"
-          docker push "${FLAT_IMAGE}"
 
       - name: Build and push live container directly to GHCR
-        # --push streams each layer to GHCR as it is built, avoiding the large
-        # local "exporting layers" step that exhausts disk and gets OOM-killed.
-        # BASE_IMAGE points to the single-layer :flat-base so the final image
-        # stays well under Docker's 128-layer overlay2 limit (~19 layers total).
+        # Build from the flattened single-layer base so the final image stays
+        # well under Docker's 128-layer overlay2 limit.
         id: push
         run: |
           IMAGE="ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:live-build"
-          FLAT_IMAGE="ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:flat-base"
-          docker buildx build \
-            --push \
+          docker build \
             --tag "${IMAGE}" \
-            --build-arg BASE_IMAGE="${FLAT_IMAGE}" \
+            --build-arg BASE_IMAGE="kyth-flat:latest" \
             -f build_files/Containerfile.live \
             .
+          docker push "${IMAGE}"
           echo "image-ref=${IMAGE}" >> $GITHUB_OUTPUT
 
   # ── Job 2: Pull the container, export rootfs, build squashfs + ISO ───────────
