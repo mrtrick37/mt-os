@@ -111,6 +111,7 @@ podman \
     --security-opt label=disable \
     -v /dev:/dev \
     -v "${ROOT_MOUNT}:/target" \
+    -v "$SCRATCH_MOUNT/containers:/var/lib/containers:ro" \
     "$IMAGE" \
     bootc install to-filesystem /target
 
