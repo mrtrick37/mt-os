@@ -66,20 +66,22 @@ done < <(findmnt -rno TARGET | grep -E "^/var/mnt/tmp" | sort -r || true)
 echo ""
 echo "==> Creating scratch partition on $USB using all free space..."
 
-# Fix GPT backup header location (common on USB drives written from smaller ISOs)
-echo "    Fixing GPT backup header..."
-sgdisk -e "$USB" 2>/dev/null || true
+# Clean up any ghost partition entries left by previous failed attempts
+echo "    Cleaning up any previous partition attempts..."
+for i in 4 5 6 7 8; do
+    sgdisk -d "$i" "$USB" 2>/dev/null || true
+done
 
-# Create a new partition using all remaining free space (partition number 0 = next available)
-sgdisk -n 0:0:0 -t 0:8300 "$USB"
+# Fix GPT backup header and create new partition in one operation
+echo "    Fixing GPT and creating scratch partition..."
+sgdisk -e -n 4:0:0 -t 4:8300 "$USB"
 
 # Force kernel to reread partition table
 partx -u "$USB" 2>/dev/null || partprobe "$USB" 2>/dev/null || true
 sleep 3
 udevadm settle 2>/dev/null || true
 
-# Find highest-numbered partition on USB using glob (avoids lsblk tree chars)
-SCRATCH_PART=$(ls "${USB}"?* 2>/dev/null | sort -V | tail -1)
+SCRATCH_PART="${USB}4"
 
 if [[ -z "$SCRATCH_PART" || "$SCRATCH_PART" == "$USB" ]]; then
     echo "ERROR: Could not identify the new scratch partition on $USB." >&2
