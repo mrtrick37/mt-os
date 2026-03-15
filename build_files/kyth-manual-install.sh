@@ -112,6 +112,7 @@ podman \
     -v /dev:/dev \
     -v "${ROOT_MOUNT}:/target" \
     -v "$SCRATCH_MOUNT/containers:/var/lib/containers" \
+    -v /run/containers:/run/containers \
     "$IMAGE" \
     bootc install to-filesystem \
         --source-imgref "containers-storage:${IMAGE}" \
