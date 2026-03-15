@@ -120,6 +120,7 @@ podman run --rm --privileged \
     -v "${ROOT_MOUNT}:/target" \
     -v /run/containers:/run/containers \
     -v /var/lib/containers:/var/lib/containers \
+    -v "${SCRATCH_MOUNT}/tmp:/var/tmp" \
     "$IMAGE" \
     bootc install to-filesystem \
         --source-imgref "containers-storage:${IMAGE}" \
