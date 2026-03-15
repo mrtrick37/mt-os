@@ -30,10 +30,11 @@ jobs:
           docker-images: true
           swap-storage: true
 
-      - name: Install just
-        run: |
-          curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh \
-            | sudo bash -s -- --to /usr/local/bin
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
 
       - name: Pull base image from GHCR
         # Reuse the image already built and pushed by build.yml instead of
@@ -44,24 +45,22 @@ jobs:
             docker tag "${GHCR_IMAGE}" localhost/kyth:latest
             echo "Using GHCR image: ${GHCR_IMAGE}"
           else
-            echo "GHCR image not available; building base image locally..."
-            just build-base
+            echo "GHCR image not available; run the main build workflow first"
+            exit 1
           fi
 
-      - name: Build live container image
-        run: |
-          docker build \
-            -f build_files/Containerfile.live \
-            -t kyth-live:build \
-            .
-
-      - name: Push live container to GHCR
+      - name: Build and push live container directly to GHCR
+        # --push streams each layer directly to GHCR as it is built.
+        # This avoids writing the final image to Docker's local overlay2 store
+        # (which would need ~10 GB of extra disk and triggers OOM/SIGTERM).
         id: push
         run: |
-          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
           IMAGE="ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:live-build"
-          docker tag kyth-live:build "${IMAGE}"
-          docker push "${IMAGE}"
+          docker buildx build \
+            --push \
+            --tag "${IMAGE}" \
+            -f build_files/Containerfile.live \
+            .
           echo "image-ref=${IMAGE}" >> $GITHUB_OUTPUT
 
   # ── Job 2: Pull the container, export rootfs, build squashfs + ISO ───────────
