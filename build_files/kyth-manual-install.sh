@@ -76,9 +76,10 @@ done
 echo "    Fixing GPT and creating scratch partition..."
 sgdisk -e -n 4:0:0 -t 4:8300 "$USB"
 
-# Force kernel to reread partition table
-partx -u "$USB" 2>/dev/null || partprobe "$USB" 2>/dev/null || true
-sleep 3
+# Drop stale kernel partition entries, then re-add from updated GPT
+partx -d --nr 4-8 "$USB" 2>/dev/null || true
+partx -a "$USB" 2>/dev/null || partprobe "$USB" 2>/dev/null || true
+sleep 2
 udevadm settle 2>/dev/null || true
 
 SCRATCH_PART="${USB}4"
