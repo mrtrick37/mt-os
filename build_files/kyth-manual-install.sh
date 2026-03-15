@@ -46,11 +46,11 @@ read -r -p "Type 'yes' to continue: " CONFIRM
 
 echo ""
 echo "==> Unmounting any existing mounts on $TARGET..."
-# Unmount deepest paths first
+# Find ALL mountpoints whose source is a partition on $TARGET, unmount deepest first
 while IFS= read -r mp; do
     echo "    $mp"
     umount -l "$mp" 2>/dev/null || true
-done < <(findmnt -rno TARGET | grep -E "^/var/mnt/tmp|^${SCRATCH_MOUNT}|^${ROOT_MOUNT}" | sort -r || true)
+done < <(findmnt -rno SOURCE,TARGET | awk -v tgt="$TARGET" '$1 ~ "^" tgt {print $2}' | sort -r || true)
 
 # ── Partition the target disk ─────────────────────────────────────────────────
 
