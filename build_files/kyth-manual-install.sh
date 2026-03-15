@@ -4,9 +4,11 @@
 # Use this when the graphical installer is unavailable (e.g. broken Wayland).
 #
 # Strategy: partition the target NVMe into a temporary scratch area + final
-# root/EFI partitions. Bind-mount the scratch partition over
-# /var/lib/containers (podman's default storage path) so the image is pulled
-# there once — no second copy, no path remapping, no overlay-config mismatch.
+# root/EFI partitions. The scratch partition is mounted as /var/tmp inside
+# the bootc container so it has enough space to buffer blobs during the
+# ostree conversion (the live ISO's tmpfs is too small for a ~5 GB image).
+# bootc pulls and installs the image in one streaming pass; the final result
+# goes directly to the root partition, not to scratch.
 #
 # Usage:
 #   sudo ./kyth-manual-install.sh [TARGET_DISK]
@@ -34,7 +36,7 @@ echo ""
 echo "  Partition layout that will be created on $TARGET:"
 echo "    p1  1MB    BIOS boot"
 echo "    p2  512MB  EFI"
-echo "    p3  20GB   Scratch (temporary — for pulling the image)"
+echo "    p3  20GB   Scratch (temporary — bootc blob conversion temp space)"
 echo "    p4  rest   Root (Kyth OS)"
 echo ""
 echo "WARNING: ALL DATA on $TARGET will be erased."
@@ -75,31 +77,13 @@ mkfs.fat -F32 "${TARGET}p2"
 mkfs.ext4 -F  "${TARGET}p3"
 mkfs.ext4 -F  "${TARGET}p4"
 
-# ── Mount scratch as the default container storage path ───────────────────────
-#
-# Bind-mounting over /var/lib/containers means podman uses the scratch
-# partition for image storage without any --root remapping. bootc running
-# inside the container sees /var/lib/containers at the same standard path,
-# so containers-storage lookup works without overlay-config mismatches.
+# ── Mount scratch ─────────────────────────────────────────────────────────────
 
 echo ""
 echo "==> Mounting scratch partition (${TARGET}p3)..."
 mkdir -p "$SCRATCH_MOUNT"
 mount "${TARGET}p3" "$SCRATCH_MOUNT"
-mkdir -p "$SCRATCH_MOUNT/containers" "$SCRATCH_MOUNT/tmp"
-
-mkdir -p /var/lib/containers
-mount --bind "$SCRATCH_MOUNT/containers" /var/lib/containers
-
-# ── Pull image ────────────────────────────────────────────────────────────────
-
-echo ""
-echo "==> Pulling $IMAGE to scratch partition..."
-echo "    This will take a while depending on your connection."
-echo ""
-TMPDIR="$SCRATCH_MOUNT/tmp" podman \
-    --tmpdir "$SCRATCH_MOUNT/tmp" \
-    pull "$IMAGE"
+mkdir -p "$SCRATCH_MOUNT/tmp"
 
 # ── Mount target root and install ─────────────────────────────────────────────
 
@@ -112,19 +96,16 @@ mount "${TARGET}p2" "$ROOT_MOUNT/boot/efi"
 
 echo ""
 echo "==> Installing Kyth to $TARGET..."
+echo "    This will take a while — bootc is pulling and installing the image."
 echo ""
 podman run --rm --privileged \
     --pid=host \
     --security-opt label=disable \
     -v /dev:/dev \
     -v "${ROOT_MOUNT}:/target" \
-    -v /run/containers:/run/containers \
-    -v /var/lib/containers:/var/lib/containers \
     -v "${SCRATCH_MOUNT}/tmp:/var/tmp" \
     "$IMAGE" \
-    bootc install to-filesystem \
-        --source-imgref "containers-storage:${IMAGE}" \
-        /target
+    bootc install to-filesystem /target
 
 # ── Done ──────────────────────────────────────────────────────────────────────
 
