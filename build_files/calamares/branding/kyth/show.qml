@@ -107,49 +107,6 @@ Rectangle {
             }
         }
 
-        // Sub-progress bar — driven by /tmp/kyth-install-progress written by
-        // the Python install module every 1.5 s.  First line is a 0.0–1.0 float.
-        Rectangle {
-            id: subProgressTrack
-            anchors.horizontalCenter: parent.horizontalCenter
-            width: 320
-            height: 4
-            radius: 2
-            color: "#313244"
-
-            property real fraction: 0.0
-
-            Timer {
-                interval: 1500
-                running: true
-                repeat: true
-                onTriggered: {
-                    var xhr = new XMLHttpRequest()
-                    xhr.open("GET", "file:///tmp/kyth-install-progress", false)
-                    try {
-                        xhr.send()
-                        var val = parseFloat(xhr.responseText) || 0
-                        if (val > 0) subProgressTrack.fraction = Math.min(val, 1.0)
-                    } catch(e) {}
-                }
-            }
-
-            Rectangle {
-                width: subProgressTrack.width * subProgressTrack.fraction
-                height: parent.height
-                radius: parent.radius
-                color: "#7aa2f7"
-                Behavior on width { SmoothedAnimation { velocity: 6 } }
-            }
-        }
-
-        Text {
-            anchors.horizontalCenter: parent.horizontalCenter
-            font.pixelSize: 11
-            color: "#565f89"
-            text: Math.round(subProgressTrack.fraction * 100) + "% complete"
-        }
-
         Text {
             anchors.horizontalCenter: parent.horizontalCenter
             text: "Kyth is a gaming and development desktop\nbuilt on Fedora Kinoite with the CachyOS kernel."

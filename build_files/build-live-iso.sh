@@ -159,7 +159,6 @@ sudo mksquashfs "${ROOTFS}" "${ISO_DIR}/LiveOS/squashfs.img" \
 # ── 5a. GRUB config + dark theme (shared by EFI and BIOS GRUB2) ─────────────
 echo "==> Writing GRUB config and theme"
 LIVE_ARGS="root=live:CDLABEL=${VOLID} rd.live.image rd.live.overlay=tmpfs selinux=0 quiet splash"
-PERSISTENT_ARGS="root=live:CDLABEL=${VOLID} rd.live.image rd.live.overlay=LABEL=kyth-overlay rd.live.overlayfs=1 selinux=0 quiet splash"
 
 # Write the theme file
 cat > "${ISO_DIR}/boot/grub2/themes/kyth/theme.txt" <<THEMEEOF
@@ -253,11 +252,6 @@ fi
 # ── Boot entries ───────────────────────────────────────────────────────────────
 menuentry "Try Kyth Live" --class fedora --class gnu-linux --class os {
     linux /images/pxeboot/vmlinuz ${LIVE_ARGS}
-    initrd /images/pxeboot/initrd.img
-}
-
-menuentry "Try Kyth Live (Persistent)" --class fedora --class gnu-linux --class os {
-    linux /images/pxeboot/vmlinuz ${PERSISTENT_ARGS}
     initrd /images/pxeboot/initrd.img
 }
 
@@ -402,11 +396,6 @@ label live
   menu label Try Kyth Live
   kernel /images/pxeboot/vmlinuz
   append initrd=/images/pxeboot/initrd.img ${LIVE_ARGS}
-
-label persistent
-  menu label Try Kyth Live (Persistent)
-  kernel /images/pxeboot/vmlinuz
-  append initrd=/images/pxeboot/initrd.img ${PERSISTENT_ARGS}
 
 label check
   menu label Check media and boot Kyth Live

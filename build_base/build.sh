@@ -1,6 +1,13 @@
 #!/bin/bash
 set -euo pipefail
 
+# Docker build layers do not preserve security xattrs, so all files deployed
+# via bootc/ostree end up unlabeled.  SELinux enforcing then denies access to
+# unlabeled files, breaking dbus-broker and the entire session at first boot.
+# Permissive mode logs denials without blocking — correct labeling requires
+# either a Podman/buildah build (which preserves xattrs) or a live relabel.
+sed -i 's/^SELINUX=enforcing/SELINUX=permissive/' /etc/selinux/config
+
 # Apply Kyth branding to the base image
 cat > /etc/os-release <<'EOF' || true
 NAME="Kyth"
@@ -99,48 +106,13 @@ systemctl mask bootloader-update.service 2>/dev/null || true
 mkdir -p /etc/sddm.conf.d
 cat > /etc/sddm.conf.d/10-display-server.conf <<'EOF'
 [General]
-DisplayServer=x11
-
-[X11]
-SessionDir=/usr/share/xsessions
-MinimumVT=1
+DisplayServer=wayland
 
 [Wayland]
-SessionDir=
+SessionDir=/usr/share/wayland-sessions
+CompositorCommand=kwin_wayland --no-global-shortcuts --no-lockscreen --locale1
 EOF
 
-mkdir -p /usr/lib/kyth
-cat > /usr/lib/kyth/sddm-display-setup <<'SETUPEOF'
-#!/bin/bash
-# X11 is kept as the display server for both VMs and bare-metal installs.
-# SDDM's Wayland greeter mode (DisplayServer=wayland) requires kwin_wayland to
-# initialise successfully as a compositor, which fails silently on many GPU
-# configurations and leaves a black screen at boot.  Users who want a Wayland
-# KDE session can select "Plasma (Wayland)" from the SDDM session menu, or
-# switch the default in KDE System Settings → Startup → Login Screen (SDDM).
-if systemd-detect-virt -q 2>/dev/null; then
-    echo "kyth-sddm-setup: VM detected, keeping X11 display server"
-else
-    echo "kyth-sddm-setup: bare-metal detected, keeping X11 display server"
-fi
-SETUPEOF
-chmod +x /usr/lib/kyth/sddm-display-setup
-
-cat > /usr/lib/systemd/system/kyth-sddm-setup.service <<'UNITEOF'
-[Unit]
-Description=Kyth: validate SDDM display server configuration
-Before=sddm.service
-After=local-fs.target
-
-[Service]
-Type=oneshot
-ExecStart=/usr/lib/kyth/sddm-display-setup
-RemainAfterExit=yes
-
-[Install]
-WantedBy=graphical.target
-UNITEOF
-systemctl enable kyth-sddm-setup.service 2>/dev/null || true
 
 # ── Kyth wallpaper ────────────────────────────────────────────────────────────
 # Install the wallpaper and set it as the default for all new users via skel.
@@ -222,3 +194,4 @@ wallpaperplugin=org.kde.image
 [Containments][1][Wallpaper][org.kde.image][General]
 Image=/usr/share/wallpapers/kyth/contents/images/1920x1080.svg
 SKELEOF
+
