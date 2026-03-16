@@ -67,6 +67,18 @@ def _run(cmd):
     subprocess.run(cmd, check=True)
 
 
+# Status file polled by show.qml to display live install progress.
+STATUS_FILE = "/tmp/kyth-install-progress"
+
+
+def _write_status(value, label=""):
+    try:
+        with open(STATUS_FILE, "w") as f:
+            f.write(f"{value:.4f}\n{label}\n")
+    except OSError:
+        pass
+
+
 def _umount_recursive(path):
     """Best-effort recursive unmount — ignores errors if nothing is mounted."""
     try:
@@ -193,6 +205,7 @@ def run():
     # ── 2. Release the partition module's mounts ─────────────────────────────
     # The partition exec jobs formatted the disk and mounted it under
     # rootMountPoint.  Unmount everything so bootc can wipe the disk.
+    _write_status(0.0, "Unmounting temporary partitions…")
     _log("unmounting partition module mounts")
     _umount_recursive(old_root_mount)
 
@@ -217,6 +230,7 @@ def run():
     # The Calamares partition exec job already formatted the disk before this
     # module runs.  Destroy its partition table and filesystem signatures so
     # bootc sees a completely blank disk and creates its own layout from scratch.
+    _write_status(0.0, "Wiping existing partition table…")
     _log(f"zapping partition table on {disk}")
     for cmd in (
         ["sgdisk", "--zap-all", disk],   # destroy GPT + MBR partition tables
@@ -246,36 +260,44 @@ def run():
     os.close(log_fd)
     _log(f"bootc output log: {log_path}")
 
-    # Status file read by show.qml to drive the sub-progress bar.
-    STATUS_FILE = "/tmp/kyth-install-progress"
-
-    def _write_status(value, label=""):
-        try:
-            with open(STATUS_FILE, "w") as f:
-                f.write(f"{value:.4f}\n{label}\n")
-        except OSError:
-            pass
-
     # ── Time-based progress thread ─────────────────────────────────────────────
     # bootc block-buffers stdout when piped, so log lines arrive only at the end.
     # Instead, drive the Calamares progress bar from elapsed time using an
     # asymptotic curve: fast early movement that slows as it approaches 0.88.
-    # The thread writes the same value to STATUS_FILE so the QML sub-bar can
-    # read it without needing sysfs access.
+    # Phase labels are written to STATUS_FILE so show.qml can display them.
     _stop_event = threading.Event()
+
+    # Labels shown in the installer UI, keyed by fraction of bootc progress (0→1).
+    BOOTC_PHASE_LABELS = [
+        (0.00, "Starting OS image installation…"),
+        (0.05, "Partitioning and formatting disk…"),
+        (0.12, "Extracting OS image — this takes a few minutes…"),
+        (0.50, "Writing filesystem layers…"),
+        (0.72, "Committing ostree deployment…"),
+        (0.84, "Installing bootloader…"),
+        (0.95, "Finalizing image write…"),
+    ]
 
     def _progress_thread():
         TARGET    = 0.88   # leave 0.88→1.0 for mount/chroot steps
         HALF_TIME = 120    # seconds to reach 50% of TARGET (typical install ~4 min)
         start     = time.monotonic()
+        last_label = ""
         while not _stop_event.is_set():
             elapsed  = time.monotonic() - start
-            # Exponential approach: progress = TARGET * (1 - e^(-k*t))
             k        = math.log(2) / HALF_TIME
             value    = TARGET * (1.0 - math.exp(-k * elapsed))
             value    = min(value, TARGET)
             libcalamares.job.setprogress(value)
-            _write_status(value / TARGET)   # 0→1 fraction for QML
+            fraction = value / TARGET   # 0→1 for QML
+            label = BOOTC_PHASE_LABELS[0][1]
+            for threshold, lbl in BOOTC_PHASE_LABELS:
+                if fraction >= threshold:
+                    label = lbl
+            if label != last_label:
+                _log(f"status: {label}")
+                last_label = label
+            _write_status(fraction, label)
             time.sleep(1.5)
 
     t = threading.Thread(target=_progress_thread, daemon=True)
@@ -314,7 +336,7 @@ def run():
     finally:
         _stop_event.set()
 
-    _write_status(1.0)
+    _write_status(1.0, "Image written — locating installed system…")
     libcalamares.job.setprogress(0.90)
 
     # ── 4. Find the root partition bootc created ──────────────────────────────
@@ -328,6 +350,7 @@ def run():
         )
 
     # ── 5. Mount root partition + locate ostree deployment ───────────────────
+    _write_status(1.0, "Mounting installed system…")
     outer_mount = tempfile.mkdtemp(prefix="kyth-root.")
     try:
         _run(["mount", root_part, outer_mount])
@@ -354,6 +377,7 @@ def run():
     # ── 6. Bind-mount pseudo-filesystems into the deployment ─────────────────
     # Required for the Calamares users exec jobs (CreateUserJob, SetPasswordJob,
     # SetHostnameJob) to chroot successfully into the deployment.
+    _write_status(1.0, "Preparing system for user configuration…")
     for sub, src in [("proc", "/proc"), ("sys", "/sys"), ("dev", "/dev")]:
         _run(["mount", "--bind", src, os.path.join(deploy_dir, sub)])
 

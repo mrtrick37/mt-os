@@ -1,5 +1,0 @@
----
-type:      jobmodule
-name:      kyth-predisksetup
-interface: python
-requires:  []

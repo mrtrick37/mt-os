@@ -37,10 +37,9 @@ LABEL org.osbuild.branding.release="Kyth 43"
 # RUN rm /opt && mkdir /opt
 
 ### MODIFICATIONS
-## make modifications desired in your image and install packages by modifying the build.sh script
+RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
+    --mount=type=cache,dst=/var/cache \
+    --mount=type=cache,dst=/var/log \
+    --mount=type=tmpfs,dst=/tmp \
+    /ctx/build.sh
 
-### DEFAULT USER
-## Creates a default 'kyth' user in the wheel group so the installed system is immediately usable.
-## The password is set to 'kyth' and must be changed on first login.
-RUN useradd -m -G wheel -s /bin/bash kyth && \
-    echo 'kyth:kyth' | chpasswd

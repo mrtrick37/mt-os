@@ -233,7 +233,12 @@ build-base base_image="ghcr.io/ublue-os/kinoite-main:43":
     else
         echo "Base image {{ base_image }} already present locally. Skipping pull."
     fi
-    docker build --build-arg BASE_IMAGE={{ base_image }} --tag localhost/kyth:latest build_base/
+    docker build --build-arg BASE_IMAGE={{ base_image }} --tag localhost/kyth-base:stable build_base/
+
+# Build the full Kyth image (runs build_files/build.sh on top of kyth-base).
+# Requires build-base to have run first.
+build: build-base
+    docker build --tag localhost/kyth:latest .
 
 
 # Command: _rootful_load_image

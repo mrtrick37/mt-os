@@ -76,16 +76,40 @@ mkdir -p \
     "${ISO_DIR}/isolinux"
 
 # ── 1. Build live variant container ─────────────────────────────────────────
-# Set REBUILD_IMAGE=1 to force a full rebuild even if kyth-live:build exists.
-# Without that flag, Docker layer caching makes subsequent builds very fast.
-if [[ "${REBUILD_IMAGE:-}" == "1" ]] || ! docker image inspect kyth-live:build >/dev/null 2>&1; then
-    echo "==> Building live container variant (this takes a while)"
+# Rebuild kyth-live:build if:
+#   - REBUILD_IMAGE=1 is set, OR
+#   - kyth-live:build doesn't exist, OR
+#   - localhost/kyth:latest is newer than kyth-live:build (base was rebuilt)
+_need_rebuild=0
+if [[ "${REBUILD_IMAGE:-}" == "1" ]]; then
+    echo "==> REBUILD_IMAGE=1: forcing live container rebuild"
+    _need_rebuild=1
+elif ! docker image inspect kyth-live:build >/dev/null 2>&1; then
+    echo "==> kyth-live:build not found: building live container variant"
+    _need_rebuild=1
+else
+    _base_ts=$(docker image inspect localhost/kyth:latest \
+        --format '{{.Created}}' 2>/dev/null || echo "")
+    _live_ts=$(docker image inspect kyth-live:build \
+        --format '{{.Created}}' 2>/dev/null || echo "")
+    if [[ -n "${_base_ts}" && "${_base_ts}" > "${_live_ts}" ]]; then
+        echo ""
+        echo "==> !! Base image has changed since last live build !!"
+        echo "==>    Rebuilding kyth-live:build to pick up the new base..."
+        echo ""
+        _need_rebuild=1
+    else
+        echo "==> kyth-live:build is up to date — skipping live container rebuild"
+    fi
+fi
+
+if [[ "${_need_rebuild}" == "1" ]]; then
+    echo "==> Building live container variant (this takes a while)..."
     docker build \
         -f "${SCRIPT_DIR}/Containerfile.live" \
         -t kyth-live:build \
         "${REPO_ROOT}"
-else
-    echo "==> Reusing existing kyth-live:build image (set REBUILD_IMAGE=1 to force rebuild)"
+    echo "==> Live container build complete"
 fi
 
 # ── 2. Export container filesystem ──────────────────────────────────────────
@@ -149,7 +173,7 @@ echo "==> OCI image bundled at /usr/share/kyth/image"
 echo "==> Creating squashfs (zstd, $(nproc) cores — the full OS is ~several GB)"
 sudo mksquashfs "${ROOTFS}" "${ISO_DIR}/LiveOS/squashfs.img" \
     -comp zstd \
-    -Xcompression-level 3 \
+    -Xcompression-level 9 \
     -processors "$(nproc)" \
     -noappend \
     -no-progress \

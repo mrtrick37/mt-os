@@ -60,33 +60,47 @@ RUN dnf5 install -y \
 # that would overwrite the X11 config we set below).
 RUN systemctl enable sddm \
     && systemctl set-default graphical.target \
-    && useradd -c "Live User" -G wheel liveuser \
+    && groupadd -r autologin \
+    && useradd -c "Live User" -G wheel,autologin liveuser \
     && passwd -d liveuser \
-    && usermod -aG autologin liveuser 2>/dev/null || true \
     && echo "liveuser ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/liveuser \
     && chmod 440 /etc/sudoers.d/liveuser \
     && printf 'auth\t    required\tpam_env.so\nauth\t    required\tpam_permit.so\naccount\t required\tpam_nologin.so\naccount\t include\tsystem-auth\npassword include\tsystem-auth\nsession\t include\tsystem-auth\n' \
         > /etc/pam.d/sddm-autologin \
     && systemctl mask kyth-sddm-setup.service 2>/dev/null || true
 
-# ── SDDM auto-login into Plasma X11 session, Breeze theme ────────────────────
-# Force X11 only: both xsessions and wayland-sessions ship a file named
-# plasma.desktop, so SDDM's ambiguous Session=plasma lookup may pick the
-# Wayland session, which fails in QEMU (kwin_wayland needs EGL/virgl).
-# Setting [X11] SessionDir and clearing [Wayland] SessionDir makes SDDM
-# resolve "plasma" exclusively against /usr/share/xsessions/plasma.desktop.
-# We also override /usr/lib/sddm/sddm.conf.d/kde_settings.conf (shipped by
-# Fedora's kde-settings package), which defaults the SDDM greeter to Wayland.
-RUN mkdir -p /etc/sddm.conf.d \
-    && if [ -f /usr/share/xsessions/plasma.desktop ]; then \
+# ── SDDM: single authoritative config, X11 autologin as liveuser ─────────────
+# Drop every conf.d fragment (from the base image and kde-settings) so there is
+# no ordering ambiguity, then write one /etc/sddm.conf that owns everything.
+# X11 is used because kwin_wayland requires EGL/virgl and fails in plain QEMU.
+RUN if [ -f /usr/share/xsessions/plasma.desktop ]; then \
         session="plasma"; \
     elif [ -f /usr/share/xsessions/plasma-x11.desktop ]; then \
         session="plasma-x11"; \
     else \
         session="plasma"; \
     fi; \
-    printf '[General]\nDisplayServer=x11\n\n[X11]\nSessionDir=/usr/share/xsessions\nMinimumVT=1\n\n[Wayland]\nSessionDir=\n\n[Autologin]\nUser=liveuser\nSession=%s\nRelogin=true\n\n[Theme]\nCurrent=breeze\n' "$session" > /etc/sddm.conf.d/autologin.conf \
-    && printf '[General]\nDisplayServer=x11\n' > /etc/sddm.conf.d/00-force-x11.conf
+    rm -rf /etc/sddm.conf.d /usr/lib/sddm/sddm.conf.d; \
+    mkdir -p /etc/sddm.conf.d; \
+    cat > /etc/sddm.conf <<SDDMEOF
+[General]
+DisplayServer=x11
+
+[X11]
+SessionDir=/usr/share/xsessions
+MinimumVT=1
+
+[Wayland]
+SessionDir=
+
+[Autologin]
+User=liveuser
+Session=${session}
+Relogin=true
+
+[Theme]
+Current=breeze
+SDDMEOF
 
 # ── Liveuser home: Breeze Dark + "Install Kyth" desktop shortcut ─────────────
 # Disable Steam autostart — it crashes in the live tmpfs environment.

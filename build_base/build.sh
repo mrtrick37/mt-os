@@ -38,8 +38,7 @@ depmod -a "${CACHYOS_KVER}"
 
 dnf5 install -y --setopt=tsflags=noscripts --skip-unavailable \
 	kernel-cachyos \
-	kernel-cachyos-core \
-	kernel-cachyos-devel
+	kernel-cachyos-core
 
 depmod -a "${CACHYOS_KVER}"
 
@@ -78,14 +77,12 @@ TMPDIR=/var/tmp dracut \
     "/usr/lib/modules/${CACHYOS_KVER}/initramfs"
 echo "initramfs generated at /usr/lib/modules/${CACHYOS_KVER}/initramfs"
 
-# Disable Plymouth on the installed system — bootc inherits kernel args from
-# the running live ISO (which includes 'quiet splash'), causing plymouthd to
-# activate without a properly configured theme and hang the DRM handoff to SDDM.
-# kargs.d entries are picked up by bootc install to-disk and written into the
-# installed system's bootloader config.
+# Set kernel args for the installed system via bootc kargs.d.
+# quiet: suppress kernel log spam on the console.
+# splash: activate Plymouth so the boot splash is shown.
 mkdir -p /usr/lib/bootc/kargs.d
 cat > /usr/lib/bootc/kargs.d/99-kyth.toml <<'KARGSEOF'
-kargs = ["plymouth.enable=0"]
+kargs = ["quiet", "splash"]
 KARGSEOF
 
 # ── SDDM — ensure graphical target ───────────────────────────────────────────
@@ -123,53 +120,27 @@ mkdir -p "${WALLPAPER_DIR}"
 cat > "${WALLPAPER_DIR}/1920x1080.svg" <<'WALLPAPEREOF'
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" width="1920" height="1080">
   <defs>
-    <radialGradient id="bg" cx="45%" cy="55%" r="75%">
-      <stop offset="0%"   stop-color="#1e2030"/>
-      <stop offset="60%"  stop-color="#1a1b26"/>
-      <stop offset="100%" stop-color="#13141e"/>
-    </radialGradient>
     <filter id="logo-glow" x="-80%" y="-80%" width="260%" height="260%">
-      <feGaussianBlur stdDeviation="22" result="blur"/>
-      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
-    </filter>
-    <filter id="spark-glow" x="-200%" y="-200%" width="500%" height="500%">
       <feGaussianBlur stdDeviation="28" result="blur"/>
       <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
     </filter>
-    <radialGradient id="vignette" cx="50%" cy="50%" r="70%">
-      <stop offset="0%"   stop-color="#000000" stop-opacity="0"/>
-      <stop offset="100%" stop-color="#000000" stop-opacity="0.45"/>
-    </radialGradient>
+    <filter id="spark-glow" x="-200%" y="-200%" width="500%" height="500%">
+      <feGaussianBlur stdDeviation="32" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
   </defs>
-  <rect width="1920" height="1080" fill="url(#bg)"/>
-  <g opacity="0.045" fill="#7aa2f7">
-    <circle cx="160" cy="135" r="1.5"/><circle cx="320" cy="135" r="1.5"/><circle cx="480" cy="135" r="1.5"/><circle cx="640" cy="135" r="1.5"/><circle cx="800" cy="135" r="1.5"/><circle cx="960" cy="135" r="1.5"/><circle cx="1120" cy="135" r="1.5"/><circle cx="1280" cy="135" r="1.5"/><circle cx="1440" cy="135" r="1.5"/><circle cx="1600" cy="135" r="1.5"/><circle cx="1760" cy="135" r="1.5"/>
-    <circle cx="160" cy="270" r="1.5"/><circle cx="320" cy="270" r="1.5"/><circle cx="480" cy="270" r="1.5"/><circle cx="640" cy="270" r="1.5"/><circle cx="800" cy="270" r="1.5"/><circle cx="960" cy="270" r="1.5"/><circle cx="1120" cy="270" r="1.5"/><circle cx="1280" cy="270" r="1.5"/><circle cx="1440" cy="270" r="1.5"/><circle cx="1600" cy="270" r="1.5"/><circle cx="1760" cy="270" r="1.5"/>
-    <circle cx="160" cy="405" r="1.5"/><circle cx="320" cy="405" r="1.5"/><circle cx="480" cy="405" r="1.5"/><circle cx="640" cy="405" r="1.5"/><circle cx="800" cy="405" r="1.5"/><circle cx="960" cy="405" r="1.5"/><circle cx="1120" cy="405" r="1.5"/><circle cx="1280" cy="405" r="1.5"/><circle cx="1440" cy="405" r="1.5"/><circle cx="1600" cy="405" r="1.5"/><circle cx="1760" cy="405" r="1.5"/>
-    <circle cx="160" cy="540" r="1.5"/><circle cx="320" cy="540" r="1.5"/><circle cx="480" cy="540" r="1.5"/><circle cx="640" cy="540" r="1.5"/><circle cx="800" cy="540" r="1.5"/><circle cx="960" cy="540" r="1.5"/><circle cx="1120" cy="540" r="1.5"/><circle cx="1280" cy="540" r="1.5"/><circle cx="1440" cy="540" r="1.5"/><circle cx="1600" cy="540" r="1.5"/><circle cx="1760" cy="540" r="1.5"/>
-    <circle cx="160" cy="675" r="1.5"/><circle cx="320" cy="675" r="1.5"/><circle cx="480" cy="675" r="1.5"/><circle cx="640" cy="675" r="1.5"/><circle cx="800" cy="675" r="1.5"/><circle cx="960" cy="675" r="1.5"/><circle cx="1120" cy="675" r="1.5"/><circle cx="1280" cy="675" r="1.5"/><circle cx="1440" cy="675" r="1.5"/><circle cx="1600" cy="675" r="1.5"/><circle cx="1760" cy="675" r="1.5"/>
-    <circle cx="160" cy="810" r="1.5"/><circle cx="320" cy="810" r="1.5"/><circle cx="480" cy="810" r="1.5"/><circle cx="640" cy="810" r="1.5"/><circle cx="800" cy="810" r="1.5"/><circle cx="960" cy="810" r="1.5"/><circle cx="1120" cy="810" r="1.5"/><circle cx="1280" cy="810" r="1.5"/><circle cx="1440" cy="810" r="1.5"/><circle cx="1600" cy="810" r="1.5"/><circle cx="1760" cy="810" r="1.5"/>
-    <circle cx="160" cy="945" r="1.5"/><circle cx="320" cy="945" r="1.5"/><circle cx="480" cy="945" r="1.5"/><circle cx="640" cy="945" r="1.5"/><circle cx="800" cy="945" r="1.5"/><circle cx="960" cy="945" r="1.5"/><circle cx="1120" cy="945" r="1.5"/><circle cx="1280" cy="945" r="1.5"/><circle cx="1440" cy="945" r="1.5"/><circle cx="1600" cy="945" r="1.5"/><circle cx="1760" cy="945" r="1.5"/>
-  </g>
-  <polygon points="0,0 480,0 960,540 0,540"        fill="#7aa2f7" opacity="0.07"/>
-  <polygon points="1920,0 1440,0 960,540 1920,540"  fill="#bb9af7" opacity="0.07"/>
-  <polygon points="640,1080 1280,1080 960,540"       fill="#73daca" opacity="0.07"/>
-  <line x1="0" y1="0" x2="960" y2="540"     stroke="#7aa2f7" stroke-width="1" opacity="0.2"/>
-  <line x1="1920" y1="0" x2="960" y2="540"  stroke="#bb9af7" stroke-width="1" opacity="0.2"/>
-  <line x1="960" y1="1080" x2="960" y2="540" stroke="#73daca" stroke-width="1" opacity="0.2"/>
-  <g transform="translate(880, 440)" filter="url(#logo-glow)">
-    <circle cx="80" cy="80" r="72" fill="#1e2030" opacity="0.7"/>
+  <rect width="1920" height="1080" fill="#000000"/>
+  <g transform="translate(840, 367) scale(1.5)" filter="url(#logo-glow)">
     <line x1="54.6" y1="140.6" x2="54.6" y2="27.5" stroke="#7aa2f7" stroke-width="16.9" stroke-linecap="round"/>
     <circle cx="54.6" cy="17.2" r="12.5" fill="#7aa2f7"/>
     <line x1="122.5" y1="26.9" x2="54.6" y2="82.0" stroke="#bb9af7" stroke-width="16.9" stroke-linecap="round"/>
     <circle cx="130.6" cy="19.4" r="12.5" fill="#bb9af7"/>
     <line x1="122.5" y1="137.5" x2="54.6" y2="82.0" stroke="#73daca" stroke-width="16.9" stroke-linecap="round"/>
     <circle cx="130.6" cy="145.0" r="12.5" fill="#73daca"/>
-    <circle cx="54.6" cy="82.0" r="10.0" fill="#e0af68" opacity="0.35" filter="url(#spark-glow)"/>
+    <circle cx="54.6" cy="82.0" r="10.0" fill="#e0af68" opacity="0.4" filter="url(#spark-glow)"/>
     <circle cx="54.6" cy="82.0" r="5.6" fill="#e0af68"/>
   </g>
-  <text x="960" y="650" font-family="'DejaVu Sans','Liberation Sans',sans-serif" font-size="38" font-weight="300" letter-spacing="18" fill="#a9b1d6" opacity="0.75" text-anchor="middle">kyth</text>
-  <rect width="1920" height="1080" fill="url(#vignette)"/>
+  <text x="960" y="670" font-family="'DejaVu Sans','Liberation Sans',sans-serif" font-size="42" font-weight="300" letter-spacing="20" fill="#a9b1d6" opacity="0.8" text-anchor="middle">kyth</text>
 </svg>
 WALLPAPEREOF
 

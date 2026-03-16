@@ -5,25 +5,27 @@ import QtQuick.Controls 2.15
 
 Rectangle {
     anchors.fill: parent
-    color: "#1e1e2e"
+    color: "#000000"
 
     Column {
         anchors.centerIn: parent
-        spacing: 28
+        spacing: 32
 
-        Text {
+        // Kyth K logo
+        Image {
             anchors.horizontalCenter: parent.horizontalCenter
-            text: "Installing Kyth"
-            font.pixelSize: 28
-            font.bold: true
-            color: "#c0caf5"
+            source: "kyth-logo.svg"
+            width: 96
+            height: 96
+            smooth: true
+            mipmap: true
         }
 
-        // Spinner
+        // Arc spinner — matches the Calamares arc style
         Canvas {
             id: spinner
-            width: 48
-            height: 48
+            width: 44
+            height: 44
             anchors.horizontalCenter: parent.horizontalCenter
 
             property real angle: 0
@@ -43,18 +45,18 @@ Rectangle {
                 ctx.clearRect(0, 0, width, height)
                 var cx = width / 2
                 var cy = height / 2
-                var r = 20
+                var r = 18
 
                 // Dim track
                 ctx.beginPath()
                 ctx.arc(cx, cy, r, 0, 2 * Math.PI)
-                ctx.strokeStyle = "#313244"
+                ctx.strokeStyle = "#1e1e2e"
                 ctx.lineWidth = 3
                 ctx.stroke()
 
                 // Spinning arc
                 var start = (angle - 90) * Math.PI / 180
-                var end   = start + 1.4 * Math.PI   // ~250 degrees
+                var end   = start + 1.4 * Math.PI
                 ctx.beginPath()
                 ctx.arc(cx, cy, r, start, end)
                 ctx.strokeStyle = "#7aa2f7"
@@ -64,55 +66,33 @@ Rectangle {
             }
         }
 
-        // Phase-aware status messages.
-        // Each entry is [message, duration in ms].  The sequence mirrors the
-        // actual bootc install phases so the displayed text roughly tracks what
-        // is happening on disk.  The last message loops until install finishes.
+        // Live status from /tmp/kyth-install-progress
         Text {
             id: statusText
             anchors.horizontalCenter: parent.horizontalCenter
-            font.pixelSize: 14
-            color: "#9aa5ce"
+            font.pixelSize: 13
+            color: "#6b7280"
             horizontalAlignment: Text.AlignHCenter
-
-            property var phases: [
-                ["Preparing target disk…",            3000],
-                ["Partitioning and formatting…",      4000],
-                ["Extracting OS image — this takes a few minutes…", 120000],
-                ["Writing filesystem layers…",        30000],
-                ["Committing ostree deployment…",     8000],
-                ["Installing bootloader…",            6000],
-                ["Configuring system…",               5000],
-                ["Finalizing installation…",          5000]
-            ]
-            property int phaseIndex: 0
-            text: phases[0][0]
+            text: "Preparing installation…"
 
             Timer {
-                id: phaseTimer
-                interval: statusText.phases[0][1]
+                interval: 800
                 running: true
-                repeat: false
+                repeat: true
                 onTriggered: {
-                    var next = statusText.phaseIndex + 1
-                    if (next < statusText.phases.length) {
-                        statusText.phaseIndex = next
-                        statusText.text = statusText.phases[next][0]
-                        phaseTimer.interval = statusText.phases[next][1]
-                        // Loop on the last phase until Calamares closes the slideshow
-                        phaseTimer.repeat = (next === statusText.phases.length - 1)
-                        phaseTimer.restart()
+                    var xhr = new XMLHttpRequest()
+                    xhr.open("GET", "file:///tmp/kyth-install-progress", true)
+                    xhr.onreadystatechange = function() {
+                        if (xhr.readyState !== XMLHttpRequest.DONE) return
+                        if (!xhr.responseText) return
+                        var lines = xhr.responseText.split("\n")
+                        if (lines.length >= 2 && lines[1].trim() !== "") {
+                            statusText.text = lines[1].trim()
+                        }
                     }
+                    xhr.send()
                 }
             }
-        }
-
-        Text {
-            anchors.horizontalCenter: parent.horizontalCenter
-            text: "Kyth is a gaming and development desktop\nbuilt on Fedora Kinoite with the CachyOS kernel."
-            font.pixelSize: 13
-            color: "#a9b1d6"
-            horizontalAlignment: Text.AlignHCenter
         }
     }
 }

@@ -1,8 +1,7 @@
 # Kyth Plymouth boot splash
-# Tokyo Night palette — dark background, centred logo, subtle fade-in.
+# Tokyo Night palette — dark background, centred logo, animated spinner dots.
 
 # ── Background ────────────────────────────────────────────────────────────────
-# #1a1b26  →  rgb(26, 27, 38)  →  0.102 0.106 0.149
 Window.SetBackgroundTopColor    (0.102, 0.106, 0.149);
 Window.SetBackgroundBottomColor (0.102, 0.106, 0.149);
 
@@ -10,16 +9,55 @@ Window.SetBackgroundBottomColor (0.102, 0.106, 0.149);
 logo.image  = Image ("kyth-logo.png");
 logo.sprite = Sprite (logo.image);
 logo.sprite.SetX (Window.GetWidth ()  / 2 - logo.image.GetWidth ()  / 2);
-logo.sprite.SetY (Window.GetHeight () / 2 - logo.image.GetHeight () / 2 - 30);
-logo.sprite.SetOpacity (1.0);
+logo.sprite.SetY (Window.GetHeight () / 2 - logo.image.GetHeight () / 2 - 50);
+logo.sprite.SetOpacity (0.0);
 
-# ── Fade-in on first frame ────────────────────────────────────────────────────
-opacity = 0.0;
+# ── Spinner dots — 8 dots arranged in a circle below the logo ─────────────────
+num_dots      = 8;
+spinner_r     = 28;
+dot_img       = Image ("spinner-dot.png");
+dot_half_w    = dot_img.GetWidth ()  / 2;
+dot_half_h    = dot_img.GetHeight () / 2;
+cx            = Window.GetWidth ()  / 2;
+cy            = Window.GetHeight () / 2 + logo.image.GetHeight () / 2 + 20;
+
+for (i = 0; i < num_dots; i++) {
+    angle         = i * 2.0 * 3.14159265 / num_dots - 1.5707963;
+    dot_sprites[i] = Sprite (dot_img);
+    dot_sprites[i].SetX (cx + spinner_r * Math.Cos (angle) - dot_half_w);
+    dot_sprites[i].SetY (cy + spinner_r * Math.Sin (angle) - dot_half_h);
+    dot_sprites[i].SetOpacity (0.15);
+}
+
+# ── Animation ─────────────────────────────────────────────────────────────────
+frame        = 0;
+logo_opacity = 0.0;
 
 fun refresh_callback () {
-    if (opacity < 1.0) {
-        opacity = opacity + 0.05;
-        logo.sprite.SetOpacity (Math.Min (opacity, 1.0));
+    frame++;
+
+    # Fade logo in over first ~40 frames
+    if (logo_opacity < 1.0) {
+        logo_opacity = Math.Min (logo_opacity + 0.025, 1.0);
+        logo.sprite.SetOpacity (logo_opacity);
+    }
+
+    # Spinning highlight — one bright dot travels around the ring
+    for (i = 0; i < num_dots; i++) {
+        # Distance behind the leading dot (in dot units, wraps around)
+        dist = (frame / 2 - i + num_dots * 100) % num_dots;
+        if (dist == 0)
+            opacity = 1.0;
+        else if (dist == 1)
+            opacity = 0.6;
+        else if (dist == 2)
+            opacity = 0.35;
+        else if (dist == 3)
+            opacity = 0.2;
+        else
+            opacity = 0.1;
+        dot_sprites[i].SetOpacity (opacity);
     }
 }
+
 Plymouth.SetRefreshFunction (refresh_callback);

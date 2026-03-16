@@ -1,7 +1,7 @@
 #!/bin/bash
 
 
-set -ouex pipefail
+set -euo pipefail
 
 
 
@@ -10,31 +10,9 @@ set -ouex pipefail
 ### Install Docker for container operations
 dnf5 install -y docker || true
 
-# Automated cleanup: keep only the latest build image
-LATEST_IMAGE="kyth-base:stable"
-
-# Remove all stopped containers
-docker container prune -f 2>/dev/null || true
-
-# Remove all images except the latest build
-for img in $(docker images --format '{{.Repository}}:{{.Tag}}' | grep -v "$LATEST_IMAGE"); do
-    docker rmi "$img" 2>/dev/null || true
-done
-
-# Remove all unused volumes
-docker volume prune -f 2>/dev/null || true
-
-# Remove all unused networks
-docker network prune -f 2>/dev/null || true
-
-# Remove build cache
-docker system prune -af 2>/dev/null || true
-
-# Add rpmfusion free and nonfree repositories for Fedora 43 and 44
+# Add rpmfusion free and nonfree repositories for Fedora 43
 dnf5 install -y https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-43.noarch.rpm || true
 dnf5 install -y https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-43.noarch.rpm || true
-dnf5 install -y https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-44.noarch.rpm || true
-dnf5 install -y https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-44.noarch.rpm || true
 
 # Always upgrade all packages (except kernel/gamescope) before graphics/mesa installs
 dnf5 upgrade -y --exclude='kernel*' --exclude='gamescope*'
@@ -59,8 +37,7 @@ depmod -a "${CACHYOS_KVER}"
 
 dnf5 install -y --setopt=tsflags=noscripts --skip-unavailable \
     kernel-cachyos \
-    kernel-cachyos-core \
-    kernel-cachyos-devel
+    kernel-cachyos-core
 
 # Run depmod again now that all module packages are installed
 depmod -a "${CACHYOS_KVER}"
@@ -107,15 +84,6 @@ rpm -qa | grep -E '^kernel' | grep -v cachyos | xargs -r rpm --nodeps -e 2>/dev/
 
 # Disable COPR after install
 
-    # Ensure osbuild-selinux is installed before usage
-    if ! rpm -q osbuild-selinux >/dev/null 2>&1; then
-        echo "Installing osbuild-selinux..."
-        dnf5 install -y osbuild-selinux || {
-            echo "Failed to install osbuild-selinux. Exiting." >&2
-            exit 1
-        }
-    fi
-
     # Install all required packages
     dnf5 install -y \
         p7zip \
@@ -127,21 +95,14 @@ rpm -qa | grep -E '^kernel' | grep -v cachyos | xargs -r rpm --nodeps -e 2>/dev/
         qemu-device-usb-redirect \
         qemu-img \
         qemu-system-x86-core \
-        qemu-user-binfmt \
-        qemu-user-static \
-        rocm-hip \
-        rocm-opencl \
-        rocm-smi \
         sysprof \
         incus \
         incus-agent \
         lxc \
         tiptop \
         trace-cmd \
-        udica \
         util-linux-script \
         virt-manager \
-        virt-v2v \
         virt-viewer \
         ydotool \
         tmux
@@ -414,7 +375,70 @@ mkdir -p /etc/environment.d
 echo 'STEAM_DISABLE_BROWSER_SANDBOX=1' > /etc/environment.d/steam.conf
 
 systemctl enable libvirtd.socket
-systemctl enable libvirtd.socket
+
+# ── Display / resolution auto-detection ──────────────────────────────────────
+# spice-vdagent: in QEMU/KVM VMs this daemon handles dynamic resolution changes
+# via the SPICE protocol, so the VM display auto-resizes to the window size.
+# On bare metal it is a no-op.  kscreen-doctor (from kscreen) is the KDE CLI
+# for querying and configuring outputs; used by the first-login script below.
+dnf5 install -y spice-vdagent kscreen
+# spice-vdagentd is socket/udev-activated — no systemctl enable needed.
+
+# First-login autostart: run kscreen-doctor to set all outputs to their
+# preferred (auto) mode.  Works for both hardware and VMs.  Removes itself
+# so it only fires once per user.
+mkdir -p /etc/skel/.config/autostart
+cat > /etc/skel/.config/autostart/kyth-set-resolution.desktop <<'RESEOF'
+[Desktop Entry]
+Type=Application
+Name=Kyth: Set display resolution
+Exec=/usr/local/bin/kyth-set-resolution
+X-KDE-autostart-after=panel
+Hidden=false
+NoDisplay=true
+RESEOF
+
+cat > /usr/local/bin/kyth-set-resolution <<'SCRIPTEOF'
+#!/usr/bin/env python3
+# Set every connected output to its preferred (first-listed) mode.
+# kscreen-doctor -o output format:
+#   Output: 1 Virtual-1 enabled connected
+#     Modes: 1:1920x1080@60  2:1280x720@60  ...
+# Runs once on first login per user, then removes itself.
+
+import os, re, subprocess, time
+
+# Give KDE's display stack time to fully initialize before querying
+time.sleep(3)
+
+result = subprocess.run(['kscreen-doctor', '-o'], capture_output=True, text=True)
+
+current_output = None
+for line in result.stdout.splitlines():
+    line = line.strip()
+    # Match "Output: 1 Virtual-1 enabled connected" — name is the second word
+    m = re.match(r'^Output:\s+\d+\s+(\S+)', line)
+    if m:
+        current_output = m.group(1)
+        continue
+    # Match "Modes: 1:1920x1080@60  2:..." — first mode is the preferred resolution
+    if current_output and re.match(r'^Modes:', line):
+        modes = re.findall(r'\d+:(\d+x\d+@[\d.]+)', line)
+        if modes:
+            subprocess.run([
+                'kscreen-doctor',
+                f'output.{current_output}.enable',
+                f'output.{current_output}.mode.{modes[0]}',
+            ], check=False)
+        current_output = None
+
+autostart = os.path.expanduser('~/.config/autostart/kyth-set-resolution.desktop')
+try:
+    os.unlink(autostart)
+except OSError:
+    pass
+SCRIPTEOF
+chmod +x /usr/local/bin/kyth-set-resolution
 
 # Homebrew — system-wide install to /home/linuxbrew (= /var/home/linuxbrew at runtime)
 # Wheel group members can install/update formulae without sudo.
@@ -448,50 +472,6 @@ SUPPORT_URL="https://example.com/kyth/support"
 BUG_REPORT_URL="https://example.com/kyth/issues"
 EOF
 
-# ── Kyth Look-and-Feel package ───────────────────────────────────────────────
-# Custom LnF that wraps Breeze Dark and sets a solid black wallpaper on ALL
-# screens via a plasmoidsetupscripts JS file — this covers every containment
-# ID regardless of how many monitors are connected.
-LNF_DIR=/usr/share/plasma/look-and-feel/org.kde.kyth
-mkdir -p "${LNF_DIR}/contents/plasmoidsetupscripts"
-
-cat > "${LNF_DIR}/metadata.json" <<'METAEOF'
-{
-    "KPackageStructure": "Plasma/LookAndFeel",
-    "KPlugin": {
-        "Authors": [{"Email": "", "Name": "Kyth"}],
-        "Description": "Kyth — Breeze Dark with solid black wallpaper",
-        "Id": "org.kde.kyth",
-        "Name": "Kyth",
-        "Version": "1.0"
-    },
-    "X-Plasma-API": "2.0"
-}
-METAEOF
-
-cat > "${LNF_DIR}/contents/defaults" <<'DEFAULTSEOF'
-[kdeglobals][General]
-ColorScheme=BreezeDark
-
-[kdeglobals][KDE]
-widgetStyle=breeze
-
-[Wallpaper]
-wallpaperPlugin=org.kde.color
-DEFAULTSEOF
-
-# This script runs when the LnF is applied (first login / plasma-apply-lookandfeel).
-# It iterates every desktop containment so all monitors get the black wallpaper.
-cat > "${LNF_DIR}/contents/plasmoidsetupscripts/org.kde.plasma.desktop.js" <<'JSEOF'
-var allDesktops = desktops();
-for (var i = 0; i < allDesktops.length; i++) {
-    var d = allDesktops[i];
-    d.wallpaperPlugin = "org.kde.color";
-    d.currentConfigGroup = ["Wallpaper", "org.kde.color", "General"];
-    d.writeConfig("Color", "0,0,0,255");
-}
-JSEOF
-
 # ── Default KDE theme for all new users via /etc/skel ─────────────────────────
 mkdir -p /etc/skel/.config
 cat > /etc/skel/.config/kdeglobals <<'KDEEOF'
@@ -499,7 +479,7 @@ cat > /etc/skel/.config/kdeglobals <<'KDEEOF'
 ColorScheme=BreezeDark
 
 [KDE]
-LookAndFeelPackage=org.kde.kyth
+LookAndFeelPackage=org.kde.breezedark.desktop
 KDEEOF
 
 cat > /etc/skel/.config/plasmarc <<'PLASMAEOF'
@@ -507,26 +487,61 @@ cat > /etc/skel/.config/plasmarc <<'PLASMAEOF'
 name=breeze-dark
 PLASMAEOF
 
-# ── First-login script: set Kickoff launcher icon to KDE logo ─────────────────
-# Plasma assigns applet IDs dynamically, so we can't hardcode them in a config
-# file. This autostart script runs once on first login, finds every kickoff
-# applet in the appletsrc, sets its icon to the KDE logo, then removes itself.
+# ── Kyth logo as system icon ──────────────────────────────────────────────────
+# KDE Plasma 6 Kickoff looks up icons in this order:
+#   start-here-kde-plasma → start-here-kde → start-here
+# Install under all three names in hicolor (universal fallback), breeze
+# (default KDE theme), and breeze-dark so every combination is covered.
+for theme_dir in \
+    /usr/share/icons/hicolor/scalable/apps \
+    /usr/share/icons/breeze/apps/scalable \
+    /usr/share/icons/breeze-dark/apps/scalable; do
+    mkdir -p "${theme_dir}"
+    cp /ctx/calamares/branding/kyth/kyth-logo.svg "${theme_dir}/kyth.svg"
+    cp /ctx/calamares/branding/kyth/kyth-logo.svg "${theme_dir}/start-here.svg"
+    cp /ctx/calamares/branding/kyth/kyth-logo.svg "${theme_dir}/start-here-kde.svg"
+    cp /ctx/calamares/branding/kyth/kyth-logo.svg "${theme_dir}/start-here-kde-plasma.svg"
+done
+gtk-update-icon-cache -f /usr/share/icons/hicolor/    2>/dev/null || true
+gtk-update-icon-cache -f /usr/share/icons/breeze/      2>/dev/null || true
+gtk-update-icon-cache -f /usr/share/icons/breeze-dark/ 2>/dev/null || true
+
+# ── First-login script: set Kickoff launcher icon to Kyth logo ────────────────
+# Belt-and-suspenders: the icon theme install above should be enough, but this
+# also writes the icon key directly into each user's Kickoff applet config in
+# case the theme lookup is overridden by a previously cached value.
 mkdir -p /usr/local/bin
-cat > /usr/local/bin/kyth-set-kickoff-icon <<'KICKOFICONEOF'
-#!/bin/bash
-# Find all Kickoff applet sections in the appletsrc and set icon=kde (KDE logo).
-APRC="${HOME}/.config/plasma-org.kde.plasma.desktop-appletsrc"
-if [[ -f "$APRC" ]]; then
-    while IFS= read -r section; do
-        grp="${section//[\[\]]/}"
-        kwriteconfig6 --file "$APRC" --group "$grp" \
-            --subgroup "Configuration" --subgroup "General" \
-            --key icon kde 2>/dev/null || true
-    done < <(grep -B1 'plugin=org.kde.plasma.kickoff' "$APRC" | grep '^\[')
-fi
-# Remove self so it only runs once
-rm -f "${HOME}/.config/autostart/kyth-set-kickoff-icon.desktop"
-KICKOFICONEOF
+cat > /usr/local/bin/kyth-set-kickoff-icon <<'KICKOFEOF'
+#!/usr/bin/env python3
+import os, re, subprocess
+
+aprc = os.path.expanduser("~/.config/plasma-org.kde.plasma.desktop-appletsrc")
+autostart = os.path.expanduser("~/.config/autostart/kyth-set-kickoff-icon.desktop")
+
+if os.path.exists(aprc):
+    content = open(aprc).read()
+    for m in re.finditer(
+        r'^\[Containments\]\[(\d+)\]\[Applets\]\[(\d+)\]',
+        content, re.MULTILINE
+    ):
+        cont, applet = m.group(1), m.group(2)
+        body_start = m.end()
+        nxt = re.search(r'^\[', content[body_start:], re.MULTILINE)
+        body = content[body_start: body_start + nxt.start()] if nxt else content[body_start:]
+        if 'plugin=org.kde.plasma.kickoff' in body:
+            subprocess.run([
+                'kwriteconfig6', '--file', aprc,
+                '--group', 'Containments', '--group', cont,
+                '--group', 'Applets', '--group', applet,
+                '--group', 'Configuration', '--group', 'General',
+                '--key', 'icon', 'start-here-kde-plasma',
+            ], check=False)
+
+try:
+    os.unlink(autostart)
+except OSError:
+    pass
+KICKOFEOF
 chmod +x /usr/local/bin/kyth-set-kickoff-icon
 
 mkdir -p /etc/skel/.config/autostart
@@ -540,14 +555,12 @@ Hidden=false
 NoDisplay=true
 AUTOSTARTEOF
 
-# Seed containment 1 with the black wallpaper so it's set even before the
-# LnF setup script runs on first login.
 cat > /etc/skel/.config/plasma-org.kde.plasma.desktop-appletsrc <<'PLASMADESKTOPEOF'
 [Containments][1]
-wallpaperplugin=org.kde.color
+wallpaperplugin=org.kde.image
 
-[Containments][1][Wallpaper][org.kde.color][General]
-Color=0,0,0,255
+[Containments][1][Wallpaper][org.kde.image][General]
+Image=/usr/share/wallpapers/kyth/contents/images/1920x1080.svg
 PLASMADESKTOPEOF
 
 # Remove Waydroid desktop/menu entries and related files if present
@@ -565,3 +578,48 @@ if find /usr/share/applications /usr/local/share/applications /usr/share/kservic
 	find /usr/share/applications /usr/local/share/applications /usr/share/kservices5 -maxdepth 2 -type f -iname '*waydroid*' -print >&2 || true
 	exit 1
 fi
+
+# ── Plymouth boot splash ───────────────────────────────────────────────────────
+# Install the Kyth Plymouth theme and rebuild the initramfs so the splash is
+# included.  librsvg2-tools provides rsvg-convert to render the logo SVG → PNG.
+# plymouth-plugin-script provides the script module used by kyth.plymouth.
+dnf5 install -y plymouth plymouth-plugin-script librsvg2-tools
+
+PLYMOUTH_DIR=/usr/share/plymouth/themes/kyth
+mkdir -p "${PLYMOUTH_DIR}"
+cp /ctx/plymouth/kyth.plymouth "${PLYMOUTH_DIR}/kyth.plymouth"
+cp /ctx/plymouth/kyth.script   "${PLYMOUTH_DIR}/kyth.script"
+
+# Render logo SVG → PNG for Plymouth (Plymouth cannot read SVG natively)
+rsvg-convert -w 200 -h 200 \
+    /ctx/calamares/branding/kyth/kyth-logo.svg \
+    -o "${PLYMOUTH_DIR}/kyth-logo.png"
+
+# Generate spinner dot — a 12×12 blue circle used by the spinner animation
+cat > /tmp/spinner-dot.svg <<'DOTSVGEOF'
+<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12">
+  <circle cx="6" cy="6" r="5" fill="#7aa2f7"/>
+</svg>
+DOTSVGEOF
+rsvg-convert -w 12 -h 12 /tmp/spinner-dot.svg -o "${PLYMOUTH_DIR}/spinner-dot.png"
+
+plymouth-set-default-theme kyth
+
+# librsvg2-tools was only needed for rsvg-convert above — remove it now
+# to keep the final image lean.
+dnf5 remove -y librsvg2-tools && dnf5 autoremove -y || true
+
+# Rebuild the initramfs to include Plymouth + the Kyth theme.
+# TMPDIR=/var/tmp avoids EXDEV cross-device rename errors.
+CACHYOS_KVER=$(ls /usr/lib/modules/ | grep cachyos | head -1)
+TMPDIR=/var/tmp dracut \
+    --no-hostonly \
+    --add "plymouth" \
+    --kver "${CACHYOS_KVER}" \
+    --force \
+    "/usr/lib/modules/${CACHYOS_KVER}/initramfs" \
+    2> >(grep -Ev 'xattr|fail to copy' >&2)
+echo "Initramfs rebuilt with Plymouth (theme: kyth)"
+
+# Purge dnf package cache — not needed at runtime and adds ~200 MB to the image.
+dnf5 clean all
