@@ -3,6 +3,6 @@
 # To use this key, reference it in your repo configuration or build scripts as ./RPM-GPG-KEY-terra43-mesa
 
 # Example usage in DNF repo config:
-# gpgkey=file:///home/mrtrick/git/mt-os/RPM-GPG-KEY-terra43-mesa
+# gpgkey=file:///home/mrtrick/git/kyth/RPM-GPG-KEY-terra43-mesa
 
 # If you need to reference this key in a build script or Containerfile, update the relevant config to point to this path.

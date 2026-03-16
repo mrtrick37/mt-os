@@ -1,18 +1,47 @@
-# Early check for clang-devel before mesa-git build
-if ! rpm -q clang-devel >/dev/null 2>&1; then
-    echo "clang-devel not found, installing..."
-    dnf5 install -y clang-devel || { echo "ERROR: Failed to install clang-devel. Mesa-git build will fail."; exit 1; }
-fi
 #!/bin/bash
+
 
 set -ouex pipefail
 
-### Pull all upstream package updates
-# Exclude kernel packages — the stock kernel is replaced by CachyOS below,
-# and upgrading it here would trigger dracut in the %posttrans scriptlet which
-# fails in container builds (EXDEV cross-device rename via tmpfs /tmp).
-# Exclude gamescope* — conflicts with Bazzite's gamescope-libs-ba147.
+
+
+
+
+### Install Docker for container operations
+dnf5 install -y docker || true
+
+# Automated cleanup: keep only the latest build image
+LATEST_IMAGE="kyth-base:stable"
+
+# Remove all stopped containers
+docker container prune -f 2>/dev/null || true
+
+# Remove all images except the latest build
+for img in $(docker images --format '{{.Repository}}:{{.Tag}}' | grep -v "$LATEST_IMAGE"); do
+    docker rmi "$img" 2>/dev/null || true
+done
+
+# Remove all unused volumes
+docker volume prune -f 2>/dev/null || true
+
+# Remove all unused networks
+docker network prune -f 2>/dev/null || true
+
+# Remove build cache
+docker system prune -af 2>/dev/null || true
+
+# Add rpmfusion free and nonfree repositories for Fedora 43 and 44
+dnf5 install -y https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-43.noarch.rpm || true
+dnf5 install -y https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-43.noarch.rpm || true
+dnf5 install -y https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-44.noarch.rpm || true
+dnf5 install -y https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-44.noarch.rpm || true
+
+# Always upgrade all packages (except kernel/gamescope) before graphics/mesa installs
 dnf5 upgrade -y --exclude='kernel*' --exclude='gamescope*'
+
+# Ensure latest mesa and graphics drivers
+dnf5 upgrade -y mesa* mesa-dri-drivers mesa-vulkan-drivers mesa-libGL mesa-libGLU mesa-libEGL mesa-libgbm mesa-libxatracker mesa-libOpenCL || true
+dnf5 upgrade -y xorg-x11-drv-amdgpu xorg-x11-drv-nouveau xorg-x11-drv-intel xorg-x11-drv-vesa xorg-x11-drv-vmware xorg-x11-drv-qxl xorg-x11-drv-nvidia || true
 
 ### CachyOS kernel — replaces the stock Fedora kernel for better desktop/gaming performance
 # CachyOS COPR: https://copr.fedorainfracloud.org/coprs/bieszczaders/kernel-cachyos/
@@ -50,7 +79,7 @@ fi
 # dracut skips it during container builds because there is no live ostree
 # deployment to auto-detect.
 mkdir -p /etc/dracut.conf.d
-cat > /etc/dracut.conf.d/99-mt-os.conf <<'DRACUTEOF'
+cat > /etc/dracut.conf.d/99-kyth.conf <<'DRACUTEOF'
 add_dracutmodules+=" ostree "
 # virtio_blk/virtio_scsi/ahci are built into the CachyOS kernel (=y),
 # so add_drivers has no effect for them. Kept for documentation.
@@ -91,9 +120,6 @@ rpm -qa | grep -E '^kernel' | grep -v cachyos | xargs -r rpm --nodeps -e 2>/dev/
     dnf5 install -y \
         p7zip \
         p7zip-plugins \
-        podman-compose \
-        podman-machine \
-        podman-tui \
         qemu \
         qemu-char-spice \
         qemu-device-display-virtio-gpu \
@@ -121,11 +147,7 @@ rpm -qa | grep -E '^kernel' | grep -v cachyos | xargs -r rpm --nodeps -e 2>/dev/
         tmux
 
 ## Gaming tweaks — Bazzite-style
-## Gaming tweaks — Bazzite-style
 # Install gamescope from Fedora BEFORE enabling Bazzite COPR.
-# The Bazzite COPR ships gamescope-libs-ba147 which conflicts with the stock
-# gamescope package. Installing first pins us to the Fedora version.
-dnf5 install -y gamescope
 
 # Enable COPRs for gaming packages
 dnf5 copr enable -y ublue-os/bazzite
@@ -201,61 +223,8 @@ sed -i "s/enabled=.*/enabled=0/g" /etc/yum.repos.d/fedora-steam.repo
 # ── AMD ───────────────────────────────────────────────────────────────────────
 # amdgpu is in the CachyOS kernel; radv (Vulkan) is now from mesa-git above.
 # Add VA-API/VDPAU for hardware video decode and radeontop for monitoring.
-dnf5 install -y \
-    libva-utils \
-    radeontop \
-    || {
-        echo "Failed to enable RPMFusion repositories. Attempting fallback." >&2
-        sudo dnf5 install -y \
-            https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-$(rpm -E %fedora).noarch.rpm \
-            https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-$(rpm -E %fedora).noarch.rpm || {
-            echo "ERROR: RPMFusion repository enablement failed. Check URLs and network." >&2
-            exit 1
-        }
-    }
+dnf5 install -y libva-utils radeontop
 
-
-# ── NVIDIA ────────────────────────────────────────────────────────────────────
-# Enable RPMFusion repositories for NVIDIA drivers (must be root)
-sudo dnf5 install -y \
-    https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-$(rpm -E %fedora).noarch.rpm \
-    https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-$(rpm -E %fedora).noarch.rpm
-
-# akmod-nvidia installs the NVIDIA akmod framework; the actual kernel module is
-# built on first boot by the akmods service using the running kernel's headers.
-# kernel-cachyos-devel is already in this image so akmods has what it needs.
-#
-# Covers all Maxwell+ GPUs (GTX 750 and newer).
-# For Turing+ (RTX 20xx+), nvidia-open (NVIDIA's open-source module) is an
-# alternative but akmod-nvidia works universally across all generations.
-# Only install NVIDIA drivers from RPMFusion; Fedora-provided NVIDIA packages are skipped to avoid conflicts.
-dnf5 install -y \
-    akmod-nvidia \
-    xorg-x11-drv-nvidia \
-    xorg-x11-drv-nvidia-cuda \
-    xorg-x11-drv-nvidia-cuda-libs \
-    xorg-x11-drv-nvidia-power \
-    nvidia-settings \
-    nvidia-vaapi-driver
-
-# Enable DRM kernel mode-setting for NVIDIA — required for Wayland and for
-# suspend/resume. Set via modprobe.d (no kernel cmdline changes needed).
-# nouveau is automatically blacklisted by the nvidia packages.
-mkdir -p /etc/modprobe.d
-cat > /etc/modprobe.d/nvidia-kyth.conf <<'NVIDIAEOF'
-# Enable KMS for Wayland and proper suspend/resume
-options nvidia-drm modeset=1 fbdev=1
-# Preserve video memory across suspend so the display recovers cleanly
-options nvidia NVreg_PreserveVideoMemoryAllocations=1
-NVIDIAEOF
-
-# Enable NVIDIA power management service for suspend/resume
-systemctl enable nvidia-suspend.service \
-                 nvidia-hibernate.service \
-                 nvidia-resume.service \
-                 nvidia-persistenced.service 2>/dev/null || true
-
-### Performance tuning
 
 # ── Kernel sysctl parameters ──────────────────────────────────────────────────
 mkdir -p /etc/sysctl.d
@@ -292,7 +261,7 @@ echo 'tcp_bbr' > /etc/modules-load.d/bbr.conf
 # ── Transparent Huge Pages → madvise ─────────────────────────────────────────
 # 'always' (kernel default) forces THP on all allocations and causes stutter.
 # 'madvise' lets apps that benefit (e.g. JVMs, some game engines) opt in.
-sudo dnf5 install -y libclc
+dnf5 install -y libclc
 mkdir -p /etc/tmpfiles.d
 cat > /etc/tmpfiles.d/kyth-thp.conf <<'THPEOF'
 w! /sys/kernel/mm/transparent_hugepage/enabled - - - - madvise
@@ -306,8 +275,6 @@ THPEOF
 echo 'KERNEL=="ntsync", GROUP="users", MODE="0660"' \
     > /usr/lib/udev/rules.d/99-ntsync.rules
 
-## Prefer fedora-multimedia stack for NVIDIA packages, exclude rpmfusion for nvidia-settings
-dnf5 install -y --skip-unavailable akmod-nvidia xorg-x11-drv-nvidia xorg-x11-drv-nvidia-cuda xorg-x11-drv-nvidia-cuda-libs xorg-x11-drv-nvidia-power nvidia-settings nvidia-vaapi-driver
 # Capped at 8 GB so zram doesn't eat all RAM on large-memory systems.
 cat > /etc/systemd/zram-generator.conf <<'ZRAMEOF'
 [zram0]
@@ -333,21 +300,24 @@ apply_gpu_optimisations = accept-responsibility
 amd_performance_level = high
 GAMEMODEEOF
 
+
 # ── scx userspace schedulers ──────────────────────────────────────────────────
-# sched-ext (scx) is a BPF-based schedulder framework in the CachyOS kernel.
+# sched-ext (scx) is a BPF-based scheduler framework in the CachyOS kernel.
 # scx_lavd is optimised for interactive + gaming — it prioritises latency-
 # sensitive threads (audio, input, render) while keeping throughputs tasks warm.
-dnf5 copr enable -y bieszczaders/scx-scheds
-dnf5 install -y --skip-unavailable scx-scheds
-dnf5 copr disable -y bieszczaders/scx-scheds
+# (COPR repo bieszczaders/scx-scheds is unavailable; skipping scx-scheds install.)
+## If/when scx-scheds becomes available, re-enable the following:
+# dnf5 copr enable -y bieszczaders/scx-scheds
+# dnf5 install -y --skip-unavailable scx-scheds
+# dnf5 copr disable -y bieszczaders/scx-scheds
 
 # Configure scxd to use lavd by default, then enable the service
-mkdir -p /etc/scx
-cat > /etc/scx/config <<'SCXEOF'
-SCX_SCHEDULER=scx_lavd
-SCX_FLAGS=--auto-mode
-SCXEOF
-systemctl enable scxd.service 2>/dev/null || true
+# mkdir -p /etc/scx
+# cat > /etc/scx/config <<'SCXEOF'
+# SCX_SCHEDULER=scx_lavd
+# SCX_FLAGS=--auto-mode
+# SCXEOF
+# systemctl enable scxd.service 2>/dev/null || true
 
 # ── WiFi — disable power management ──────────────────────────────────────────
 # Linux WiFi power-save throttles the radio when idle, reducing signal
@@ -443,7 +413,7 @@ code --no-sandbox --user-data-dir=/tmp/vscode-install \
 mkdir -p /etc/environment.d
 echo 'STEAM_DISABLE_BROWSER_SANDBOX=1' > /etc/environment.d/steam.conf
 
-systemctl enable podman.socket
+systemctl enable libvirtd.socket
 systemctl enable libvirtd.socket
 
 # Homebrew — system-wide install to /home/linuxbrew (= /var/home/linuxbrew at runtime)
@@ -581,7 +551,7 @@ Color=0,0,0,255
 PLASMADESKTOPEOF
 
 # Remove Waydroid desktop/menu entries and related files if present
-# (some base images include a Waydroid helper that we don't ship in mt-OS)
+# (some base images include a Waydroid helper that we don't ship in Kyth)
 rm -f /usr/share/applications/*waydroid*.desktop || true
 rm -f /usr/local/share/applications/*waydroid*.desktop || true
 rm -f /usr/share/kservices5/*waydroid* || true

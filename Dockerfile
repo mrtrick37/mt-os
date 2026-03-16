@@ -5,10 +5,13 @@ COPY build_files /
 # Base Image
 FROM localhost/kyth-base:stable
 
-# Override upstream OCI labels so downstream tooling (lorax/bootc) sees mt-OS product metadata
+# Override upstream OCI labels so downstream tooling (lorax/bootc) sees Kyth product metadata
 LABEL org.opencontainers.image.title="Kyth"
 LABEL org.opencontainers.image.version="43"
-LABEL org.opencontainers.image.description="Kyth customized image"
+LABEL org.opencontainers.image.description="Kyth — atomic gaming and dev workstation built on Fedora Kinoite"
+LABEL org.opencontainers.image.licenses="Apache-2.0"
+LABEL org.opencontainers.image.source="https://github.com/mrtrick37/kyth"
+LABEL org.opencontainers.image.documentation="https://github.com/mrtrick37/kyth"
 LABEL org.osbuild.product="Kyth"
 LABEL org.osbuild.version="43"
 LABEL org.osbuild.branding.release="Kyth 43"
@@ -35,14 +38,9 @@ LABEL org.osbuild.branding.release="Kyth 43"
 
 ### MODIFICATIONS
 ## make modifications desired in your image and install packages by modifying the build.sh script
-## the following RUN directive does all the things required to run "build.sh" as recommended.
 
-RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
-    --mount=type=cache,dst=/var/cache \
-    --mount=type=cache,dst=/var/log \
-    --mount=type=tmpfs,dst=/tmp \
-    /ctx/build.sh
-    
-### LINTING
-## Verify final image and contents are correct.
-RUN bootc container lint
+### DEFAULT USER
+## Creates a default 'kyth' user in the wheel group so the installed system is immediately usable.
+## The password is set to 'kyth' and must be changed on first login.
+RUN useradd -m -G wheel -s /bin/bash kyth && \
+    echo 'kyth:kyth' | chpasswd

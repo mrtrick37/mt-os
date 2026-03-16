@@ -1,9 +1,9 @@
-# mt-OS Live ISO kickstart
+# Kyth Live ISO kickstart
 # Used with: livemedia-creator --ks=disk_config/live.ks --no-virt --make-iso
 #
 # Produces a bootable live ISO that starts a KDE Plasma session.
-# The "Install mt-OS" desktop icon launches Anaconda with mt-os-install.ks,
-# which installs mt-OS from the container registry (ghcr.io/mrtrick37/mt-os).
+# The "Install Kyth" desktop icon launches Anaconda with kyth-install.ks,
+# which installs Kyth from the container registry (ghcr.io/mrtrick37/kyth).
 
 lang en_US.UTF-8
 keyboard --vckeymap=us --xlayouts=us
@@ -82,7 +82,7 @@ mkdir -p /etc/sddm.conf.d
 cat > /etc/sddm.conf.d/autologin.conf << 'SDDMEOF'
 [Autologin]
 User=liveuser
-Session=plasmawayland
+Session=plasma
 SDDMEOF
 
 # ── liveuser home ──────────────────────────────────────────────────────────
@@ -102,46 +102,49 @@ cat > /home/liveuser/.config/plasmarc << 'PLASMAEOF'
 name=breeze-dark
 PLASMAEOF
 
-# ── Install mt-OS desktop shortcut ─────────────────────────────────────────
-cat > /home/liveuser/Desktop/install-mt-os.desktop << 'DESKEOF'
+# ── Install Kyth desktop shortcut ─────────────────────────────────────────
+cat > /home/liveuser/Desktop/install-kyth.desktop << 'DESKEOF'
+cat > /home/liveuser/Desktop/install-kyth.desktop << 'DESKEOF'
 [Desktop Entry]
-Name=Install mt-OS
-Comment=Install mt-OS 43 to this computer
-Exec=/usr/bin/mt-os-install
+Name=Install Kyth
+Comment=Install Kyth 43 to this computer
+Exec=/usr/bin/kyth-install-launcher
 Icon=anaconda
 Terminal=false
 Type=Application
 Categories=System;
 X-KDE-RunOnDiscreteGpu=false
 DESKEOF
-chmod +x /home/liveuser/Desktop/install-mt-os.desktop
+chmod +x /home/liveuser/Desktop/install-kyth.desktop
 
 chown -R liveuser:liveuser /home/liveuser/
+# Set Firefox as default browser for liveuser
+sudo -u liveuser xdg-settings set default-web-browser firefox.desktop || true
 
-# ── mt-OS install wrapper script ───────────────────────────────────────────
-cat > /usr/bin/mt-os-install << 'SCRIPTEOF'
+# ── Kyth install wrapper script ───────────────────────────────────────────
+cat > /usr/bin/kyth-install << 'SCRIPTEOF'
 #!/bin/bash
-# Launches Anaconda with the mt-OS installation kickstart.
-# The kickstart uses `ostreecontainer` to pull and install mt-OS from
+# Launches Anaconda with the Kyth installation kickstart.
+# The kickstart uses `ostreecontainer` to pull and install Kyth from
 # ghcr.io/mrtrick37/kyth:latest — requires network access.
-exec pkexec liveinst --kickstart /usr/share/mt-os/install.ks "$@"
+exec pkexec liveinst --kickstart /usr/share/kyth/install.ks "$@"
 SCRIPTEOF
-chmod +x /usr/bin/mt-os-install
+chmod +x /usr/bin/kyth-install
 
 # ── Anaconda install kickstart (embedded in live image) ────────────────────
-mkdir -p /usr/share/mt-os
-cp /run/install/repo/disk_config/mt-os-install.ks /usr/share/mt-os/install.ks 2>/dev/null || \
-cat > /usr/share/mt-os/install.ks << 'INSTALLEOF'
-# mt-OS installation kickstart
-# Installs mt-OS from the container registry via Anaconda ostreecontainer.
-# This file is used by the "Install mt-OS" desktop shortcut on the live ISO.
+mkdir -p /usr/share/kyth
+cp /run/install/repo/disk_config/kyth-install.ks /usr/share/kyth/install.ks 2>/dev/null || \
+cat > /usr/share/kyth/install.ks << 'INSTALLEOF'
+# Kyth installation kickstart
+# Installs Kyth from the container registry via Anaconda ostreecontainer.
+# This file is used by the "Install Kyth" desktop shortcut on the live ISO.
 
 lang en_US.UTF-8
 keyboard --vckeymap=us
 timezone America/New_York
 network --bootproto=dhcp --device=link --activate
 
-# Pull mt-OS OCI image from registry and install it to disk
+# Pull Kyth OCI image from registry and install it to disk
 ostreecontainer --url=ghcr.io/mrtrick37/kyth:latest --transport=registry --no-signature-verification
 
 %packages
@@ -151,7 +154,7 @@ INSTALLEOF
 # ── OS branding ────────────────────────────────────────────────────────────
 cat > /etc/os-release << 'OSEOF'
 NAME="Kyth"
-PRETTY_NAME="mt-OS 43 Live"
+PRETTY_NAME="Kyth 43 Live"
 ID=fedora
 VERSION="43"
 VERSION_ID="43"

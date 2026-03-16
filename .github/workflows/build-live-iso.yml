@@ -1,0 +1,142 @@
+name: Build Live ISO
+
+on:
+  workflow_dispatch:
+
+jobs:
+  # ── Job 1: Build the live container image and push it to GHCR ───────────────
+  # Isolated so the Docker overlay2 storage never competes with the rootfs
+  # export + squashfs that happen in job 2.
+  build-live-container:
+    name: Build live container
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+
+    outputs:
+      image-ref: ${{ steps.push.outputs.image-ref }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Free disk space
+        uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be # v1.3.1
+        with:
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: true
+          swap-storage: true
+
+      - name: Log in to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Pull and flatten base image
+        # kyth:latest is built on kinoite-main:43 which already has 100+ layers.
+        # Docker's overlay2 driver hard-limits images to 128 layers total, so
+        # Containerfile.live's additional layers cause "max depth exceeded" on pull.
+        # Flattening the base into a single layer brings the total to ~19 layers.
+        run: |
+          BASE_IMAGE="ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:latest"
+          docker pull "${BASE_IMAGE}"
+          CID=$(docker create "${BASE_IMAGE}")
+          docker export "${CID}" | docker import - kyth-flat:latest
+          docker rm "${CID}"
+
+      - name: Build and push live container directly to GHCR
+        # Build from the flattened single-layer base so the final image stays
+        # well under Docker's 128-layer overlay2 limit.
+        id: push
+        run: |
+          IMAGE="ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:live-build"
+          docker build \
+            --tag "${IMAGE}" \
+            --build-arg BASE_IMAGE="kyth-flat:latest" \
+            -f build_files/Containerfile.live \
+            .
+          docker push "${IMAGE}"
+          echo "image-ref=${IMAGE}" >> $GITHUB_OUTPUT
+
+  # ── Job 2: Pull the container, export rootfs, build squashfs + ISO ───────────
+  # Fresh runner — Docker image is pulled then immediately removed after export
+  # so overlay2 storage doesn't overlap with the large squashfs + ISO on disk.
+  build-iso:
+    name: Build ISO
+    needs: build-live-container
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Free disk space
+        uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be # v1.3.1
+        with:
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: true
+          swap-storage: true
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            xorriso squashfs-tools mtools dosfstools git skopeo \
+            grub-common grub-pc-bin grub-efi-amd64-bin
+          curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh \
+            | sudo bash -s -- --to /usr/local/bin
+          sudo ln -sf /usr/bin/grub-mkimage /usr/local/bin/grub2-mkimage
+          sudo ln -sf /usr/bin/grub-mkfont  /usr/local/bin/grub2-mkfont
+
+      - name: Pull pre-built live container and base image
+        # kyth-live:build  → used by build-live-iso.sh (skips the Docker build step)
+        # localhost/kyth:latest → used by build-live-iso.sh for OCI bundling:
+        #   skopeo copy docker-daemon:localhost/kyth:latest oci:rootfs/usr/share/kyth/image
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          docker pull "${{ needs.build-live-container.outputs.image-ref }}"
+          docker tag  "${{ needs.build-live-container.outputs.image-ref }}" kyth-live:build
+          BASE_IMAGE="ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:latest"
+          docker pull "${BASE_IMAGE}"
+          docker tag  "${BASE_IMAGE}" localhost/kyth:latest
+
+      - name: Ensure permissions and directories
+        run: |
+          mkdir -p output/live-iso
+          chmod -R 777 output
+          chmod -R 777 build_files
+          chmod +x build_files/build-live-iso.sh
+
+      - name: Build Live ISO
+        # kyth-live:build already exists so build-live-iso.sh skips the Docker
+        # build step and goes straight to container export + squashfs + ISO.
+        # Prune Docker storage right after the container is exported to reclaim
+        # the ~10 GB overlay2 footprint before squashfs runs.
+        run: |
+          just build-live-iso &
+          BUILD_PID=$!
+
+          # Wait for the container export to finish (ROOTFS will appear),
+          # then prune Docker to free overlay2 space before squashfs starts.
+          while kill -0 $BUILD_PID 2>/dev/null; do
+            ROOTFS=$(find /var/tmp -maxdepth 2 -name rootfs -type d 2>/dev/null | head -1)
+            if [[ -n "${ROOTFS}" && -f "${ROOTFS}/etc/os-release" ]]; then
+              echo "==> Container exported to ${ROOTFS} — pruning Docker overlay2"
+              docker system prune -af || true
+              break
+            fi
+            sleep 5
+          done
+
+          wait $BUILD_PID
+
+      - name: Upload ISO artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: kyth-live-iso
+          path: output/live-iso/kyth-live.iso
+          if-no-files-found: error

@@ -1,54 +1,92 @@
 # Live ISO variant of Kyth
-# Extends the full Kyth image with live session + Anaconda WebUI installer.
+# Extends the full Kyth image with live session support.
+# Installation is handled by Calamares (via the desktop icon), which calls
+# 'bootc install to-disk' through the kyth-bootcinstall job module.
 # Built by build-live-iso.sh; not pushed to the registry.
 
-FROM localhost/kyth:latest
+ARG BASE_IMAGE=localhost/kyth:latest
+FROM ${BASE_IMAGE}
 
-# ── Live boot + BIOS/EFI boot helpers ────────────────────────────────────────
-# dracut-live:    dmsquash-live module for squashfs live boot
-# syslinux:       isolinux.bin for BIOS El Torito boot
-# grub2-efi-x64:  grubx64.efi for UEFI boot
-# grub2-pc:       i386-pc GRUB modules for BIOS GRUB2
-# gparted:        disk utility available on live desktop
-RUN dnf5 install -y dracut-live syslinux grub2-efi-x64 grub2-pc gparted && dnf5 clean all
-
-# ── Anaconda WebUI installer (F44 packages) ───────────────────────────────────
-# F43's anaconda-webui is incomplete for KDE/Atomic Desktop installs.
-# Pull the full set from Fedora 44, including blivet (storage backend).
+# ── All package installs in one layer ────────────────────────────────────────
+# dracut-live:          dmsquash-live module for squashfs live boot
+# syslinux:             isolinux.bin for BIOS El Torito boot
+# grub2-efi-x64:        grubx64.efi pre-built EFI binary
+# grub2-efi-x64-modules: .mod files grub2-mkimage needs to build BOOTX64.EFI
+# grub2-pc:             i386-pc GRUB modules for BIOS GRUB2
+# gparted:              disk utility available on live desktop
+# plymouth-plugin-script: provides /usr/lib64/plymouth/script.so for script themes
+# librsvg2-tools:       rsvg-convert used to render kyth-logo.svg → PNG for Plymouth
+# calamares:            pulls kpmcore (partition module) as a dependency
 RUN dnf5 install -y \
-        --releasever=44 \
-        --setopt=install_weak_deps=False \
-        --disablerepo='rpmfusion*' \
-        anaconda-webui \
-        anaconda-core \
-        anaconda-tui \
-        anaconda-dracut \
-        anaconda-install-env-deps \
-        cockpit-ws \
-        python3-blivet \
-        blivet-data \
-        dnsconfd \
-        dnsconfd-dracut \
-    && dnf5 clean all
+    dracut-live syslinux grub2-efi-x64 grub2-efi-x64-modules grub2-pc gparted \
+    plymouth-plugin-script librsvg2-tools podman gdisk \
+    calamares \
+    plasma-workspace \
+    plasma-desktop \
+    sddm \
+    xorg-x11-server-Xorg \
+    xorg-x11-xinit \
+    xorg-x11-drv-evdev \
+    xorg-x11-drv-libinput \
+    xorg-x11-drv-synaptics \
+    xorg-x11-drv-vmware \
+    xorg-x11-drv-qxl \
+    xorg-x11-drv-intel \
+    xorg-x11-drv-nouveau \
+    xorg-x11-drv-ati \
+    xorg-x11-drv-amdgpu \
+    xorg-x11-drv-wacom \
+    plasma-workspace-x11 \
+    plasma-workspace-wayland \
+    kde-settings-pulseaudio \
+    kde-cli-tools \
+    kde-gtk-config \
+    kwin \
+    konsole \
+    dolphin \
+    ark \
+    kate \
+    gwenview \
+    okular \
+    systemsettings \
+    sddm-breeze \
+    breeze-icon-theme \
+    breeze-cursor-theme \
+    --skip-broken && dnf5 clean all
 
-# ── Create live user with passwordless sudo ───────────────────────────────────
-RUN useradd -c "Live User" -G wheel liveuser \
+# ── System setup: SDDM, live user, PAM autologin, mask setup service ─────────
+# Combines: enable sddm, set graphical target, create liveuser with passwordless
+# sudo, write PAM autologin stack, mask kyth-sddm-setup (base-image service
+# that would overwrite the X11 config we set below).
+RUN systemctl enable sddm \
+    && systemctl set-default graphical.target \
+    && useradd -c "Live User" -G wheel liveuser \
     && passwd -d liveuser \
+    && usermod -aG autologin liveuser 2>/dev/null || true \
     && echo "liveuser ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/liveuser \
-    && chmod 440 /etc/sudoers.d/liveuser
+    && chmod 440 /etc/sudoers.d/liveuser \
+    && printf 'auth\t    required\tpam_env.so\nauth\t    required\tpam_permit.so\naccount\t required\tpam_nologin.so\naccount\t include\tsystem-auth\npassword include\tsystem-auth\nsession\t include\tsystem-auth\n' \
+        > /etc/pam.d/sddm-autologin \
+    && systemctl mask kyth-sddm-setup.service 2>/dev/null || true
 
-# ── Allow liveuser to authenticate to cockpit without a password ──────────────
-# pam_succeed_if with 'sufficient': if user=liveuser, PAM succeeds immediately
-# without checking the password. The cockpit login form still appears but the
-# user only needs to enter "liveuser" and click Login (no password required).
-RUN if [ -f /etc/pam.d/cockpit ]; then \
-        sed -i '1s/^/auth\tsufficient\tpam_succeed_if.so user = liveuser\n/' /etc/pam.d/cockpit; \
-    fi
-
-# ── SDDM auto-login into Plasma Wayland, Breeze theme ────────────────────────
+# ── SDDM auto-login into Plasma X11 session, Breeze theme ────────────────────
+# Force X11 only: both xsessions and wayland-sessions ship a file named
+# plasma.desktop, so SDDM's ambiguous Session=plasma lookup may pick the
+# Wayland session, which fails in QEMU (kwin_wayland needs EGL/virgl).
+# Setting [X11] SessionDir and clearing [Wayland] SessionDir makes SDDM
+# resolve "plasma" exclusively against /usr/share/xsessions/plasma.desktop.
+# We also override /usr/lib/sddm/sddm.conf.d/kde_settings.conf (shipped by
+# Fedora's kde-settings package), which defaults the SDDM greeter to Wayland.
 RUN mkdir -p /etc/sddm.conf.d \
-    && printf '[Autologin]\nUser=liveuser\nSession=plasma\n\n[Theme]\nCurrent=breeze\n' \
-        > /etc/sddm.conf.d/autologin.conf
+    && if [ -f /usr/share/xsessions/plasma.desktop ]; then \
+        session="plasma"; \
+    elif [ -f /usr/share/xsessions/plasma-x11.desktop ]; then \
+        session="plasma-x11"; \
+    else \
+        session="plasma"; \
+    fi; \
+    printf '[General]\nDisplayServer=x11\n\n[X11]\nSessionDir=/usr/share/xsessions\nMinimumVT=1\n\n[Wayland]\nSessionDir=\n\n[Autologin]\nUser=liveuser\nSession=%s\nRelogin=true\n\n[Theme]\nCurrent=breeze\n' "$session" > /etc/sddm.conf.d/autologin.conf \
+    && printf '[General]\nDisplayServer=x11\n' > /etc/sddm.conf.d/00-force-x11.conf
 
 # ── Liveuser home: Breeze Dark + "Install Kyth" desktop shortcut ─────────────
 # Disable Steam autostart — it crashes in the live tmpfs environment.
@@ -60,57 +98,67 @@ RUN mkdir -p /home/liveuser/Desktop /home/liveuser/.config \
         > /home/liveuser/.config/kdeglobals \
     && printf '[Theme]\nname=breeze-dark\n' \
         > /home/liveuser/.config/plasmarc \
-    && printf '[Desktop Entry]\nName=Install Kyth\nComment=Install Kyth 43 to this computer\nExec=/usr/bin/kyth-install-launcher\nIcon=drive-harddisk\nTerminal=false\nType=Application\nCategories=System;\n' \
+    && printf '[Desktop Entry]\nName=Install Kyth\nComment=Install Kyth to this computer\nExec=/usr/bin/kyth-launch-calamares\nIcon=kyth\nTerminal=false\nType=Application\nCategories=System;\n' \
         > /home/liveuser/Desktop/install-kyth.desktop \
+    && printf '[Containments][1]\nwallpaperplugin=org.kde.image\n\n[Containments][1][Wallpaper][org.kde.image][General]\nImage=/usr/share/wallpapers/kyth/contents/images/1920x1080.svg\n' \
+        > /home/liveuser/.config/plasma-org.kde.plasma.desktop-appletsrc \
     && chmod +x /home/liveuser/Desktop/install-kyth.desktop \
-    && chown -R liveuser:liveuser /home/liveuser/
+    && chown -R liveuser:liveuser /home/liveuser/ \
+    && printf '\nif [ -z "$DISPLAY" ] && [ "$XDG_VTNR" = "1" ]; then\n  startx\nfi\n' > /home/liveuser/.bash_profile \
+    && chown liveuser:liveuser /home/liveuser/.bash_profile
 
-# ── Kyth install launcher (desktop icon handler) ──────────────────────────────
-COPY build_files/kyth-install-launcher  /usr/bin/kyth-install-launcher
-RUN chmod +x /usr/bin/kyth-install-launcher
+# ── Copy all assets before the post-COPY setup RUN ───────────────────────────
+COPY build_files/wallpaper/kyth-wallpaper.svg \
+     /usr/share/wallpapers/kyth/contents/images/1920x1080.svg
+COPY build_files/calamares/branding/kyth/kyth-logo.svg \
+     /usr/share/icons/hicolor/scalable/apps/kyth.svg
+COPY build_files/calamares/settings.conf        /etc/calamares/settings.conf
+COPY build_files/calamares/branding/kyth        /etc/calamares/branding/kyth
+COPY build_files/calamares/modules              /etc/calamares/modules
+COPY build_files/calamares-modules/kyth-bootcinstall \
+     /usr/lib64/calamares/modules/kyth-bootcinstall
+COPY build_files/calamares-modules/kyth-umount \
+     /usr/lib64/calamares/modules/kyth-umount
+COPY build_files/kyth-launch-calamares  /usr/bin/kyth-launch-calamares
+COPY build_files/plymouth/kyth.plymouth /usr/share/plymouth/themes/kyth/kyth.plymouth
+COPY build_files/plymouth/kyth.script   /usr/share/plymouth/themes/kyth/kyth.script
 
-# ── Anaconda live wrapper ─────────────────────────────────────────────────────
-# Starts anaconda with the Kyth kickstart when invoked from the live desktop.
-# See build_files/kyth-anaconda-live for details.
-COPY build_files/kyth-anaconda-live  /usr/libexec/kyth-anaconda-live
-RUN chmod +x /usr/libexec/kyth-anaconda-live
+# ── Post-COPY setup: wallpaper metadata, icons, launcher chmod, OS branding ──
+# Combines all post-COPY fixups into one layer to reduce image depth.
+RUN mkdir -p /usr/share/wallpapers/kyth/contents/images \
+    && printf '{"KPlugin":{"Authors":[{"Name":"Kyth"}],"Id":"kyth","Name":"Kyth","License":"CC-BY-SA-4.0"},"KPackageStructure":"Wallpaper/Images"}\n' \
+        > /usr/share/wallpapers/kyth/metadata.json \
+    && cp /usr/share/icons/hicolor/scalable/apps/kyth.svg \
+          /usr/share/icons/hicolor/scalable/apps/start-here.svg \
+    && mkdir -p /usr/share/icons/breeze-dark/apps/scalable \
+    && cp /usr/share/icons/hicolor/scalable/apps/kyth.svg \
+          /usr/share/icons/breeze-dark/apps/scalable/start-here.svg \
+    && gtk-update-icon-cache -f /usr/share/icons/hicolor/    2>/dev/null || true \
+    && gtk-update-icon-cache -f /usr/share/icons/breeze-dark/ 2>/dev/null || true \
+    && chmod +x /usr/bin/kyth-launch-calamares \
+    && sed -i 's/^PRETTY_NAME=.*/PRETTY_NAME="Kyth 43 Live"/' /etc/os-release
 
-# ── Kickstart for Anaconda ────────────────────────────────────────────────────
-# /etc/anaconda/kyth.ks   — used by kyth-anaconda-live (live desktop session)
-# /run/install/ks.cfg     — populated from the above by the wrapper; also
-#                           embedded in the initramfs by dracut --include so
-#                           inst.ks=file:///run/install/ks.cfg works on direct boot.
-COPY build_files/anaconda/kyth.ks  /etc/anaconda/kyth.ks
-
-# ── anaconda.service drop-in: use Kyth kickstart in live session ──────────────
-# When anaconda.service is started via systemctl from the live desktop,
-# /proc/cmdline won't have inst.ks=. The drop-in overrides ExecStart to call
-# kyth-anaconda-live, which copies the kickstart and passes --kickstart to anaconda.
-RUN mkdir -p /etc/systemd/system/anaconda.service.d \
-    && printf '[Service]\nExecStart=\nExecStart=/usr/libexec/kyth-anaconda-live\n' \
-        > /etc/systemd/system/anaconda.service.d/live-kickstart.conf
-
-# ── Rebuild initramfs with dmsquash-live + anaconda modules ───────────────────
-# --include embeds kyth.ks at /run/install/ks.cfg for the direct-boot path.
+# ── Rebuild initramfs with dmsquash-live + Kyth Plymouth theme ────────────────
+# Steps combined so the initramfs is built exactly once, after Plymouth is ready:
+#   1. rsvg-convert: SVG → 200×200 PNG for Plymouth (requires librsvg2-tools)
+#   2. plymouth-set-default-theme kyth: register theme (skip initrd rebuild here)
+#   3. dracut: build the live initramfs, which includes Plymouth + our theme
 # TMPDIR=/var/tmp avoids EXDEV cross-device rename errors on tmpfs /tmp.
 RUN KVER=$(ls /usr/lib/modules/ | grep cachyos | head -1) \
+    && rsvg-convert -w 200 -h 200 \
+        /etc/calamares/branding/kyth/kyth-logo.svg \
+        -o /usr/share/plymouth/themes/kyth/kyth-logo.png \
+    && plymouth-set-default-theme kyth \
     && TMPDIR=/var/tmp dracut \
         --no-hostonly \
-        --add "dmsquash-live livenet anaconda" \
-        --include /etc/anaconda/kyth.ks /run/install/ks.cfg \
-        --kver "${KVER}" \
+        --add "dmsquash-live livenet" \
+        --kver "$KVER" \
         --force \
-        "/usr/lib/modules/${KVER}/initramfs-live" \
+        "/usr/lib/modules/$KVER/initramfs-live" \
         2> >(grep -Ev 'xattr|fail to copy' >&2) \
-    && echo "Live initramfs built for ${KVER}"
+    && echo "Live initramfs built for $KVER (Plymouth: kyth)"
 
-# ── OS-release branding ───────────────────────────────────────────────────────
-RUN sed -i 's/^PRETTY_NAME=.*/PRETTY_NAME="Kyth 43 Live"/' /etc/os-release
-
-# ── Plymouth theme ────────────────────────────────────────────────────────────
-RUN plymouth-set-default-theme spinner
-
-# ── Prepare for squashfs live boot ───────────────────────────────────────────
+# ── Finalize: machine-id, mask services, locale / timezone ───────────────────
 # machine-id must be "uninitialized" so systemd generates a volatile one.
 # Mask ostree/bootc services that require a real ostree deployment.
 RUN echo "uninitialized" > /etc/machine-id \
@@ -122,9 +170,7 @@ RUN echo "uninitialized" > /etc/machine-id \
         bootc-fetch-apply-updates.service \
         bootc-fetch-apply-updates.timer \
         systemd-firstboot.service \
-    || true
-
-# ── Locale / timezone defaults ────────────────────────────────────────────────
-RUN echo "LANG=en_US.UTF-8" > /etc/locale.conf \
+    || true \
+    && echo "LANG=en_US.UTF-8" > /etc/locale.conf \
     && ln -sf /usr/share/zoneinfo/UTC /etc/localtime \
     && echo "KEYMAP=us" > /etc/vconsole.conf

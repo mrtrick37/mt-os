@@ -13,7 +13,9 @@
 # Storage, timezone, language, and user account are configured interactively
 # via the Anaconda WebUI. This kickstart only specifies the OS source.
 
-network --bootproto=dhcp --device=link --activate
+# --device=link: activate the first interface that has carrier (avoids hardcoding
+# eth0 which doesn't exist on most real hardware with predictable interface names).
+network --bootproto=dhcp --device=link --activate --noipv6
 
 # Pull Kyth from the container registry and install it to disk.
 ostreecontainer --url="ghcr.io/mrtrick37/kyth:latest" --no-signature-verification

@@ -1,6 +1,5 @@
 # Ignore temporary build directories created by _build-bib
 _build-bib.*
-_build_podman_scp.*
 
 # Ignore build logs
 *.log

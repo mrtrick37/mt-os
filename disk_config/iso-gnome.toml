@@ -67,20 +67,20 @@ if command -v nmcli >/dev/null 2>&1; then
   fi
 fi
 
-# Ensure installer runtime shows mt-OS branding
+# Ensure installer runtime shows Kyth branding
 cat > /etc/os-release <<'EOF' || true
-NAME="mt-OS"
-PRETTY_NAME="mt-OS 43"
+NAME="Kyth"
+PRETTY_NAME="Kyth 43"
 ID=fedora
 VERSION_ID=43
-HOME_URL="https://example.com/mt-os"
+HOME_URL="https://example.com/kyth"
 EOF
 
 %end
 
 %post
-bootc switch --mutate-in-place --transport registry ghcr.io/mrtrick37/mt-os:latest
-hostnamectl set-hostname mt-os
+bootc switch --mutate-in-place --transport registry ghcr.io/mrtrick37/kyth:latest
+hostnamectl set-hostname kyth
 %end
 """
 

@@ -1,0 +1,25 @@
+# Kyth Plymouth boot splash
+# Tokyo Night palette — dark background, centred logo, subtle fade-in.
+
+# ── Background ────────────────────────────────────────────────────────────────
+# #1a1b26  →  rgb(26, 27, 38)  →  0.102 0.106 0.149
+Window.SetBackgroundTopColor    (0.102, 0.106, 0.149);
+Window.SetBackgroundBottomColor (0.102, 0.106, 0.149);
+
+# ── Logo ──────────────────────────────────────────────────────────────────────
+logo.image  = Image ("kyth-logo.png");
+logo.sprite = Sprite (logo.image);
+logo.sprite.SetX (Window.GetWidth ()  / 2 - logo.image.GetWidth ()  / 2);
+logo.sprite.SetY (Window.GetHeight () / 2 - logo.image.GetHeight () / 2 - 30);
+logo.sprite.SetOpacity (1.0);
+
+# ── Fade-in on first frame ────────────────────────────────────────────────────
+opacity = 0.0;
+
+fun refresh_callback () {
+    if (opacity < 1.0) {
+        opacity = opacity + 0.05;
+        logo.sprite.SetOpacity (Math.Min (opacity, 1.0));
+    }
+}
+Plymouth.SetRefreshFunction (refresh_callback);

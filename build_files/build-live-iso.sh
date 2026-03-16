@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+
 # build-live-iso.sh — Build a full live desktop ISO for Kyth.
 #
 # Flow:
@@ -14,6 +15,22 @@
 
 set -euo pipefail
 
+# Ensure base image exists locally before building live ISO
+
+# Ensure base image exists locally as localhost/kyth:latest before building live ISO
+if ! docker image inspect localhost/kyth:latest >/dev/null 2>&1; then
+    echo "Base image localhost/kyth:latest not found. Building base image..."
+    just build-base || { echo "Failed to build base image."; exit 1; }
+fi
+
+# If ghcr.io/mrtrick37/kyth:latest exists but localhost/kyth:latest does not, retag it
+if docker image inspect ghcr.io/mrtrick37/kyth:latest >/dev/null 2>&1 && \
+   ! docker image inspect localhost/kyth:latest >/dev/null 2>&1; then
+    echo "Retagging ghcr.io/mrtrick37/kyth:latest as localhost/kyth:latest..."
+    docker tag ghcr.io/mrtrick37/kyth:latest localhost/kyth:latest
+fi
+
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 OUTPUT_DIR="${REPO_ROOT}/output/live-iso"
@@ -25,18 +42,27 @@ WORK=$(mktemp -d -p "${TMPDIR_BASE}" kyth-live.XXXXXXXXXX)
 ROOTFS="${WORK}/rootfs"
 ISO_DIR="${WORK}/iso"
 
+# Container engine detection
+if ! command -v docker &>/dev/null || ! docker info &>/dev/null; then
+    echo "ERROR: Docker is not installed or not running." >&2
+    exit 1
+fi
+echo "==> Using container engine: docker"
+
 cleanup() {
     echo "==> Cleaning up ${WORK}"
     sudo rm -rf "${WORK}" 2>/dev/null || true
-    podman rmi localhost/kyth-live:build 2>/dev/null || true
+    # kyth-live:build is kept intentionally so Docker layer cache is preserved
+    # for the next build. Run 'docker rmi kyth-live:build' manually to force
+    # a full rebuild from scratch.
 }
 trap cleanup EXIT
 
 # Check host dependencies
-for cmd in xorriso mksquashfs mkfs.fat mcopy mmd; do
+for cmd in xorriso mksquashfs mkfs.fat mcopy mmd skopeo; do
     if ! command -v "${cmd}" &>/dev/null; then
         echo "ERROR: '${cmd}' not found." >&2
-        echo "       Install with: sudo dnf install xorriso squashfs-tools mtools dosfstools" >&2
+        echo "       Install with: sudo dnf install xorriso squashfs-tools mtools dosfstools skopeo" >&2
         exit 1
     fi
 done
@@ -50,23 +76,41 @@ mkdir -p \
     "${ISO_DIR}/isolinux"
 
 # ── 1. Build live variant container ─────────────────────────────────────────
-echo "==> Building live container variant (this takes a while)"
-podman build \
-    -f "${SCRIPT_DIR}/Containerfile.live" \
-    -t localhost/kyth-live:build \
-    "${REPO_ROOT}"
+# Set REBUILD_IMAGE=1 to force a full rebuild even if kyth-live:build exists.
+# Without that flag, Docker layer caching makes subsequent builds very fast.
+if [[ "${REBUILD_IMAGE:-}" == "1" ]] || ! docker image inspect kyth-live:build >/dev/null 2>&1; then
+    echo "==> Building live container variant (this takes a while)"
+    docker build \
+        -f "${SCRIPT_DIR}/Containerfile.live" \
+        -t kyth-live:build \
+        "${REPO_ROOT}"
+else
+    echo "==> Reusing existing kyth-live:build image (set REBUILD_IMAGE=1 to force rebuild)"
+fi
 
 # ── 2. Export container filesystem ──────────────────────────────────────────
-echo "==> Exporting container filesystem to ${ROOTFS}"
-CONTAINER=$(podman create localhost/kyth-live:build /bin/true)
-podman export "${CONTAINER}" \
-    | sudo tar -xC "${ROOTFS}" \
-        --exclude='./proc/*' \
-        --exclude='./sys/*' \
-        --exclude='./dev/*' \
-        --exclude='./run/*' \
-        2> >(grep -v 'xattr' >&2)
-podman rm "${CONTAINER}"
+echo "==> Exporting container filesystem to ${ROOTFS} (this may take several minutes...)"
+CONTAINER=$(docker create kyth-live:build /bin/true)
+if command -v pv >/dev/null 2>&1; then
+    echo "==> Using pv to show export progress."
+    docker export "${CONTAINER}" | pv | \
+        sudo tar -xC "${ROOTFS}" \
+            --exclude='proc/*' \
+            --exclude='sys/*' \
+            --exclude='dev/*' \
+            --exclude='run/*' \
+            2> >(grep -v 'xattr' >&2)
+else
+    docker export "${CONTAINER}" | \
+        sudo tar -xC "${ROOTFS}" \
+            --exclude='proc/*' \
+            --exclude='sys/*' \
+            --exclude='dev/*' \
+            --exclude='run/*' \
+            2> >(grep -v 'xattr' >&2)
+fi
+echo "==> Container export complete."
+docker rm "${CONTAINER}"
 
 # ── 3. Kernel + live initramfs ───────────────────────────────────────────────
 echo "==> Locating kernel and live initramfs"
@@ -83,10 +127,30 @@ sudo cp "${VMLINUZ}" "${ISO_DIR}/images/pxeboot/vmlinuz" 2>/dev/null
 sudo cp "${INITRD}"  "${ISO_DIR}/images/pxeboot/initrd.img" 2>/dev/null
 sudo chmod 644 "${ISO_DIR}/images/pxeboot/"*
 
+# ── 3b. Bundle OCI image for offline install ─────────────────────────────────
+# Embed localhost/kyth:latest as an OCI directory inside the live squashfs so
+# that kyth-bootcinstall can run `bootc install to-disk` without internet access.
+# skopeo copies the image from the local Docker daemon into the rootfs at
+# /usr/share/kyth/image — mksquashfs picks it up automatically in step 4.
+echo "==> Bundling OCI image into rootfs (this may take a while)"
+sudo mkdir -p "${ROOTFS}/usr/share/kyth"
+sudo skopeo copy \
+    --insecure-policy \
+    docker-daemon:localhost/kyth:latest \
+    "oci:${ROOTFS}/usr/share/kyth/image"
+echo "==> OCI image bundled at /usr/share/kyth/image"
+
 # ── 4. Squashfs ──────────────────────────────────────────────────────────────
-echo "==> Creating squashfs (this takes a while — the full OS is ~several GB)"
+# zstd compresses ~5-10x faster than xz with comparable ratios and is
+# supported by Fedora's kernel and dracut-live. -Xcompression-level 3 is
+# a good speed/size balance; raise to 19 for maximum compression if time
+# isn't a concern. -processors $(nproc) is explicit but mksquashfs already
+# defaults to all cores.
+echo "==> Creating squashfs (zstd, $(nproc) cores — the full OS is ~several GB)"
 sudo mksquashfs "${ROOTFS}" "${ISO_DIR}/LiveOS/squashfs.img" \
-    -comp xz \
+    -comp zstd \
+    -Xcompression-level 3 \
+    -processors "$(nproc)" \
     -noappend \
     -no-progress \
     -no-xattrs \
@@ -96,10 +160,9 @@ sudo mksquashfs "${ROOTFS}" "${ISO_DIR}/LiveOS/squashfs.img" \
 echo "==> Writing GRUB config and theme"
 LIVE_ARGS="root=live:CDLABEL=${VOLID} rd.live.image rd.live.overlay=tmpfs selinux=0 quiet splash"
 PERSISTENT_ARGS="root=live:CDLABEL=${VOLID} rd.live.image rd.live.overlay=LABEL=kyth-overlay rd.live.overlayfs=1 selinux=0 quiet splash"
-INSTALL_ARGS="root=live:CDLABEL=${VOLID} rd.live.image rd.live.overlay=tmpfs selinux=0 quiet systemd.unit=anaconda.target inst.webui inst.ks=file:///run/install/ks.cfg"
 
 # Write the theme file
-cat > "${ISO_DIR}/boot/grub2/themes/kyth/theme.txt" << 'THEMEEOF'
+cat > "${ISO_DIR}/boot/grub2/themes/kyth/theme.txt" <<THEMEEOF
 # Kyth GRUB2 dark theme
 
 title-text: ""
@@ -198,11 +261,6 @@ menuentry "Try Kyth Live (Persistent)" --class fedora --class gnu-linux --class 
     initrd /images/pxeboot/initrd.img
 }
 
-menuentry "Install Kyth" --class fedora --class gnu-linux --class os {
-    linux /images/pxeboot/vmlinuz ${INSTALL_ARGS}
-    initrd /images/pxeboot/initrd.img
-}
-
 menuentry "Check media and boot Kyth Live" --class fedora --class gnu-linux --class os {
     linux /images/pxeboot/vmlinuz ${LIVE_ARGS} rd.live.check
     initrd /images/pxeboot/initrd.img
@@ -246,7 +304,13 @@ EMBEDEOF
     GRUB_EFI_BUILT=true
     echo "    UEFI EFI binary: built with grub2-mkimage (x86_64-efi)"
 else
-    echo "WARNING: grub2-mkimage or /usr/lib/grub/x86_64-efi not found — UEFI boot will not work" >&2
+    # Abort rather than silently producing an unbootable ISO.
+    # On the host: sudo dnf install grub2-tools-minimal
+    # grub2-efi-x64-modules is installed in the container and should be
+    # picked up via the ROOTFS fallback above.
+    echo "ERROR: Cannot build BOOTX64.EFI — grub2-mkimage or x86_64-efi modules not found." >&2
+    echo "       Install on host: sudo dnf install grub2-tools-minimal" >&2
+    exit 1
 fi
 
 # Create a small FAT image containing the EFI files (El Torito EFI boot)
@@ -343,11 +407,6 @@ label persistent
   menu label Try Kyth Live (Persistent)
   kernel /images/pxeboot/vmlinuz
   append initrd=/images/pxeboot/initrd.img ${PERSISTENT_ARGS}
-
-label install
-  menu label Install Kyth
-  kernel /images/pxeboot/vmlinuz
-  append initrd=/images/pxeboot/initrd.img ${INSTALL_ARGS}
 
 label check
   menu label Check media and boot Kyth Live

@@ -5,5 +5,5 @@ ARG BASE_IMAGE=ghcr.io/ublue-os/kinoite-main:43
 FROM ${BASE_IMAGE}
 
 # Use a bind-mount so the script is never written into any image layer
-RUN --mount=type=bind,source=build_base/build.sh,target=/run/build.sh,relabel=shared \
+RUN --mount=type=bind,source=build.sh,target=/run/build.sh \
     bash /run/build.sh

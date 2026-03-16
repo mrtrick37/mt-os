@@ -3,7 +3,6 @@ export default_tag := env("DEFAULT_TAG", "latest")
 export bib_image := env("BIB_IMAGE", "quay.io/centos-bootc/bootc-image-builder:latest")
 
 alias build-vm := build-qcow2
-alias rebuild-vm := rebuild-qcow2
 alias run-vm := run-vm-qcow2
 
 [private]
@@ -49,6 +48,124 @@ clean:
 [private]
 sudo-clean:
     just sudoif just clean
+
+# Show a disk-usage summary: Docker images, build cache, and output/ ISOs
+[group('Utility')]
+disk-usage:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "── Docker ────────────────────────────────────────────────────────────────"
+    docker system df
+    echo ""
+    echo "── Output ISOs ───────────────────────────────────────────────────────────"
+    find output -name "*.iso" -o -name "*.qcow2" -o -name "*.raw" 2>/dev/null \
+        | sort | xargs -r du -sh 2>/dev/null || echo "(none)"
+    echo ""
+    echo "── /var/tmp kyth-live build dirs ─────────────────────────────────────────"
+    find /var/tmp -maxdepth 1 -name "kyth-live.*" -exec du -sh {} \; 2>/dev/null || echo "(none)"
+
+# Remove old output ISOs — keeps only the current live ISO and current BIB ISO.
+# Deletes: output/previous-built-iso/, output/archive/, stale manifest backups.
+[group('Utility')]
+clean-output:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "Cleaning stale output artefacts..."
+    sudo rm -rf output/previous-built-iso output/archive 2>/dev/null || true
+    sudo rm -f  output/manifest-iso.json.bak 2>/dev/null || true
+    sudo chown -R "$(id -u):$(id -g)" output/ 2>/dev/null || true
+    echo "Remaining output files:"
+    find output -name "*.iso" -o -name "*.qcow2" -o -name "*.raw" 2>/dev/null \
+        | sort | xargs -r du -sh 2>/dev/null || echo "(none)"
+
+# Prune Docker build cache and dangling (unreferenced) image layers.
+# Keeps all named images (kyth:latest, kyth-live:build, kinoite-main:43).
+# Run after a build to recover the reclaimable space shown in 'just disk-usage'.
+[group('Utility')]
+clean-docker:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "Pruning Docker build cache..."
+    docker builder prune -f
+    echo ""
+    echo "Pruning dangling image layers..."
+    docker image prune -f
+    echo ""
+    docker system df
+
+# Drop the kyth-live:build cache image so the next 'just build-live-iso' does a
+# full container rebuild from scratch.  Use this when the Containerfile.live has
+# changed in ways that Docker layer caching would miss (e.g. base image bumps).
+[group('Utility')]
+clean-live-cache:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if docker image inspect kyth-live:build >/dev/null 2>&1; then
+        docker rmi kyth-live:build
+        echo "Removed kyth-live:build. Next build-live-iso will rebuild from scratch."
+    else
+        echo "kyth-live:build not present — nothing to remove."
+    fi
+
+# Full local cleanup: stale outputs + Docker cache + live build cache.
+# Does NOT remove localhost/kyth:latest or ghcr.io/ublue-os/kinoite-main:43
+# since those are needed to build.
+[group('Utility')]
+clean-all: clean-output clean-docker clean-live-cache
+
+# Nuclear purge: reclaim maximum disk space.
+# Removes ALL _build* temp dirs, old ISOs, stale /var/tmp build dirs,
+# dangling Docker/Podman image layers, and Docker build cache.
+# Keeps: current output/bootiso, output/live-iso, and all named images.
+[group('Utility')]
+purge:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    echo "── Stale _build* temp dirs in project root ───────────────────────────────"
+    shopt -s nullglob
+    build_dirs=( _build* )
+    if [[ ${#build_dirs[@]} -gt 0 ]]; then
+        sudo rm -rf "${build_dirs[@]}"
+        printf '  removed: %s\n' "${build_dirs[@]}"
+    else
+        echo "  (none)"
+    fi
+
+    echo ""
+    echo "── /var/tmp/kyth-live.* build dirs ──────────────────────────────────────"
+    if sudo find /var/tmp -maxdepth 1 -name "kyth-live.*" -print -exec rm -rf {} + 2>/dev/null | grep -q .; then
+        echo "  Done"
+    else
+        echo "  (none)"
+    fi
+
+    echo ""
+    echo "── Old output artefacts (previous-built-iso, archive, manifest backups) ──"
+    sudo rm -rf output/previous-built-iso output/archive 2>/dev/null || true
+    sudo rm -f  output/manifest-iso.json.bak 2>/dev/null || true
+    sudo chown -R "$(id -u):$(id -g)" output/ 2>/dev/null || true
+    echo "  Done"
+
+    echo ""
+    echo "── Docker build cache ────────────────────────────────────────────────────"
+    docker builder prune -f
+
+    echo ""
+    echo "── Docker dangling image layers ──────────────────────────────────────────"
+    docker image prune -f
+
+    echo ""
+    echo "── Podman dangling image layers ──────────────────────────────────────────"
+    if command -v podman &>/dev/null; then
+        podman image prune -f
+    else
+        echo "  (podman not found)"
+    fi
+
+    echo ""
+    echo "── Result ────────────────────────────────────────────────────────────────"
+    df -h "$(pwd)"
 
 # Safely remove local build temp dirs and fix ownership of output/
 [group('Utility')]
@@ -97,64 +214,38 @@ sudoif command *args:
     sudoif {{ command }} {{ args }}
         TMPDIR=${TMPDIR:-/var/tmp}
 
-# This Justfile recipe builds a container image using Podman.
-#
-# Arguments:
-#   $target_image - The tag you want to apply to the image (default: $image_name).
-#   $tag - The tag for the image (default: $default_tag).
-#
-# The script constructs the version string using the tag and the current date.
-# If the git working directory is clean, it also includes the short SHA of the current HEAD.
-#
-# just build $target_image $tag
-#
-# Example usage:
-#   just build aurora lts
-#
-# This will build an image 'aurora:lts' with DX and GDX enabled.
-#
-
-# Build the base image from build_base/ and tag it as localhost/mt-os-base:stable
-# Run this once before 'just build' when working locally.
+# Build the base image from build_base/ and tag it as localhost/kyth:latest
 # Override the upstream with: just build-base ghcr.io/ublue-os/kinoite-main:43
 [group('Build')]
 build-base base_image="ghcr.io/ublue-os/kinoite-main:43":
-    podman build \
-        --build-arg BASE_IMAGE={{ base_image }} \
-        --tag localhost/kyth-base:stable \
-        build_base/
-
-# Build the image using the specified parameters
-build $target_image=image_name $tag=default_tag: build-base
     #!/usr/bin/env bash
-
-    BUILD_ARGS=()
-    if [[ -z "$(git status -s)" ]]; then
-        BUILD_ARGS+=("--build-arg" "SHA_HEAD_SHORT=$(git rev-parse --short HEAD)")
+    # Ensure current user is in the docker group
+    if ! id -nG "$USER" | grep -qw docker; then
+        echo "Adding $USER to docker group (requires sudo)..."
+        sudo usermod -aG docker "$USER"
+        echo "You must log out and log back in for group changes to take effect."
+    else
+        echo "$USER is already in the docker group."
     fi
 
-    podman build \
-        "${BUILD_ARGS[@]}" \
-        --pull=newer \
-        --tag "${target_image}:${tag}" \
-        .
+    if ! docker image inspect {{ base_image }} >/dev/null 2>&1; then
+        docker pull {{ base_image }}
+    else
+        echo "Base image {{ base_image }} already present locally. Skipping pull."
+    fi
+    docker build --build-arg BASE_IMAGE={{ base_image }} --tag localhost/kyth:latest build_base/
+
 
 # Command: _rootful_load_image
-# Description: This script checks if the current user is root or running under sudo. If not, it attempts to resolve the image tag using podman inspect.
-#              If the image is found, it loads it into rootful podman. If the image is not found, it pulls it from the repository.
+# Description: Ensures the target image is available to the root Docker daemon.
+#              If already running as root/sudo, exits immediately (image is already accessible).
+#              Otherwise, checks if the image exists in the user Docker store and, if so,
+#              copies it to the root store via docker image save/load. Falls back to pulling
+#              from the registry if the image is not found locally.
 #
 # Parameters:
 #   $target_image - The name of the target image to be loaded or pulled.
 #   $tag - The tag of the target image to be loaded or pulled. Default is 'default_tag'.
-#
-# Example usage:
-#   _rootful_load_image my_image latest
-#
-# Steps:
-# 1. Check if the script is already running as root or under sudo.
-# 2. Check if target image is in the non-root podman container storage)
-# 3. If the image is found, load it into rootful podman using podman scp.
-# 4. If the image is not found, pull it from the remote repository into reootful podman.
 
 _rootful_load_image $target_image=image_name $tag=default_tag:
     #!/usr/bin/bash
@@ -162,30 +253,30 @@ _rootful_load_image $target_image=image_name $tag=default_tag:
 
     # Check if already running as root or under sudo
     if [[ -n "${SUDO_USER:-}" || "${UID}" -eq "0" ]]; then
-        echo "Already root or running under sudo, no need to load image from user podman."
+        echo "Already root or running under sudo; image is already accessible to the root Docker daemon."
         exit 0
     fi
 
-    # Try to resolve the image tag using podman inspect
+    # Try to resolve the image tag using docker inspect
     set +e
-    resolved_tag=$(podman inspect -t image "${target_image}:${tag}" | jq -r '.[].RepoTags.[0]')
+        resolved_tag=$(docker inspect --format '{{"{{.RepoTags}}"}}' "${target_image}:${tag}" | jq -r '.[0]')
     return_code=$?
     set -e
 
-    USER_IMG_ID=$(podman images --filter reference="${target_image}:${tag}" --format "'{{ '{{.ID}}' }}'")
+        USER_IMG_ID=$(docker images --filter reference="${target_image}:${tag}" --format "'{{ '{{.ID}}' }}'")
 
     if [[ $return_code -eq 0 ]]; then
-        # If the image is found, load it into rootful podman
-        ID=$(just sudoif podman images --filter reference="${target_image}:${tag}" --format "'{{ '{{.ID}}' }}'")
+        # If the image is found, load it into rootful docker
+        ID=$(just sudoif docker images --filter reference="${target_image}:${tag}" --format "'{{ '{{.ID}}' }}'")
         if [[ "$ID" != "$USER_IMG_ID" ]]; then
-            # If the image ID is not found or different from user, copy the image from user podman to root podman
-            COPYTMP=$(mktemp -p /var/tmp -d -t _build_podman_scp.XXXXXXXXXX)
-            just sudoif TMPDIR=${COPYTMP} podman image scp ${UID}@localhost::"${target_image}:${tag}" root@localhost::"${target_image}:${tag}"
+            # If the image ID is not found or different from user, copy the image from user docker to root docker
+            COPYTMP=$(mktemp -p /var/tmp -d -t _build_docker_scp.XXXXXXXXXX)
+            just sudoif TMPDIR=${COPYTMP} docker image save "${target_image}:${tag}" | docker image load
             rm -rf "${COPYTMP}"
         fi
     else
         # If the image is not found, pull it from the repository
-        just sudoif podman pull "${target_image}:${tag}"
+        just sudoif docker pull "${target_image}:${tag}"
     fi
 
 # Build a bootc bootable image using Bootc Image Builder (BIB)
@@ -223,13 +314,12 @@ _build-bib $target_image $tag $type $config: (_rootful_load_image target_image t
 
         # Attempt to extract product metadata from the image's OCI labels and pass
         # them to bootc/lorax so lorax receives a valid product.name/product.version.
-        # Provide sensible defaults so installer UI shows mt-OS even when labels
+        # Provide sensible defaults so installer UI shows Kyth even when labels
         # are missing from the base image.
-        PRODUCT_NAME="mt-OS"
+        PRODUCT_NAME="Kyth"
         PRODUCT_VERSION="43"
         set +e
-        # Use podman inspect JSON and jq to avoid Justfile interpolation issues
-        labels_json=$(podman inspect "${target_image}:${tag}" 2>/dev/null | jq -c '.[0].Config.Labels // {}' 2>/dev/null || true)
+        labels_json=$(docker inspect "${target_image}:${tag}" 2>/dev/null | jq -c '.[0].Config.Labels // {}' 2>/dev/null || true)
         set -e
         if [[ -n "${labels_json}" && "${labels_json}" != "null" ]]; then
             PRODUCT_NAME=$(echo "${labels_json}" | jq -r '."org.opencontainers.image.title" // empty' || true)
@@ -241,9 +331,18 @@ _build-bib $target_image $tag $type $config: (_rootful_load_image target_image t
         # Enable debug logging from bootc-image-builder to surface why lorax product/version are empty
         args+="--log-level=debug "
 
-        sudo podman run \
+        # BIB needs to pull the image from a registry. Push to a temporary local
+        # registry so BIB can reach it via --net=host without touching the image store.
+        REG_PORT=5099
+        docker run -d --rm --name kyth-bib-registry \
+            -p "127.0.0.1:${REG_PORT}:5000" registry:2
+        trap 'docker stop kyth-bib-registry 2>/dev/null || true' EXIT
+        BIB_IMAGE_REF="localhost:${REG_PORT}/${target_image##*/}:${tag}"
+        docker tag "${target_image}:${tag}" "${BIB_IMAGE_REF}"
+        docker push "${BIB_IMAGE_REF}"
+
+        sudo docker run \
             --rm \
-            -it \
             --privileged \
             --pull=newer \
             --net=host \
@@ -251,10 +350,11 @@ _build-bib $target_image $tag $type $config: (_rootful_load_image target_image t
             $KEY_MOUNT \
             -v $(pwd)/${config}:/config.toml:ro \
             -v $BUILDTMP:/output \
-            -v /var/lib/containers/storage:/var/lib/containers/storage \
             "${bib_image}" \
             ${args} \
-            "${target_image}:${tag}"
+            "${BIB_IMAGE_REF}"
+
+        docker stop kyth-bib-registry 2>/dev/null || true
 
     mkdir -p output
     # If bootc produced a manifest but lorax product/version are empty, patch them
@@ -280,7 +380,7 @@ _build-bib $target_image $tag $type $config: (_rootful_load_image target_image t
 
     # Move new build output into place
     sudo mv -f $BUILDTMP/* output/ || true
-    # Rename standard install ISO to a consistent mt-OS filename
+    # Rename standard install ISO to a consistent Kyth filename
     if sudo test -f output/bootiso/install.iso; then
         sudo mv -f output/bootiso/install.iso output/bootiso/kyth-installer.iso || true
     fi
@@ -293,15 +393,6 @@ _build-bib $target_image $tag $type $config: (_rootful_load_image target_image t
         echo "Produced ISO: ${ISO_PATH}"
     fi
 
-# Podman builds the image from the Containerfile and creates a bootable image
-# Parameters:
-#   target_image: The name of the image to build (ex. localhost/fedora)
-#   tag: The tag of the image to build (ex. latest)
-#   type: The type of image to build (ex. qcow2, raw, iso)
-#   config: The configuration file to use for the build (deafult: disk_config/disk.toml)
-
-# Example: just _rebuild-bib localhost/fedora latest qcow2 disk_config/disk.toml
-_rebuild-bib $target_image $tag $type $config: (build target_image tag) && (_build-bib target_image tag type config)
 
 # Build a QCOW2 virtual machine image
 [group('Build Virtal Machine Image')]
@@ -318,12 +409,20 @@ build-iso $target_image=("localhost/" + image_name) $tag=default_tag: && (_build
 # Build a full live desktop ISO (boots to the complete Kyth KDE environment;
 # "Install Kyth" desktop icon installs from ghcr.io/mrtrick37/kyth:latest)
 # Requires: xorriso squashfs-tools mtools dosfstools
-# Run 'just build' first to have localhost/kyth:latest available.
+# Builds localhost/kyth:latest automatically if not already present.
 [group('Build Virtal Machine Image')]
 build-live-iso:
     #!/usr/bin/env bash
     set -euo pipefail
     bash build_files/build-live-iso.sh
+
+# Force a full rebuild of the live ISO, ignoring the cached kyth-live:build layer.
+# Use this after changing Containerfile.live or any file it COPYs (modules, main.py, etc.)
+[group('Build Virtal Machine Image')]
+rebuild-live-iso:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    REBUILD_IMAGE=1 bash build_files/build-live-iso.sh
 
 # Boot the live desktop ISO in a VM (BIOS, web UI at http://localhost:PORT)
 # Builds the ISO first if it does not exist.
@@ -345,9 +444,9 @@ run-live-iso:
     echo "Connect to http://localhost:${port}"
 
     (sleep 30 && xdg-open http://localhost:"$port") &
-    podman run \
+    docker run \
         --rm --privileged \
-        --pull=newer \
+        --pull missing \
         --publish "127.0.0.1:${port}:8006" \
         --env "CPU_CORES=4" \
         --env "RAM_SIZE=8G" \
@@ -357,21 +456,6 @@ run-live-iso:
         --volume "${PWD}/${image_file}:/boot.iso" \
         docker.io/qemux/qemu
 
-# Build an ISO with Plasma DE by default (rebuilds base + main image first)
-[group('Build Virtal Machine Image')]
-bip $target_image=("localhost/" + image_name) $tag=default_tag: (build-base) (build target_image tag) && (_build-bib target_image tag "iso" "disk_config/iso-kde.toml")
-
-# Rebuild a QCOW2 virtual machine image
-[group('Build Virtal Machine Image')]
-rebuild-qcow2 $target_image=("localhost/" + image_name) $tag=default_tag: && (_rebuild-bib target_image tag "qcow2" "disk_config/disk.toml")
-
-# Rebuild a RAW virtual machine image
-[group('Build Virtal Machine Image')]
-rebuild-raw $target_image=("localhost/" + image_name) $tag=default_tag: && (_rebuild-bib target_image tag "raw" "disk_config/disk.toml")
-
-# Rebuild an ISO virtual machine image
-[group('Build Virtal Machine Image')]
-rebuild-iso $target_image=("localhost/" + image_name) $tag=default_tag: && (_rebuild-bib target_image tag "iso" "disk_config/iso.toml")
 
 # Run a virtual machine with the specified image type and configuration
 _run-vm $target_image $tag $type $config:
@@ -413,7 +497,7 @@ _run-vm $target_image $tag $type $config:
 
     # Run the VM and open the browser to connect
     (sleep 30 && xdg-open http://localhost:"$port") &
-    podman run "${run_args[@]}"
+    docker run "${run_args[@]}"
 
 # Run a virtual machine from a QCOW2 image
 [group('Run Virtal Machine')]

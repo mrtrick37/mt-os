@@ -1,0 +1,104 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 600" width="400" height="600">
+  <defs>
+
+    <!-- Background: soft radial lift from the centre -->
+    <radialGradient id="bg" cx="52%" cy="38%" r="68%">
+      <stop offset="0%"   stop-color="#1e2030"/>
+      <stop offset="100%" stop-color="#1a1b26"/>
+    </radialGradient>
+
+    <!-- Per-figure soft glow -->
+    <filter id="fig-glow" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="5" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+    <!-- Warm burst at the meeting point -->
+    <filter id="join-glow" x="-150%" y="-150%" width="400%" height="400%">
+      <feGaussianBlur stdDeviation="14" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+  </defs>
+
+  <!-- ── Background ───────────────────────────────────────────────── -->
+  <rect width="400" height="600" fill="url(#bg)"/>
+
+  <!--
+    Decorative rings centred on the K as a whole (not the junction).
+    They suggest connection radiating outward.
+  -->
+  <circle cx="200" cy="210" r="108" stroke="#2a2b3d" stroke-width="1"
+          fill="none" opacity="0.55"/>
+  <circle cx="200" cy="210" r="158" stroke="#2a2b3d" stroke-width="1"
+          fill="none" opacity="0.30"/>
+  <circle cx="200" cy="210" r="210" stroke="#2a2b3d" stroke-width="1"
+          fill="none" opacity="0.15"/>
+
+  <!--
+    Three stylised figures forming the letter K.
+
+    Visual centre of the K: x ≈ 200
+      left edge  = 85 − 26  =  59   (vertical bar − half-stroke)
+      right edge = 312 + 38 = 350   (arm head centre + radius)
+      centre     = (59 + 350) / 2   = 204.5
+
+    Figure 1 · Blue   · upright, left  (vertical stroke)
+    Figure 2 · Purple · upper-right    (upper diagonal)
+    Figure 3 · Teal   · lower-right    (lower diagonal)
+
+    All three converge at the amber junction (85, 210).
+  -->
+
+  <!-- Figure 1 — vertical, blue -->
+  <line x1="85" y1="355" x2="85" y2="68"
+        stroke="#7aa2f7" stroke-width="52" stroke-linecap="round"
+        filter="url(#fig-glow)"/>
+  <circle cx="85" cy="47" r="38" fill="#7aa2f7" filter="url(#fig-glow)"/>
+
+  <!-- Figure 2 — upper-right, purple -->
+  <line x1="290" y1="77" x2="85" y2="210"
+        stroke="#bb9af7" stroke-width="52" stroke-linecap="round"
+        filter="url(#fig-glow)"/>
+  <circle cx="312" cy="57" r="38" fill="#bb9af7" filter="url(#fig-glow)"/>
+
+  <!-- Figure 3 — lower-right, teal -->
+  <line x1="290" y1="345" x2="85" y2="210"
+        stroke="#73daca" stroke-width="52" stroke-linecap="round"
+        filter="url(#fig-glow)"/>
+  <circle cx="312" cy="365" r="38" fill="#73daca" filter="url(#fig-glow)"/>
+
+  <!-- Junction: warm amber spark where all three meet -->
+  <circle cx="85" cy="210" r="34" fill="#e0af68" opacity="0.30"
+          filter="url(#join-glow)"/>
+  <circle cx="85" cy="210" r="17" fill="#e0af68"/>
+
+  <!-- ── Divider ──────────────────────────────────────────────────── -->
+  <line x1="44" y1="422" x2="356" y2="422"
+        stroke="#313244" stroke-width="1"/>
+
+  <!-- ── Wordmark ─────────────────────────────────────────────────── -->
+  <text x="200" y="487"
+        font-family="sans-serif" font-size="66" font-weight="bold"
+        letter-spacing="16" text-anchor="middle"
+        fill="#c0caf5">KYTH</text>
+
+  <!-- Version badge -->
+  <text x="200" y="524"
+        font-family="sans-serif" font-size="15"
+        letter-spacing="7" text-anchor="middle"
+        fill="#565f89">VERSION 43</text>
+
+  <!-- Tagline -->
+  <text x="200" y="560"
+        font-family="sans-serif" font-size="13" font-style="italic"
+        letter-spacing="1" text-anchor="middle"
+        fill="#7aa2f7">together.</text>
+
+</svg>
