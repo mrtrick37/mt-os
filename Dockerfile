@@ -43,5 +43,4 @@ LABEL org.osbuild.branding.release="Kyth 43"
 ## Creates a default 'kyth' user in the wheel group so the installed system is immediately usable.
 ## The password is set to 'kyth' and must be changed on first login.
 RUN useradd -m -G wheel -s /bin/bash kyth && \
-    echo 'kyth:kyth' | chpasswd && \
-    chage -d 0 kyth
+    echo 'kyth:kyth' | chpasswd
