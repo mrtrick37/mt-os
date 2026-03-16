@@ -111,8 +111,14 @@ jobs:
         run: |
           docker build \
             --build-arg BASE_IMAGE=ghcr.io/ublue-os/kinoite-main:43 \
-            --tag ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:${{ env.DEFAULT_TAG }} \
+            --tag localhost/kyth-base:stable \
             build_base/
+
+      - name: Build final image
+        run: |
+          docker build \
+            --tag ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:${{ env.DEFAULT_TAG }} \
+            .
 
       # Tag the docker-built image with all metadata tags (date variants, etc.)
       # so the Push To GHCR step can find them in the docker store.
