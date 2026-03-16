@@ -8,7 +8,7 @@
 
 set -euo pipefail
 
-TARGET_IMGREF="ghcr.io/mrtrick37/kyth:latest"
+TARGET_IMGREF="docker://ghcr.io/mrtrick37/kyth:latest"
 
 # Must run as root
 if [[ $EUID -ne 0 ]]; then
@@ -81,9 +81,10 @@ echo "This will take a while depending on your internet connection."
 echo ""
 
 bootc install to-disk \
-    --source-imgref "docker://${TARGET_IMGREF}" \
-    --target-imgref "docker://${TARGET_IMGREF}" \
+    --source-imgref "${TARGET_IMGREF}" \
+    --target-imgref "${TARGET_IMGREF}" \
     --filesystem btrfs \
+    --wipe \
     "${SELECTED}"
 
 echo ""
