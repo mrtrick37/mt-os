@@ -100,6 +100,9 @@ Relogin=true
 
 [Theme]
 Current=breeze
+
+[Users]
+HideUsers=kyth
 SDDMEOF
 
 # ── Liveuser home: Breeze Dark + "Install Kyth" desktop shortcut ─────────────
@@ -114,8 +117,8 @@ RUN mkdir -p /home/liveuser/Desktop /home/liveuser/.config \
         > /home/liveuser/.config/plasmarc \
     && printf '[Desktop Entry]\nName=Install Kyth\nComment=Install Kyth to this computer\nExec=/usr/bin/kyth-launch-calamares\nIcon=kyth\nTerminal=false\nType=Application\nCategories=System;\n' \
         > /home/liveuser/Desktop/install-kyth.desktop \
-    && printf '[Containments][1]\nwallpaperplugin=org.kde.image\n\n[Containments][1][Wallpaper][org.kde.image][General]\nImage=/usr/share/wallpapers/kyth/contents/images/1920x1080.svg\n' \
-        > /home/liveuser/.config/plasma-org.kde.plasma.desktop-appletsrc \
+    && printf '[Desktop Entry]\nType=Application\nName=Kyth Wallpaper\nExec=plasma-apply-wallpaperimage /usr/share/wallpapers/kyth/contents/images/kyth-wallpaper.png\nX-KDE-autostart-after=panel\n' \
+        > /home/liveuser/.config/autostart/kyth-wallpaper.desktop \
     && chmod +x /home/liveuser/Desktop/install-kyth.desktop \
     && chown -R liveuser:liveuser /home/liveuser/ \
     && printf '\nif [ -z "$DISPLAY" ] && [ "$XDG_VTNR" = "1" ]; then\n  startx\nfi\n' > /home/liveuser/.bash_profile \
@@ -162,6 +165,12 @@ RUN KVER=$(ls /usr/lib/modules/ | grep cachyos | head -1) \
     && rsvg-convert -w 200 -h 200 \
         /etc/calamares/branding/kyth/kyth-logo.svg \
         -o /usr/share/plymouth/themes/kyth/kyth-logo.png \
+    && rsvg-convert -w 1920 -h 1080 \
+        /usr/share/wallpapers/kyth/contents/images/1920x1080.svg \
+        -o /usr/share/wallpapers/kyth/contents/images/kyth-wallpaper.png \
+    && mkdir -p /usr/share/sddm/themes/breeze \
+    && printf '[General]\nbackground=/usr/share/wallpapers/kyth/contents/images/kyth-wallpaper.png\nblur=false\n' \
+        > /usr/share/sddm/themes/breeze/theme.conf.user \
     && plymouth-set-default-theme kyth \
     && TMPDIR=/var/tmp dracut \
         --no-hostonly \
