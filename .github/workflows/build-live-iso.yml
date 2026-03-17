@@ -92,8 +92,19 @@ jobs:
         #   skopeo copy docker-daemon:localhost/kyth:latest oci:rootfs/usr/share/kyth/image
         run: |
           echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+          # Pull the live container and flatten it into a single layer.
+          # kyth:latest has 100+ layers; Containerfile.live adds more, so the
+          # combined image exceeds Docker's 128-layer overlay2 limit.  Flattening
+          # brings it to 1 layer so 'docker create' / 'docker export' succeed.
+          # (skopeo, used later for the OCI bundle, reads layers directly and has
+          # no such limit, so localhost/kyth:latest does NOT need flattening.)
           docker pull "${{ needs.build-live-container.outputs.image-ref }}"
-          docker tag  "${{ needs.build-live-container.outputs.image-ref }}" kyth-live:build
+          CID=$(docker create "${{ needs.build-live-container.outputs.image-ref }}" /bin/true)
+          docker export "${CID}" | docker import - kyth-live:build
+          docker rm "${CID}"
+          docker rmi "${{ needs.build-live-container.outputs.image-ref }}" || true
+
           BASE_IMAGE="ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:latest"
           docker pull "${BASE_IMAGE}"
           docker tag  "${BASE_IMAGE}" localhost/kyth:latest
