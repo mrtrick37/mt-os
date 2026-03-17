@@ -652,6 +652,12 @@ TMPDIR=/var/tmp dracut \
     2> >(grep -Ev 'xattr|fail to copy' >&2)
 echo "Initramfs rebuilt with Plymouth (theme: kyth)"
 
+# Ensure supplemental groups exist (RPM scriptlets may not have run in this context)
+groupadd -f users
+groupadd -f video
+groupadd -f audio
+groupadd -f gamemode
+
 # Create default user
 useradd -m -G wheel,users,video,audio,gamemode -s /bin/bash kyth
 echo 'kyth:kyth' | chpasswd
