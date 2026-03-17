@@ -126,7 +126,11 @@ jobs:
             ROOTFS=$(find /var/tmp -maxdepth 2 -name rootfs -type d 2>/dev/null | head -1)
             if [[ -n "${ROOTFS}" && -f "${ROOTFS}/etc/os-release" ]]; then
               echo "==> Container exported to ${ROOTFS} — pruning Docker overlay2"
-              docker system prune -af || true
+              # Remove the live container image (already exported, no longer needed).
+              # Do NOT prune -a: localhost/kyth:latest must survive for the skopeo
+              # OCI bundle step that runs after squashfs.
+              docker rmi kyth-live:build || true
+              docker system prune -f || true
               break
             fi
             sleep 5
