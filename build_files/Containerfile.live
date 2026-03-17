@@ -65,7 +65,7 @@ RUN systemctl enable sddm \
     && passwd -d liveuser \
     && echo "liveuser ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/liveuser \
     && chmod 440 /etc/sudoers.d/liveuser \
-    && printf 'auth\t    required\tpam_env.so\nauth\t    required\tpam_permit.so\naccount\t required\tpam_nologin.so\naccount\t include\tsystem-auth\npassword include\tsystem-auth\nsession\t include\tsystem-auth\n' \
+    && printf 'auth\trequired\tpam_env.so\nauth\trequired\tpam_succeed_if.so user ingroup autologin quiet\naccount\tinclude\tsystem-auth\npassword\tinclude\tsystem-auth\nsession\toptional\tpam_keyinit.so force revoke\nsession\tinclude\tsystem-auth\n' \
         > /etc/pam.d/sddm-autologin \
     && systemctl mask kyth-sddm-setup.service 2>/dev/null || true
 
@@ -73,13 +73,21 @@ RUN systemctl enable sddm \
 # Drop every conf.d fragment (from the base image and kde-settings) so there is
 # no ordering ambiguity, then write one /etc/sddm.conf that owns everything.
 # X11 is used because kwin_wayland requires EGL/virgl and fails in plain QEMU.
-RUN if [ -f /usr/share/xsessions/plasma.desktop ]; then \
+#
+# Session name detection: Plasma 6 on Fedora uses plasmax11.desktop; earlier
+# releases used plasma.desktop or plasma-x11.desktop. Detect at build time so
+# the Session= key matches an actual file — a mismatch silently breaks autologin.
+RUN if [ -f /usr/share/xsessions/plasmax11.desktop ]; then \
+        session="plasmax11"; \
+    elif [ -f /usr/share/xsessions/plasma.desktop ]; then \
         session="plasma"; \
     elif [ -f /usr/share/xsessions/plasma-x11.desktop ]; then \
         session="plasma-x11"; \
     else \
-        session="plasma"; \
+        session=$(ls /usr/share/xsessions/ 2>/dev/null | grep -i plasma | head -1 | sed 's/\.desktop$//'); \
+        session=${session:-plasmax11}; \
     fi; \
+    echo "==> SDDM autologin session: ${session}"; \
     rm -rf /etc/sddm.conf.d /usr/lib/sddm/sddm.conf.d; \
     mkdir -p /etc/sddm.conf.d; \
     cat > /etc/sddm.conf <<SDDMEOF
