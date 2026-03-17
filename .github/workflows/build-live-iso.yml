@@ -5,8 +5,10 @@ on:
 
 jobs:
   # ── Job 1: Build the live container image and push it to GHCR ───────────────
-  # Isolated so the Docker overlay2 storage never competes with the rootfs
-  # export + squashfs that happen in job 2.
+  # Uses docker buildx (BuildKit) which:
+  #   • Has no 128-layer overlay2 limit — no need to flatten the base image
+  #   • Streams layers directly to GHCR with --push, storing nothing locally
+  # This keeps local disk usage near-zero for the build job.
   build-live-container:
     name: Build live container
     runs-on: ubuntu-latest
@@ -33,38 +35,19 @@ jobs:
       - name: Log in to GHCR
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
 
-      - name: Pull and flatten base image
-        # kyth:latest is built on kinoite-main:43 which already has 100+ layers.
-        # Docker's overlay2 driver hard-limits images to 128 layers total, so
-        # Containerfile.live's additional layers cause "max depth exceeded" on pull.
-        # Flattening the base into a single layer brings the total to ~19 layers.
-        # Push the flat image to GHCR so buildx can use it as a remote base,
-        # then remove it locally to reclaim the ~10 GB before the live build.
-        run: |
-          BASE_IMAGE="ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:latest"
-          FLAT_IMAGE="ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:flat-build"
-          docker pull "${BASE_IMAGE}"
-          CID=$(docker create "${BASE_IMAGE}")
-          docker export "${CID}" | docker import - "${FLAT_IMAGE}"
-          docker rm "${CID}"
-          docker push "${FLAT_IMAGE}"
-          docker rmi "${BASE_IMAGE}" "${FLAT_IMAGE}" || true
-          docker system prune -f || true
-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
       - name: Build and push live container directly to GHCR
-        # Use buildx --push so BuildKit streams layers straight to GHCR without
-        # writing the final ~15 GB image into the local Docker daemon overlay2
-        # storage — this is what caused the previous SIGTERM (disk exhaustion).
+        # BuildKit (docker buildx) has no 128-layer limit and --push streams
+        # finished layers straight to GHCR — nothing is written to local storage.
         id: push
         run: |
-          FLAT_IMAGE="ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:flat-build"
+          BASE_IMAGE="ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:latest"
           IMAGE="ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:live-build"
           docker buildx build \
             --tag "${IMAGE}" \
-            --build-arg BASE_IMAGE="${FLAT_IMAGE}" \
+            --build-arg BASE_IMAGE="${BASE_IMAGE}" \
             -f build_files/Containerfile.live \
             --push \
             .
