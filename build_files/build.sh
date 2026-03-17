@@ -652,5 +652,10 @@ TMPDIR=/var/tmp dracut \
     2> >(grep -Ev 'xattr|fail to copy' >&2)
 echo "Initramfs rebuilt with Plymouth (theme: kyth)"
 
+# Create default user
+useradd -m -G wheel,users,video,audio,gamemode -s /bin/bash kyth
+echo 'kyth:kyth' | chpasswd
+echo '%wheel ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/wheel-nopasswd
+
 # Purge dnf package cache — not needed at runtime and adds ~200 MB to the image.
 dnf5 clean all
