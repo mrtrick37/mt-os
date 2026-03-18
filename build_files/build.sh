@@ -17,9 +17,13 @@ dnf5 install -y https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-r
 # Always upgrade all packages (except kernel/gamescope) before graphics/mesa installs
 dnf5 upgrade -y --exclude='kernel*' --exclude='gamescope*'
 
-# Ensure latest mesa and graphics drivers
+# Ensure latest mesa and graphics drivers — use mesa-git COPR for bleeding edge
+# RADV, RADEONSI, ANV, and Zink. This tracks Mesa main branch, typically a few
+# days behind upstream, and provides GPU fixes weeks before they land in Fedora.
+dnf5 copr enable -y @mesa/mesa
 dnf5 upgrade -y mesa* mesa-dri-drivers mesa-vulkan-drivers mesa-libGL mesa-libGLU mesa-libEGL mesa-libgbm mesa-libxatracker mesa-libOpenCL || true
 dnf5 upgrade -y xorg-x11-drv-amdgpu xorg-x11-drv-nouveau xorg-x11-drv-intel xorg-x11-drv-vesa xorg-x11-drv-vmware xorg-x11-drv-qxl xorg-x11-drv-nvidia || true
+dnf5 copr disable -y @mesa/mesa
 
 ### CachyOS kernel — replaces the stock Fedora kernel for better desktop/gaming performance
 # CachyOS COPR: https://copr.fedorainfracloud.org/coprs/bieszczaders/kernel-cachyos/
@@ -187,9 +191,12 @@ sed -i "s/enabled=.*/enabled=0/g" /etc/yum.repos.d/fedora-steam.repo
 
 
 # ── AMD ───────────────────────────────────────────────────────────────────────
-# amdgpu is in the CachyOS kernel; radv (Vulkan) is now from mesa-git above.
-# Add VA-API/VDPAU for hardware video decode and radeontop for monitoring.
-dnf5 install -y libva-utils radeontop
+# amdgpu is in the CachyOS kernel; RADV (Vulkan) comes from mesa (Fedora repos).
+# linux-firmware provides the GPU firmware blobs that amdgpu loads at runtime —
+# without them the driver falls back to basic/non-accelerated mode.
+# libva-mesa-driver provides the AMD VA-API backend for hardware video decode.
+dnf5 install -y linux-firmware libva-utils libva-mesa-driver radeontop
+dnf5 upgrade -y linux-firmware libdrm
 
 
 # ── Kernel sysctl parameters ──────────────────────────────────────────────────
@@ -379,6 +386,16 @@ code --no-sandbox --user-data-dir=/tmp/vscode-install \
 # causing steamwebhelper to SEGV at startup.
 mkdir -p /etc/environment.d
 echo 'STEAM_DISABLE_BROWSER_SANDBOX=1' > /etc/environment.d/steam.conf
+
+# Steam: override the system .desktop file to remove PrefersNonDefaultGPU and
+# X-KDE-RunOnDiscreteGpu. On multi-GPU systems KDE uses these to launch Steam
+# via DRI_PRIME, which causes steamwebhelper to SEGV on startup. Placing the
+# override in /usr/local/share/applications/ takes XDG priority over
+# /usr/share/applications/ and won't be clobbered by steam package updates.
+mkdir -p /usr/local/share/applications
+sed '/^PrefersNonDefaultGPU=\|^X-KDE-RunOnDiscreteGpu=/d' \
+    /usr/share/applications/steam.desktop \
+    > /usr/local/share/applications/steam.desktop
 
 systemctl enable libvirtd.socket
 
