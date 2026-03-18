@@ -17,9 +17,10 @@ dnf5 install -y https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-r
 # Always upgrade all packages (except kernel/gamescope) before graphics/mesa installs
 dnf5 upgrade -y --exclude='kernel*' --exclude='gamescope*'
 
-# Ensure latest mesa and graphics drivers (Fedora repos).
-# TODO: switch to @mesa/mesa COPR for mesa-git once it supports Fedora 43.
+# Mesa-git from xxmitsu/mesa-git COPR (supports Fedora 43, rebuilds every few hours from upstream).
+dnf5 copr enable -y xxmitsu/mesa-git
 dnf5 upgrade -y mesa* mesa-dri-drivers mesa-vulkan-drivers mesa-libGL mesa-libGLU mesa-libEGL mesa-libgbm mesa-libxatracker mesa-libOpenCL || true
+dnf5 copr disable -y xxmitsu/mesa-git
 dnf5 upgrade -y xorg-x11-drv-amdgpu xorg-x11-drv-nouveau xorg-x11-drv-intel xorg-x11-drv-vesa xorg-x11-drv-vmware xorg-x11-drv-qxl xorg-x11-drv-nvidia || true
 
 ### CachyOS kernel — replaces the stock Fedora kernel for better desktop/gaming performance
