@@ -183,12 +183,12 @@ RUN mkdir -p /usr/share/wallpapers/kyth/contents/images \
 
 # ── Rebuild initramfs with dmsquash-live + Kyth Plymouth theme ────────────────
 # Steps combined so the initramfs is built exactly once, after Plymouth is ready:
-#   1. rsvg-convert: SVG → 200×200 PNG for Plymouth (requires librsvg2-tools)
+#   1. rsvg-convert: SVG → 200px-wide PNG for Plymouth (requires librsvg2-tools)
 #   2. plymouth-set-default-theme kyth: register theme (skip initrd rebuild here)
 #   3. dracut: build the live initramfs, which includes Plymouth + our theme
 # TMPDIR=/var/tmp avoids EXDEV cross-device rename errors on tmpfs /tmp.
 RUN KVER=$(ls /usr/lib/modules/ | grep cachyos | head -1) \
-    && rsvg-convert -w 200 -h 200 \
+    && rsvg-convert -w 200 \
         /etc/calamares/branding/kyth/kyth-logo.svg \
         -o /usr/share/plymouth/themes/kyth/kyth-logo.png \
     && rsvg-convert -w 1920 -h 1080 \

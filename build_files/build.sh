@@ -659,7 +659,7 @@ cp /ctx/plymouth/kyth.plymouth "${PLYMOUTH_DIR}/kyth.plymouth"
 cp /ctx/plymouth/kyth.script   "${PLYMOUTH_DIR}/kyth.script"
 
 # Render logo SVG → PNG for Plymouth (Plymouth cannot read SVG natively)
-rsvg-convert -w 200 -h 200 \
+rsvg-convert -w 200 \
     /ctx/calamares/branding/kyth/kyth-logo.svg \
     -o "${PLYMOUTH_DIR}/kyth-logo.png"
 
