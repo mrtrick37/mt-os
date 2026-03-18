@@ -12,6 +12,7 @@ Kyth is a custom [bootc](https://containers.github.io/bootc/) image. The entire 
 
 **Base:** Fedora 43 KDE Plasma (`ublue-os/kinoite-main:43`)
 **Kernel:** CachyOS — BORE scheduler, sched-ext, BBRv3, NTSYNC, latency-tuned for gaming
+**GPU drivers:** Mesa-git (bleeding edge RADV/RADEONSI from `@mesa/mesa` COPR)
 **Display:** KDE Plasma on Wayland
 **Theme:** Breeze Dark with Kyth branding and boot splash
 
@@ -22,28 +23,52 @@ Kyth is a custom [bootc](https://containers.github.io/bootc/) image. The entire 
 ### Gaming
 
 - Steam, Lutris, GameMode, gamescope, MangoHud, vkBasalt
-- umu-launcher, winetricks, libFAudio, OpenXR
+- umu-launcher, winetricks (pinned upstream release), libFAudio, OpenXR
+- RADV_PERFTEST=gpl — Vulkan Graphics Pipeline Library enabled by default
 - NTSYNC udev rules (faster Wine sync primitives)
+- AMD GPU high-performance power profile during gameplay (GameMode)
 
 ### Development
 
 - Visual Studio Code, Brave browser
-- Homebrew (system-wide, wheel group)
+- GitHub CLI (`gh`)
+- Homebrew (system-wide, wheel group owns `/home/linuxbrew`)
 - Cockpit (web-based system management)
-- libvirt / virt-manager / QEMU / virt-v2v / incus + LXC
+- libvirt / virt-manager / QEMU / incus + LXC
 - Docker
 
 ### Observability
 
-- bcc, bpftop, bpftrace, trace-cmd, tiptop, sysprof
+- bcc, bpftop, bpftrace, trace-cmd, tiptop, sysprof, radeontop
 
 ### System tuning
 
 - vm.swappiness=10, THP=madvise, TCP BBRv3, zram (min(RAM/2, 8 GB) zstd)
-- scx_lavd-ready (sched-ext userspace scheduler)
+- scx_lavd-ready (blocked on COPR availability — see [#50](https://github.com/mrtrick37/kyth/issues/50))
 - GameMode CPU/GPU governor profiles
 - WiFi power-save disabled system-wide
 - spice-vdagent for automatic display resolution in VMs
+
+---
+
+## Branches and image tags
+
+| Branch | Image tag | Purpose |
+|--------|-----------|---------|
+| `testing` | `:testing` | Active development — may be unstable |
+| `main` | `:latest` | Stable releases |
+
+Both branches rebuild daily at 10:05 UTC to pick up the latest packages regardless of code changes.
+
+To switch between them on an installed system:
+
+```bash
+# Switch to testing
+sudo bootc switch ghcr.io/mrtrick37/kyth:testing
+
+# Switch back to stable
+sudo bootc switch ghcr.io/mrtrick37/kyth:latest
+```
 
 ---
 
@@ -59,6 +84,8 @@ Kyth is a custom [bootc](https://containers.github.io/bootc/) image. The entire 
 
 Minimum 8 GB RAM recommended for the live session and installer.
 
+Default live session credentials: `kyth` / `kyth`
+
 ### Rebase from an existing Fedora atomic system
 
 ```bash
@@ -70,10 +97,10 @@ bootc switch ghcr.io/mrtrick37/kyth:latest
 ## Updates
 
 ```bash
-bootc upgrade
+sudo bootc upgrade
 ```
 
-Kyth rebuilds and publishes a new image on every push to `main`. Updates are atomic — the previous deployment is kept as a fallback and can be selected at the GRUB menu.
+Kyth rebuilds and publishes a new image on every push to `main` and `testing`. Updates are atomic — the previous deployment is kept as a fallback and can be selected at the GRUB menu.
 
 ---
 
@@ -85,7 +112,7 @@ Kyth rebuilds and publishes a new image on every push to `main`. Updates are ato
 # Install build tools
 sudo dnf install -y just xorriso squashfs-tools mtools dosfstools grub2-tools-minimal skopeo
 
-# Step 1 — build the OS image (requires root for Docker)
+# Step 1 — build the OS image
 sudo just build
 
 # Step 2 — assemble the live ISO
@@ -95,7 +122,7 @@ just build-live-iso
 just --list
 ```
 
-These are two separate steps. `sudo just build` produces `localhost/kyth:latest`. `just build-live-iso` wraps it in a live session layer and assembles the bootable ISO. If you re-run `just build-live-iso` after a fresh `sudo just build`, it automatically detects that the base image changed and rebuilds the live layer — no extra flags needed.
+`sudo just build` produces `localhost/kyth:latest`. `just build-live-iso` wraps it in a live session layer and assembles the bootable ISO. If you re-run `just build-live-iso` after a fresh `sudo just build`, it automatically detects that the base image changed and rebuilds the live layer.
 
 The live ISO is written to `output/live-iso/kyth-live.iso`.
 
@@ -123,7 +150,7 @@ disk_config/
 
 Dockerfile             Assembles the final kyth:latest image from the base
 Justfile               All build, run, and clean recipes
-.github/workflows/     CI: builds and publishes image + live ISO on push to main
+.github/workflows/     CI: builds and publishes image on push to main and testing
 ```
 
 ---
@@ -133,6 +160,14 @@ Justfile               All build, run, and clean recipes
 Kyth uses [bootc](https://containers.github.io/bootc/) — the OS is a container image. On update, `bootc upgrade` pulls the new image, stages it, and makes it the default boot entry. The previous deployment stays on disk as a fallback. There is no package manager on the running system; all changes go through the image build.
 
 For user-installed applications use Flatpak (via Discover) or Homebrew.
+
+---
+
+## Links
+
+- [Issues](https://github.com/mrtrick37/kyth/issues)
+- [Discussions](https://github.com/mrtrick37/kyth/discussions)
+- [Actions](https://github.com/mrtrick37/kyth/actions)
 
 ---
 
