@@ -2,6 +2,15 @@ name: Build Live ISO
 
 on:
   workflow_dispatch:
+    inputs:
+      source_tag:
+        description: 'Source image tag to build ISO from'
+        required: false
+        default: 'latest'
+        type: choice
+        options:
+          - latest
+          - testing
 
 jobs:
   # ── Job 1: Build the live container image and push it to GHCR ───────────────
@@ -43,7 +52,7 @@ jobs:
         # finished layers straight to GHCR — nothing is written to local storage.
         id: push
         run: |
-          BASE_IMAGE="ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:latest"
+          BASE_IMAGE="ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:${{ inputs.source_tag || 'latest' }}"
           IMAGE="ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:live-build"
           docker buildx build \
             --tag "${IMAGE}" \
@@ -105,7 +114,7 @@ jobs:
           docker rm "${CID}"
           docker rmi "${{ needs.build-live-container.outputs.image-ref }}" || true
 
-          BASE_IMAGE="ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:latest"
+          BASE_IMAGE="ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:${{ inputs.source_tag || 'latest' }}"
           docker pull "${BASE_IMAGE}"
           docker tag  "${BASE_IMAGE}" localhost/kyth:latest
 
