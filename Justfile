@@ -415,19 +415,21 @@ build-iso $target_image=("localhost/" + image_name) $tag=default_tag: && (_build
 # "Install Kyth" desktop icon installs from ghcr.io/mrtrick37/kyth:latest)
 # Requires: xorriso squashfs-tools mtools dosfstools
 # Builds localhost/kyth:latest automatically if not already present.
+# Pass source_tag to build from a different image: just build-live-iso testing
 [group('Build Virtal Machine Image')]
-build-live-iso:
+build-live-iso source_tag="latest":
     #!/usr/bin/env bash
     set -euo pipefail
-    bash build_files/build-live-iso.sh
+    SOURCE_TAG={{ source_tag }} bash build_files/build-live-iso.sh
 
-# Force a full rebuild of the live ISO, ignoring the cached kyth-live:build layer.
+# Force a full rebuild of the live ISO, ignoring the cached live container layer.
 # Use this after changing Containerfile.live or any file it COPYs (modules, main.py, etc.)
+# Pass source_tag to rebuild from a different image: just rebuild-live-iso testing
 [group('Build Virtal Machine Image')]
-rebuild-live-iso:
+rebuild-live-iso source_tag="latest":
     #!/usr/bin/env bash
     set -euo pipefail
-    REBUILD_IMAGE=1 bash build_files/build-live-iso.sh
+    SOURCE_TAG={{ source_tag }} REBUILD_IMAGE=1 bash build_files/build-live-iso.sh
 
 # Boot the live desktop ISO in a VM (BIOS, web UI at http://localhost:PORT)
 # Builds the ISO first if it does not exist.

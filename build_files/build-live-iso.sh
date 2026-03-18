@@ -15,6 +15,15 @@
 
 set -euo pipefail
 
+SOURCE_TAG="${SOURCE_TAG:-latest}"
+LOCAL_BASE="localhost/kyth:${SOURCE_TAG}"
+# Cache image name: keep legacy 'kyth-live:build' for latest so existing caches still work
+if [[ "${SOURCE_TAG}" == "latest" ]]; then
+    LIVE_BUILD_TAG="kyth-live:build"
+else
+    LIVE_BUILD_TAG="kyth-live:build-${SOURCE_TAG}"
+fi
+
 # ── Sudo setup: ask once, work fully unattended for the rest of the build ─────
 # In CI (passwordless sudo) skip the interactive prompt entirely.
 # On a local TTY, ask once and cache via SUDO_ASKPASS so background subshells
@@ -37,18 +46,26 @@ else
 fi
 
 # Ensure base image exists locally before building live ISO
-
-# Ensure base image exists locally as localhost/kyth:latest before building live ISO
-if ! docker image inspect localhost/kyth:latest >/dev/null 2>&1; then
-    echo "Base image localhost/kyth:latest not found. Building base image..."
-    just build-base || { echo "Failed to build base image."; exit 1; }
-fi
-
-# If ghcr.io/mrtrick37/kyth:latest exists but localhost/kyth:latest does not, retag it
-if docker image inspect ghcr.io/mrtrick37/kyth:latest >/dev/null 2>&1 && \
-   ! docker image inspect localhost/kyth:latest >/dev/null 2>&1; then
-    echo "Retagging ghcr.io/mrtrick37/kyth:latest as localhost/kyth:latest..."
-    docker tag ghcr.io/mrtrick37/kyth:latest localhost/kyth:latest
+if ! docker image inspect "${LOCAL_BASE}" >/dev/null 2>&1; then
+    if [[ "${SOURCE_TAG}" == "latest" ]]; then
+        # For latest, try pulling from registry first, then fall back to local build
+        if docker image inspect ghcr.io/mrtrick37/kyth:latest >/dev/null 2>&1; then
+            echo "Retagging ghcr.io/mrtrick37/kyth:latest as ${LOCAL_BASE}..."
+            docker tag ghcr.io/mrtrick37/kyth:latest "${LOCAL_BASE}"
+        else
+            echo "Base image ${LOCAL_BASE} not found. Building..."
+            just build || { echo "Failed to build base image."; exit 1; }
+        fi
+    else
+        echo "==> Pulling ghcr.io/mrtrick37/kyth:${SOURCE_TAG} from registry..."
+        if docker pull "ghcr.io/mrtrick37/kyth:${SOURCE_TAG}"; then
+            docker tag "ghcr.io/mrtrick37/kyth:${SOURCE_TAG}" "${LOCAL_BASE}"
+        else
+            echo "ERROR: ${LOCAL_BASE} not found locally and could not pull from registry." >&2
+            echo "       Make sure the ${SOURCE_TAG} image has been pushed to ghcr.io." >&2
+            exit 1
+        fi
+    fi
 fi
 
 
@@ -107,13 +124,13 @@ _need_rebuild=0
 if [[ "${REBUILD_IMAGE:-}" == "1" ]]; then
     echo "==> REBUILD_IMAGE=1: forcing live container rebuild"
     _need_rebuild=1
-elif ! docker image inspect kyth-live:build >/dev/null 2>&1; then
-    echo "==> kyth-live:build not found: building live container variant"
+elif ! docker image inspect "${LIVE_BUILD_TAG}" >/dev/null 2>&1; then
+    echo "==> ${LIVE_BUILD_TAG} not found: building live container variant"
     _need_rebuild=1
 else
-    _base_ts=$(docker image inspect localhost/kyth:latest \
+    _base_ts=$(docker image inspect "${LOCAL_BASE}" \
         --format '{{.Created}}' 2>/dev/null || echo "")
-    _live_ts=$(docker image inspect kyth-live:build \
+    _live_ts=$(docker image inspect "${LIVE_BUILD_TAG}" \
         --format '{{.Created}}' 2>/dev/null || echo "")
     if [[ -n "${_base_ts}" && "${_base_ts}" > "${_live_ts}" ]]; then
         echo ""
@@ -122,22 +139,23 @@ else
         echo ""
         _need_rebuild=1
     else
-        echo "==> kyth-live:build is up to date — skipping live container rebuild"
+        echo "==> ${LIVE_BUILD_TAG} is up to date — skipping live container rebuild"
     fi
 fi
 
 if [[ "${_need_rebuild}" == "1" ]]; then
     echo "==> Building live container variant (this takes a while)..."
     docker build \
+        --build-arg BASE_IMAGE="${LOCAL_BASE}" \
         -f "${SCRIPT_DIR}/Containerfile.live" \
-        -t kyth-live:build \
+        -t "${LIVE_BUILD_TAG}" \
         "${REPO_ROOT}"
     echo "==> Live container build complete"
 fi
 
 # ── 2. Export container filesystem ──────────────────────────────────────────
 echo "==> Exporting container filesystem to ${ROOTFS} (this may take several minutes...)"
-CONTAINER=$(docker create kyth-live:build /bin/true)
+CONTAINER=$(docker create "${LIVE_BUILD_TAG}" /bin/true)
 if command -v pv >/dev/null 2>&1; then
     echo "==> Using pv to show export progress."
     docker export "${CONTAINER}" | pv | \
@@ -183,7 +201,7 @@ echo "==> Bundling OCI image into rootfs (this may take a while)"
 sudo mkdir -p "${ROOTFS}/usr/share/kyth"
 sudo skopeo copy \
     --insecure-policy \
-    docker-daemon:localhost/kyth:latest \
+    "docker-daemon:${LOCAL_BASE}" \
     "oci:${ROOTFS}/usr/share/kyth/image"
 echo "==> OCI image bundled at /usr/share/kyth/image"
 

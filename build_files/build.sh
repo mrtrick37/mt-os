@@ -17,9 +17,11 @@ dnf5 install -y https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-r
 # Always upgrade all packages (except kernel/gamescope) before graphics/mesa installs
 dnf5 upgrade -y --exclude='kernel*' --exclude='gamescope*'
 
-# Ensure latest mesa and graphics drivers
-dnf5 upgrade -y mesa* mesa-dri-drivers mesa-vulkan-drivers mesa-libGL mesa-libGLU mesa-libEGL mesa-libgbm mesa-libxatracker mesa-libOpenCL || true
-dnf5 upgrade -y xorg-x11-drv-amdgpu xorg-x11-drv-nouveau xorg-x11-drv-intel xorg-x11-drv-vesa xorg-x11-drv-vmware xorg-x11-drv-qxl xorg-x11-drv-nvidia || true
+# Mesa-git from xxmitsu/mesa-git COPR (supports Fedora 43, rebuilds every few hours from upstream).
+dnf5 copr enable -y xxmitsu/mesa-git
+dnf5 upgrade -y --skip-unavailable mesa* mesa-dri-drivers mesa-vulkan-drivers mesa-libGL mesa-libGLU mesa-libEGL mesa-libgbm mesa-libOpenCL || true
+dnf5 copr disable -y xxmitsu/mesa-git
+dnf5 upgrade -y --skip-unavailable xorg-x11-drv-amdgpu xorg-x11-drv-nouveau xorg-x11-drv-intel xorg-x11-drv-vmware xorg-x11-drv-qxl xorg-x11-drv-nvidia || true
 
 ### CachyOS kernel — replaces the stock Fedora kernel for better desktop/gaming performance
 # CachyOS COPR: https://copr.fedorainfracloud.org/coprs/bieszczaders/kernel-cachyos/
@@ -104,6 +106,7 @@ rpm -qa | grep -E '^kernel' | grep -v cachyos | xargs -r rpm --nodeps -e 2>/dev/
         util-linux-script \
         virt-manager \
         virt-viewer \
+        gnome-boxes \
         ydotool \
         tmux \
         gh
@@ -187,9 +190,12 @@ sed -i "s/enabled=.*/enabled=0/g" /etc/yum.repos.d/fedora-steam.repo
 
 
 # ── AMD ───────────────────────────────────────────────────────────────────────
-# amdgpu is in the CachyOS kernel; radv (Vulkan) is now from mesa-git above.
-# Add VA-API/VDPAU for hardware video decode and radeontop for monitoring.
-dnf5 install -y libva-utils radeontop
+# amdgpu is in the CachyOS kernel; RADV (Vulkan) comes from mesa (Fedora repos).
+# linux-firmware provides the GPU firmware blobs that amdgpu loads at runtime —
+# without them the driver falls back to basic/non-accelerated mode.
+# libva-mesa-driver provides the AMD VA-API backend for hardware video decode.
+dnf5 install -y linux-firmware libva-utils mesa-va-drivers radeontop
+dnf5 upgrade -y linux-firmware libdrm
 
 
 # ── Kernel sysctl parameters ──────────────────────────────────────────────────
@@ -379,6 +385,24 @@ code --no-sandbox --user-data-dir=/tmp/vscode-install \
 # causing steamwebhelper to SEGV at startup.
 mkdir -p /etc/environment.d
 echo 'STEAM_DISABLE_BROWSER_SANDBOX=1' > /etc/environment.d/steam.conf
+
+# Steam: override the system .desktop file to remove PrefersNonDefaultGPU and
+# X-KDE-RunOnDiscreteGpu. On multi-GPU systems KDE uses these to launch Steam
+# via DRI_PRIME, which causes steamwebhelper to SEGV on startup. Placing the
+# override in /usr/local/share/applications/ takes XDG priority over
+# /usr/share/applications/ and won't be clobbered by steam package updates.
+mkdir -p /usr/local/share/applications
+sed '/^PrefersNonDefaultGPU=\|^X-KDE-RunOnDiscreteGpu=/d' \
+    /usr/share/applications/steam.desktop \
+    > /usr/local/share/applications/steam.desktop
+
+# ── GE-Proton ────────────────────────────────────────────────────────────────
+# Installed system-wide so Steam picks it up for all users without manual setup.
+# Steam looks in /usr/share/steam/compatibilitytools.d/ in addition to ~/.steam.
+GE_PROTON_VER="GE-Proton10-33"
+mkdir -p /usr/share/steam/compatibilitytools.d
+curl -fsSL "https://github.com/GloriousEggroll/proton-ge-custom/releases/download/${GE_PROTON_VER}/${GE_PROTON_VER}.tar.gz" \
+    | tar -xz -C /usr/share/steam/compatibilitytools.d/
 
 systemctl enable libvirtd.socket
 
@@ -586,6 +610,27 @@ wallpaperplugin=org.kde.image
 Image=/usr/share/wallpapers/kyth/contents/images/1920x1080.svg
 PLASMADESKTOPEOF
 
+# ── Outlook PWA ───────────────────────────────────────────────────────────────
+# Adds Microsoft Outlook to the Internet section of the app launcher via a
+# .desktop file that opens it as a Brave PWA (no browser chrome).
+mkdir -p /usr/share/applications
+cat > /usr/share/applications/outlook-pwa.desktop <<'OUTLOOKEOF'
+[Desktop Entry]
+Version=1.0
+Name=Outlook
+Comment=Microsoft Outlook — email and calendar
+Exec=brave-browser --app=https://outlook.live.com/mail/ %U
+Icon=outlook-pwa
+Terminal=false
+Type=Application
+Categories=Network;Email;
+StartupWMClass=outlook.live.com__mail_
+StartupNotify=true
+OUTLOOKEOF
+mkdir -p /usr/share/icons/hicolor/192x192/apps
+cp /ctx/icons/outlook-pwa.png /usr/share/icons/hicolor/192x192/apps/outlook-pwa.png
+gtk-update-icon-cache -f /usr/share/icons/hicolor/ 2>/dev/null || true
+
 # Remove Waydroid desktop/menu entries and related files if present
 # (some base images include a Waydroid helper that we don't ship in Kyth)
 rm -f /usr/share/applications/*waydroid*.desktop || true
@@ -614,7 +659,7 @@ cp /ctx/plymouth/kyth.plymouth "${PLYMOUTH_DIR}/kyth.plymouth"
 cp /ctx/plymouth/kyth.script   "${PLYMOUTH_DIR}/kyth.script"
 
 # Render logo SVG → PNG for Plymouth (Plymouth cannot read SVG natively)
-rsvg-convert -w 200 -h 200 \
+rsvg-convert -w 200 \
     /ctx/calamares/branding/kyth/kyth-logo.svg \
     -o "${PLYMOUTH_DIR}/kyth-logo.png"
 
@@ -675,9 +720,15 @@ TMPDIR=/var/tmp dracut \
     2> >(grep -Ev 'xattr|fail to copy' >&2)
 echo "Initramfs rebuilt with Plymouth (theme: kyth)"
 
+# ── Automatic updates: use bootc, not rpm-ostree ──────────────────────────────
+# rpm-ostreed-automatic conflicts with bootc over the sysroot lock.
+# Disable it and use bootc's native update timer instead.
+systemctl disable rpm-ostreed-automatic.timer rpm-ostreed-automatic.service 2>/dev/null || true
+systemctl enable bootc-fetch-apply-updates.timer 2>/dev/null || true
+
 # useradd only reads /etc/group, but Fedora system groups live in /usr/lib/group.
 # Copy any missing groups into /etc/group; create with groupadd if absent entirely.
-for grp in users video audio gamemode; do
+for grp in users video audio gamemode docker; do
     if ! grep -q "^${grp}:" /etc/group; then
         if getent group "$grp" > /dev/null 2>&1; then
             getent group "$grp" >> /etc/group
@@ -688,7 +739,7 @@ for grp in users video audio gamemode; do
 done
 
 # Create default user
-useradd -m -G wheel,users,video,audio,gamemode -s /bin/bash kyth
+useradd -m -G wheel,users,video,audio,gamemode,docker -s /bin/bash kyth
 echo 'kyth:kyth' | chpasswd
 echo '%wheel ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/wheel-nopasswd
 

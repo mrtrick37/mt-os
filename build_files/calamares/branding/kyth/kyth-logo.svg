@@ -1,14 +1,8 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 620" width="512" height="620">
   <defs>
-    <!-- Subtle radial depth on the background -->
-    <radialGradient id="bg" cx="50%" cy="40%" r="65%">
-      <stop offset="0%"   stop-color="#24283b"/>
-      <stop offset="100%" stop-color="#1a1b26"/>
-    </radialGradient>
-
-    <!-- Soft ambient glow used on each figure -->
+    <!-- Ambient glow on each figure — matches wallpaper logo-glow -->
     <filter id="fig-glow" x="-60%" y="-60%" width="220%" height="220%">
-      <feGaussianBlur stdDeviation="6" result="blur"/>
+      <feGaussianBlur stdDeviation="14" result="blur"/>
       <feMerge>
         <feMergeNode in="blur"/>
         <feMergeNode in="SourceGraphic"/>
@@ -17,7 +11,7 @@
 
     <!-- Warm burst at the meeting point -->
     <filter id="join-glow" x="-120%" y="-120%" width="340%" height="340%">
-      <feGaussianBlur stdDeviation="14" result="blur"/>
+      <feGaussianBlur stdDeviation="28" result="blur"/>
       <feMerge>
         <feMergeNode in="blur"/>
         <feMergeNode in="SourceGraphic"/>
@@ -25,45 +19,39 @@
     </filter>
   </defs>
 
-  <!-- ── Background ─────────────────────────────────────────────── -->
-  <rect width="512" height="512" rx="100" ry="100" fill="url(#bg)"/>
-
-  <!--
-    Three stylised figures form the letter K and reach toward
-    one another at the central junction — the moment of togetherness.
-
-    Figure 1 · Blue  · stands upright on the left  (vertical stroke)
-    Figure 2 · Purple· reaches in from upper-right  (upper diagonal)
-    Figure 3 · Teal  · reaches in from lower-right  (lower diagonal)
-
-    All three meet at the warm amber point (175, 262).
-  -->
+  <!-- Pure black background — matches wallpaper -->
+  <rect width="512" height="620" fill="#000000"/>
 
   <!-- ── Figure 1 — upright, blue ──────────────────────────────── -->
   <line x1="175" y1="452" x2="175" y2="88"
         stroke="#7aa2f7" stroke-width="54" stroke-linecap="round"
         filter="url(#fig-glow)"/>
-  <!-- head -->
   <circle cx="175" cy="55" r="40" fill="#7aa2f7" filter="url(#fig-glow)"/>
 
   <!-- ── Figure 2 — upper-right, purple ───────────────────────── -->
   <line x1="392" y1="86" x2="175" y2="262"
         stroke="#bb9af7" stroke-width="54" stroke-linecap="round"
         filter="url(#fig-glow)"/>
-  <!-- head -->
   <circle cx="418" cy="62" r="40" fill="#bb9af7" filter="url(#fig-glow)"/>
 
   <!-- ── Figure 3 — lower-right, teal ─────────────────────────── -->
   <line x1="392" y1="440" x2="175" y2="262"
         stroke="#73daca" stroke-width="54" stroke-linecap="round"
         filter="url(#fig-glow)"/>
-  <!-- head -->
   <circle cx="418" cy="464" r="40" fill="#73daca" filter="url(#fig-glow)"/>
 
-  <!-- ── Togetherness: warm amber spark at the meeting point ───── -->
-  <!-- outer soft halo -->
+  <!-- ── Warm amber spark at the meeting point ─────────────────── -->
   <circle cx="175" cy="262" r="32" fill="#e0af68" opacity="0.35"
           filter="url(#join-glow)"/>
-  <!-- inner solid dot -->
   <circle cx="175" cy="262" r="18" fill="#e0af68"/>
+
+  <!-- "kyth" wordmark — centered under the K -->
+  <text x="297" y="578"
+        font-family="'DejaVu Sans', 'Liberation Sans', sans-serif"
+        font-size="52"
+        font-weight="300"
+        letter-spacing="18"
+        fill="#a9b1d6"
+        opacity="0.8"
+        text-anchor="middle">kyth</text>
 </svg>

@@ -104,6 +104,17 @@ Kyth rebuilds and publishes a new image on every push to `main` and `testing`. U
 
 ---
 
+## Branches and image tags
+
+| Branch | Image tag | Purpose |
+|--------|-----------|---------|
+| `main` | `:latest`, `:latest.YYYYMMDD` | Stable — only tested builds land here |
+| `testing` | `:testing`, `:testing.YYYYMMDD` | In-progress — may be broken |
+
+`:latest` is the stable tag. It is the OCI default, so `bootc switch ghcr.io/mrtrick37/kyth` (no tag) and `bootc upgrade` both track the stable build automatically.
+
+---
+
 ## Build locally
 
 **Requirements:** `docker`, `just`, `xorriso`, `squashfs-tools`, `mtools`, `dosfstools`, `grub2-tools-minimal`, `skopeo`
