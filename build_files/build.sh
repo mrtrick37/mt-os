@@ -123,7 +123,9 @@ dnf5 copr enable -y ycollet/audinux
 dnf5 config-manager addrepo --overwrite --from-repofile=https://negativo17.org/repos/fedora-steam.repo
 
 # Gaming packages
-dnf5 install -y --skip-unavailable \
+# libde265.i686 is excluded: it's an HEVC decoder pulled in transitively by Steam's
+# 32-bit deps, but it's frequently unavailable on Fedora mirrors and is not needed.
+dnf5 install -y --skip-unavailable --exclude=libde265.i686 \
     gamescope-shaders \
     umu-launcher \
     mangohud.x86_64 \
