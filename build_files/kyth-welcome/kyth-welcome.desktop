@@ -1,12 +1,12 @@
 [Desktop Entry]
 Version=1.0
-Name=Kyth Welcome
-Comment=Welcome centre and helper for Kyth
+Name=Kyth Helper
+Comment=Helper and settings for Kyth
 Exec=/usr/local/bin/kyth-welcome
 Icon=kyth
 Terminal=false
 Type=Application
 Categories=System;Settings;
-Keywords=kyth;welcome;branch;update;settings;
+Keywords=kyth;helper;branch;update;settings;
 StartupNotify=true
 StartupWMClass=kyth-welcome

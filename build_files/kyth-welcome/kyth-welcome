@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""kyth-welcome — Welcome & helper app for Kyth Linux.
+"""kyth-helper — Helper app for Kyth Linux.
 
 A welcome centre and system management tool.  Runs on first login (via
 /etc/skel autostart) and is always accessible from the application menu.
@@ -14,9 +14,9 @@ import re
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLabel, QFrame, QTextEdit, QStackedWidget,
-    QSizePolicy, QScrollArea, QSpacerItem,
+    QSizePolicy, QScrollArea, QSpacerItem, QProgressBar,
 )
-from PyQt6.QtCore import Qt, QThread, pyqtSignal, QUrl, QSize
+from PyQt6.QtCore import Qt, QThread, pyqtSignal, QUrl, QSize, QTimer
 from PyQt6.QtGui import QFont, QDesktopServices, QColor, QCursor, QIcon
 
 # ── Constants ──────────────────────────────────────────────────────────────────
@@ -234,6 +234,19 @@ QPushButton#btn-switch:disabled {
     color: #565f89;
 }
 
+/* ── Progress bar ─────────────────────────────────────────────────────────── */
+QProgressBar#switch-progress {
+    background: #24283b;
+    border: 1px solid #313244;
+    border-radius: 4px;
+    height: 6px;
+    text-align: center;
+}
+QProgressBar#switch-progress::chunk {
+    background: #7aa2f7;
+    border-radius: 4px;
+}
+
 /* ── Log output ───────────────────────────────────────────────────────────── */
 QTextEdit#log {
     background: #13131e;
@@ -316,7 +329,7 @@ def _bootc_status() -> dict | None:
     """Return parsed bootc status or None if unavailable."""
     try:
         r = subprocess.run(
-            ["bootc", "status", "--json"],
+            ["sudo", "bootc", "status", "--json"],
             capture_output=True, text=True, timeout=10,
         )
         if r.returncode == 0:
@@ -523,24 +536,37 @@ class WelcomePage(QWidget):
         ref    = _current_ref(status)
         tag    = _current_tag(ref)
 
-        infos = [
-            ("Image",  ref  or "Not available (live session?)"),
-            ("Branch", tag  or "—"),
-        ]
         grid = QVBoxLayout()
-        grid.setSpacing(4)
-        for key, val in infos:
+        grid.setSpacing(6)
+
+        def _info_row(key, val_widget):
             row = QHBoxLayout()
             k = QLabel(f"{key}:")
             k.setObjectName("info-key")
             k.setFixedWidth(60)
-            v = QLabel(val)
-            v.setObjectName("info-val")
-            v.setWordWrap(True)
             row.addWidget(k)
-            row.addWidget(v)
+            row.addWidget(val_widget)
             row.addStretch()
             grid.addLayout(row)
+
+        if ref:
+            # Split "ghcr.io/user/repo:tag" → dim registry, bold tag
+            colon_idx = ref.rfind(":")
+            registry  = ref[:colon_idx] if colon_idx != -1 else ref
+            img_tag   = ref[colon_idx:] if colon_idx != -1 else ""
+            img_lbl   = QLabel(f'<span style="color:#565f89">{registry}</span>'
+                               f'<span style="color:#cdd6f4;font-weight:700">{img_tag}</span>')
+            img_lbl.setTextFormat(Qt.TextFormat.RichText)
+            img_lbl.setObjectName("info-val")
+        else:
+            img_lbl = QLabel("Not available (live session?)")
+            img_lbl.setObjectName("info-key")
+        _info_row("Image", img_lbl)
+
+        branch_lbl = QLabel(tag or "—")
+        branch_lbl.setObjectName("info-val")
+        _info_row("Branch", branch_lbl)
+
         vbox.addLayout(grid)
 
         vbox.addStretch()
@@ -551,12 +577,36 @@ class WelcomePage(QWidget):
         root.addWidget(scroll)
 
 
+# Stage labels inferred from bootc output keywords (checked in order)
+_STAGE_PATTERNS = [
+    (["resolving", "resolve"],                        "Resolving image…"),
+    (["manifest", "fetching manifest"],               "Fetching manifest…"),
+    (["pulling", "fetching", "fetch", "layer", "blob",
+      "downloading", "download"],                     "Pulling image layers…"),
+    (["writing", "unpacking", "unpack", "extracting"],"Writing layers to disk…"),
+    (["staging", "stage", "deploying", "deploy"],     "Staging deployment…"),
+    (["queued", "next boot", "complete", "done"],     "Finalising…"),
+]
+
+def _infer_stage(line: str) -> str | None:
+    low = line.lower()
+    for keywords, label in _STAGE_PATTERNS:
+        if any(kw in low for kw in keywords):
+            return label
+    return None
+
+
 # ── Branches page ──────────────────────────────────────────────────────────────
 class BranchPage(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("content")
         self._worker: BootcWorker | None = None
+        self._dot_timer = QTimer(self)
+        self._dot_timer.setInterval(500)
+        self._dot_timer.timeout.connect(self._tick_dots)
+        self._dot_count = 0
+        self._stage_text = ""
 
         root = QVBoxLayout(self)
         root.setContentsMargins(32, 28, 32, 28)
@@ -595,9 +645,36 @@ class BranchPage(QWidget):
         note.setStyleSheet("color: #e0af68; font-size: 12px;")
         root.addWidget(note)
 
-        root.addSpacing(16)
+        root.addSpacing(12)
 
-        # Output log (hidden until a switch is initiated)
+        # ── Status area (hidden while idle) ───────────────────────────────────
+        self._status_widget = QWidget()
+        status_layout = QVBoxLayout(self._status_widget)
+        status_layout.setContentsMargins(0, 0, 0, 0)
+        status_layout.setSpacing(6)
+
+        stage_row = QHBoxLayout()
+        stage_row.setSpacing(10)
+
+        self._lbl_stage = QLabel("Preparing…")
+        self._lbl_stage.setStyleSheet("color: #7aa2f7; font-size: 12px; font-weight: 600;")
+        stage_row.addWidget(self._lbl_stage)
+        stage_row.addStretch()
+        status_layout.addLayout(stage_row)
+
+        self._progress = QProgressBar()
+        self._progress.setObjectName("switch-progress")
+        self._progress.setRange(0, 0)   # indeterminate / busy
+        self._progress.setFixedHeight(6)
+        self._progress.setTextVisible(False)
+        status_layout.addWidget(self._progress)
+
+        self._status_widget.hide()
+        root.addWidget(self._status_widget)
+
+        root.addSpacing(12)
+
+        # Output log
         self.log = QTextEdit()
         self.log.setObjectName("log")
         self.log.setReadOnly(True)
@@ -609,10 +686,24 @@ class BranchPage(QWidget):
 
         self._refresh_status()
 
+    # ── helpers ───────────────────────────────────────────────────────────────
+
+    def _set_stage(self, text: str):
+        self._stage_text = text
+        self._dot_count  = 0
+        self._lbl_stage.setText(text)
+
+    def _tick_dots(self):
+        self._dot_count = (self._dot_count + 1) % 4
+        dots = "." * self._dot_count
+        # strip any trailing dots from the base label then re-add
+        base = self._stage_text.rstrip(".")
+        self._lbl_stage.setText(base + dots)
+
     def _refresh_status(self):
-        status  = _bootc_status()
-        ref     = _current_ref(status)
-        tag     = _current_tag(ref)
+        status = _bootc_status()
+        ref    = _current_ref(status)
+        tag    = _current_tag(ref)
 
         if ref:
             self.lbl_current.setText(f"Current image: {ref}")
@@ -622,10 +713,16 @@ class BranchPage(QWidget):
         for t, card in self.cards.items():
             card.mark_active(t == tag)
 
+    # ── switch flow ───────────────────────────────────────────────────────────
+
     def _on_switch(self, tag: str):
         ref = f"{REGISTRY}:{tag}"
         self.log.clear()
         self.log.append(f"→ sudo bootc switch {ref}\n")
+
+        self._set_stage("Connecting to registry…")
+        self._status_widget.show()
+        self._dot_timer.start()
 
         for card in self.cards.values():
             card.set_switching(True)
@@ -638,15 +735,38 @@ class BranchPage(QWidget):
     def _on_line(self, text: str):
         self.log.append(text)
         self.log.ensureCursorVisible()
+        stage = _infer_stage(text)
+        if stage:
+            self._set_stage(stage)
 
     def _on_done(self, code: int):
+        self._dot_timer.stop()
+
         if code == 0:
+            self._set_stage("Done — reboot to apply")
+            self._lbl_stage.setStyleSheet(
+                "color: #9ece6a; font-size: 12px; font-weight: 600;"
+            )
+            self._progress.setRange(0, 1)
+            self._progress.setValue(1)
             self.log.append(
                 "\n✓ Switch staged successfully.  "
                 "Reboot to boot into the new branch."
             )
         else:
+            self._set_stage("Switch failed")
+            self._lbl_stage.setStyleSheet(
+                "color: #f7768e; font-size: 12px; font-weight: 600;"
+            )
+            self._progress.setRange(0, 1)
+            self._progress.setValue(0)
             self.log.append(f"\n✗ bootc switch exited with code {code}.")
+
+        for card in self.cards.values():
+            card.set_switching(False)
+
+        self._refresh_status()
+        self._worker = None
 
         for card in self.cards.values():
             card.set_switching(False)
@@ -731,7 +851,7 @@ class MainWindow(QMainWindow):
 # ── Entry point ────────────────────────────────────────────────────────────────
 def main():
     app = QApplication(sys.argv)
-    app.setApplicationName("kyth-welcome")
+    app.setApplicationName("kyth-helper")
     app.setApplicationDisplayName("Kyth")
     app.setStyleSheet(QSS)
 
