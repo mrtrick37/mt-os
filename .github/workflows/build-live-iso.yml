@@ -69,6 +69,8 @@ jobs:
     name: Build ISO
     needs: build-live-container
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout repository
@@ -158,3 +160,27 @@ jobs:
           name: kyth-live-iso
           path: output/live-iso/kyth-live.iso
           if-no-files-found: error
+
+      - name: Publish ISO to GitHub Releases
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ inputs.source_tag == 'testing' && 'iso-testing' || 'iso-latest' }}"
+          if [ "${{ inputs.source_tag }}" = "testing" ]; then
+            TITLE="Kyth Live ISO — Testing"
+            NOTES="Built from the \`testing\` branch. May be unstable."
+            PRERELEASE="--prerelease"
+          else
+            TITLE="Kyth Live ISO — Stable"
+            NOTES="Built from the \`main\` branch."
+            PRERELEASE="--latest"
+          fi
+
+          # Delete the existing rolling release + tag so we can recreate it.
+          gh release delete "${TAG}" --yes --cleanup-tag 2>/dev/null || true
+
+          gh release create "${TAG}" \
+            --title "${TITLE}" \
+            --notes "${NOTES}" \
+            ${PRERELEASE} \
+            output/live-iso/kyth-live.iso

@@ -76,7 +76,12 @@ sudo bootc switch ghcr.io/mrtrick37/kyth:latest
 
 ### Live ISO (recommended)
 
-1. Download the ISO from [Releases](https://github.com/mrtrick37/kyth/releases) or build it locally
+| Channel | Download | Description |
+|---------|----------|-------------|
+| **Stable** | [kyth-live.iso](https://github.com/mrtrick37/kyth/releases/download/iso-latest/kyth-live.iso) | Built from `main` |
+| **Testing** | [kyth-live.iso](https://github.com/mrtrick37/kyth/releases/download/iso-testing/kyth-live.iso) | Built from `testing` — may be unstable |
+
+1. Flash the ISO to a USB drive (`dd`, Balena Etcher, Ventoy, etc.)
 2. Boot it — KDE Plasma loads automatically, no login required
 3. Click **Install Kyth** on the desktop
 4. Follow the installer: timezone → disk → user → install
@@ -141,7 +146,7 @@ build_files/
   build-live-iso.sh    Assembles squashfs + GRUB2 + UEFI/BIOS bootable ISO
   calamares/           Installer branding and module configuration
   calamares-modules/   bootcinstall and umount Python modules for Calamares
-  plymouth/            Boot splash theme (Tokyo Night, Kyth logo + spinner)
+  plymouth/            Boot splash theme (Kyth logo, pulsating animation)
   wallpaper/           Kyth desktop wallpaper (SVG)
 
 disk_config/

@@ -1,5 +1,5 @@
 # Kyth Plymouth boot splash
-# Pure black background, K logo, spinning arc (same style as installer).
+# Pure black background, K logo pulsating (breathing glow effect).
 
 # ── Background ────────────────────────────────────────────────────────────────
 Window.SetBackgroundTopColor    (0.0, 0.0, 0.0);
@@ -9,41 +9,23 @@ Window.SetBackgroundBottomColor (0.0, 0.0, 0.0);
 logo.image  = Image ("kyth-logo.png");
 logo.sprite = Sprite (logo.image);
 logo.sprite.SetX (Window.GetWidth ()  / 2 - logo.image.GetWidth ()  / 2);
-logo.sprite.SetY (Window.GetHeight () / 2 - logo.image.GetHeight () / 2 - 36);
+logo.sprite.SetY (Window.GetHeight () / 2 - logo.image.GetHeight () / 2);
 logo.sprite.SetOpacity (0.0);
 
-# ── Arc spinner — 16 pre-rendered frames ──────────────────────────────────────
-N_FRAMES = 16;
-spinner_cx = Window.GetWidth ()  / 2;
-spinner_cy = Window.GetHeight () / 2 + logo.image.GetHeight () / 2 + 20;
-
-for (i = 0; i < N_FRAMES; i++) {
-    num = i + "";
-    if (i < 10) num = "0" + num;
-    arc_images[i] = Image ("arc-" + num + ".png");
-}
-
-arc_sprite = Sprite (arc_images[0]);
-arc_sprite.SetX (spinner_cx - arc_images[0].GetWidth ()  / 2);
-arc_sprite.SetY (spinner_cy - arc_images[0].GetHeight () / 2);
-arc_sprite.SetOpacity (0.0);
-
 # ── Animation ─────────────────────────────────────────────────────────────────
-frame        = 0;
-logo_opacity = 0.0;
+# Phase 1 (frames 0-39): fade in over ~0.8 s
+# Phase 2 (frame 40+):   pulse between 0.55 and 1.0, period ~2.5 s
+frame = 0;
 
 fun refresh_callback () {
     frame++;
 
-    # Fade logo and spinner in over first ~40 frames
-    if (logo_opacity < 1.0) {
-        logo_opacity = Math.Min (logo_opacity + 0.025, 1.0);
-        logo.sprite.SetOpacity (logo_opacity);
-        arc_sprite.SetOpacity  (logo_opacity);
+    if (frame < 40) {
+        logo.sprite.SetOpacity (frame * 0.025);
+    } else {
+        pulse = 0.775 + 0.225 * Math.Sin ((frame - 40) * 0.05);
+        logo.sprite.SetOpacity (pulse);
     }
-
-    # Advance arc frame every 3 refreshes — ~1 rotation/sec at 50 Hz
-    arc_sprite.SetImage (arc_images[(frame / 3) % N_FRAMES]);
 }
 
 Plymouth.SetRefreshFunction (refresh_callback);
