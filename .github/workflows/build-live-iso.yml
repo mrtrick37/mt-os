@@ -161,26 +161,42 @@ jobs:
           path: output/live-iso/kyth-live-${{ inputs.source_tag || 'latest' }}.iso
           if-no-files-found: error
 
-      - name: Publish ISO to GitHub Releases
+      - name: Upload ISO to Cloudflare R2
+        env:
+          AWS_ACCESS_KEY_ID:     ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID:         ${{ secrets.R2_ACCOUNT_ID }}
+        run: |
+          ISO="output/live-iso/kyth-live-${{ inputs.source_tag || 'latest' }}.iso"
+          aws s3 cp "${ISO}" \
+            "s3://kyth-releases/$(basename ${ISO})" \
+            --endpoint-url "https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com" \
+            --no-progress
+
+      - name: Publish release notes to GitHub Releases
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          SOURCE_TAG="${{ inputs.source_tag || 'latest' }}"
           TAG="${{ inputs.source_tag == 'testing' && 'iso-testing' || 'iso-latest' }}"
-          if [ "${{ inputs.source_tag }}" = "testing" ]; then
+          ISO_URL="https://pub-9a3cc72972ea44c4ae7504ee7cda1fa6.r2.dev/kyth-live-${SOURCE_TAG}.iso"
+
+          if [ "${SOURCE_TAG}" = "testing" ]; then
             TITLE="Kyth Live ISO — Testing"
-            NOTES="Built from the \`testing\` branch. May be unstable."
+            NOTES="Built from the \`testing\` branch. May be unstable.
+
+**Download:** [kyth-live-testing.iso](${ISO_URL})"
             PRERELEASE="--prerelease"
           else
             TITLE="Kyth Live ISO — Stable"
-            NOTES="Built from the \`main\` branch."
+            NOTES="Built from the \`main\` branch.
+
+**Download:** [kyth-live-latest.iso](${ISO_URL})"
             PRERELEASE="--latest"
           fi
 
-          # Delete the existing rolling release + tag so we can recreate it.
           gh release delete "${TAG}" --yes --cleanup-tag 2>/dev/null || true
-
           gh release create "${TAG}" \
             --title "${TITLE}" \
             --notes "${NOTES}" \
-            ${PRERELEASE} \
-            output/live-iso/kyth-live-${{ inputs.source_tag || 'latest' }}.iso
+            ${PRERELEASE}

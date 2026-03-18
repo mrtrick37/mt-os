@@ -53,8 +53,8 @@ Kyth is a custom [bootc](https://containers.github.io/bootc/) image. The entire 
 
 | Channel | Download | Description |
 |---------|----------|-------------|
-| **Stable** | [kyth-live-latest.iso](https://github.com/mrtrick37/kyth/releases/download/iso-latest/kyth-live-latest.iso) | Built from `main` |
-| **Testing** | [kyth-live-testing.iso](https://github.com/mrtrick37/kyth/releases/download/iso-testing/kyth-live-testing.iso) | Built from `testing` — may be unstable |
+| **Stable** | [kyth-live-latest.iso](https://pub-9a3cc72972ea44c4ae7504ee7cda1fa6.r2.dev/kyth-live-latest.iso) | Built from `main` |
+| **Testing** | [kyth-live-testing.iso](https://pub-9a3cc72972ea44c4ae7504ee7cda1fa6.r2.dev/kyth-live-testing.iso) | Built from `testing` — may be unstable |
 
 1. Flash the ISO to a USB drive (`dd`, Balena Etcher, Ventoy, etc.)
 2. Boot it — KDE Plasma loads automatically, no login required
