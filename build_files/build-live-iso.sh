@@ -72,7 +72,7 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 OUTPUT_DIR="${REPO_ROOT}/output/live-iso"
-ISO_NAME="kyth-live.iso"
+ISO_NAME="kyth-live-${SOURCE_TAG}.iso"
 VOLID="Kyth-43-Live"
 
 TMPDIR_BASE="${TMPDIR:-/var/tmp}"

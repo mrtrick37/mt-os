@@ -432,15 +432,15 @@ rebuild-live-iso source_tag="latest":
     SOURCE_TAG={{ source_tag }} REBUILD_IMAGE=1 bash build_files/build-live-iso.sh
 
 # Boot the live desktop ISO in a VM (BIOS, web UI at http://localhost:PORT)
-# Builds the ISO first if it does not exist.
+# Builds the ISO first if it does not exist. Pass source_tag to run a testing ISO.
 [group('Run Virtal Machine')]
-run-live-iso:
+run-live-iso source_tag="latest":
     #!/usr/bin/bash
     set -eoux pipefail
 
-    image_file="output/live-iso/kyth-live.iso"
+    image_file="output/live-iso/kyth-live-{{ source_tag }}.iso"
     if [[ ! -f "${image_file}" ]]; then
-        just build-live-iso
+        just build-live-iso {{ source_tag }}
     fi
 
     port=8006

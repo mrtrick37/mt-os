@@ -195,7 +195,7 @@ sed -i "s/enabled=.*/enabled=0/g" /etc/yum.repos.d/fedora-steam.repo
 # without them the driver falls back to basic/non-accelerated mode.
 # libva-mesa-driver provides the AMD VA-API backend for hardware video decode.
 dnf5 install -y linux-firmware libva-utils mesa-va-drivers radeontop
-dnf5 upgrade -y linux-firmware libdrm
+dnf5 upgrade -y libdrm
 
 
 # ── Kernel sysctl parameters ──────────────────────────────────────────────────
@@ -722,9 +722,12 @@ echo "Initramfs rebuilt with Plymouth (theme: kyth)"
 
 # ── Automatic updates: use bootc, not rpm-ostree ──────────────────────────────
 # rpm-ostreed-automatic conflicts with bootc over the sysroot lock.
-# Disable it and use bootc's native update timer instead.
+# Disable it entirely — bootc-fetch-apply-updates.timer is also disabled because
+# its default behaviour (bootc upgrade --apply) reboots the system automatically
+# whenever a new image is available, causing unexpected reboots ~1h after boot.
+# Users should update manually: sudo bootc upgrade && sudo systemctl reboot
 systemctl disable rpm-ostreed-automatic.timer rpm-ostreed-automatic.service 2>/dev/null || true
-systemctl enable bootc-fetch-apply-updates.timer 2>/dev/null || true
+systemctl disable bootc-fetch-apply-updates.timer bootc-fetch-apply-updates.service 2>/dev/null || true
 
 # useradd only reads /etc/group, but Fedora system groups live in /usr/lib/group.
 # Copy any missing groups into /etc/group; create with groupadd if absent entirely.
