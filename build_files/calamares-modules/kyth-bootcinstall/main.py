@@ -41,7 +41,8 @@ BUNDLED_IMGREF = "oci:/usr/share/kyth/image"
 
 # Target image: the registry ref written into the installed OS so that
 # `bootc upgrade` knows where to pull future updates from.
-TARGET_IMGREF = "ghcr.io/mrtrick37/kyth:latest"
+# Override with KYTH_TARGET_IMGREF env var to test forks or dev images.
+TARGET_IMGREF = os.environ.get("KYTH_TARGET_IMGREF", "ghcr.io/mrtrick37/kyth:latest")
 
 # Partition type GUIDs that bootc uses for the root partition.
 # bootc creates "Linux root (x86-64)" (4f68...) on modern installs;
@@ -224,8 +225,8 @@ def run():
                 _umount_recursive(mp)
         # Deactivate swap partitions on the disk
         subprocess.run(["swapoff", "--all"], capture_output=True)
-    except subprocess.CalledProcessError:
-        pass
+    except subprocess.CalledProcessError as e:
+        _log(f"warning: lsblk/swapoff failed (non-fatal): {e}")
 
     # ── 3. Run bootc install to-disk ─────────────────────────────────────────
     # The Calamares partition exec job already formatted the disk before this
@@ -241,8 +242,8 @@ def run():
     ):
         try:
             subprocess.run(cmd, check=True, capture_output=True)
-        except (subprocess.CalledProcessError, FileNotFoundError):
-            pass  # best-effort; bootc will fail with a clear error if disk is unusable
+        except (subprocess.CalledProcessError, FileNotFoundError) as e:
+            _log(f"warning: {cmd[0]} failed (non-fatal): {e}")  # bootc will fail clearly if disk is unusable
 
     # Pre-flight: confirm the bundled OCI image directory exists.
     imgref_path = BUNDLED_IMGREF.removeprefix("oci:")

@@ -15,9 +15,9 @@ PRETTY_NAME="Kyth 43"
 ID=fedora
 VERSION_ID="43"
 ANSI_COLOR="0;34"
-HOME_URL="https://example.com/kyth"
-SUPPORT_URL="https://example.com/kyth/support"
-BUG_REPORT_URL="https://example.com/kyth/issues"
+HOME_URL="https://github.com/mrtrick37/kyth"
+SUPPORT_URL="https://github.com/mrtrick37/kyth/discussions"
+BUG_REPORT_URL="https://github.com/mrtrick37/kyth/issues"
 EOF
 
 # Remove Waydroid artifacts if present

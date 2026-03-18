@@ -105,7 +105,8 @@ rpm -qa | grep -E '^kernel' | grep -v cachyos | xargs -r rpm --nodeps -e 2>/dev/
         virt-manager \
         virt-viewer \
         ydotool \
-        tmux
+        tmux \
+        gh
 
 ## Gaming tweaks — Bazzite-style
 # Install gamescope from Fedora BEFORE enabling Bazzite COPR.
@@ -163,10 +164,14 @@ dnf5 install -y \
     rom-properties-kf6
 
 # Download winetricks from upstream (package version is often outdated)
+# Pinned to a specific release tag for reproducibility; update WINETRICKS_VER to upgrade.
 # /usr/local symlinks to /var/usrlocal — ensure the target dir exists
+WINETRICKS_VER="20260125"
 mkdir -p /usr/local/bin
-curl -sL https://raw.githubusercontent.com/Winetricks/winetricks/master/src/winetricks \
+curl -fsSL "https://raw.githubusercontent.com/Winetricks/winetricks/${WINETRICKS_VER}/src/winetricks" \
     -o /usr/local/bin/winetricks
+# Sanity-check: must be a shell script
+head -1 /usr/local/bin/winetricks | grep -q '^#!' || { echo "winetricks download looks invalid"; exit 1; }
 chmod +x /usr/local/bin/winetricks
 
 # Disable COPRs so they don't persist in the final image
@@ -266,7 +271,8 @@ GAMEMODEEOF
 # sched-ext (scx) is a BPF-based scheduler framework in the CachyOS kernel.
 # scx_lavd is optimised for interactive + gaming — it prioritises latency-
 # sensitive threads (audio, input, render) while keeping throughputs tasks warm.
-# (COPR repo bieszczaders/scx-scheds is unavailable; skipping scx-scheds install.)
+# TODO: COPR repo bieszczaders/scx-scheds is unavailable; re-enable when it is.
+# Track at: https://github.com/mrtrick37/kyth/issues/50
 ## If/when scx-scheds becomes available, re-enable the following:
 # dnf5 copr enable -y bieszczaders/scx-scheds
 # dnf5 install -y --skip-unavailable scx-scheds
@@ -467,9 +473,9 @@ ID=fedora
 VERSION="43"
 VERSION_ID="43"
 ANSI_COLOR="0;34"
-HOME_URL="https://example.com/kyth"
-SUPPORT_URL="https://example.com/kyth/support"
-BUG_REPORT_URL="https://example.com/kyth/issues"
+HOME_URL="https://github.com/mrtrick37/kyth"
+SUPPORT_URL="https://github.com/mrtrick37/kyth/discussions"
+BUG_REPORT_URL="https://github.com/mrtrick37/kyth/issues"
 EOF
 
 # ── Default KDE theme for all new users via /etc/skel ─────────────────────────
@@ -617,7 +623,7 @@ rsvg-convert -w 200 -h 200 \
 # different rotation — the Plymouth script cycles through them to produce
 # the same spinning-arc look as the Calamares installer spinner.
 python3 << 'ARCEOF'
-import math, os
+import math, os, subprocess
 
 PLYMOUTH_DIR = "/usr/share/plymouth/themes/kyth"
 N     = 16
@@ -647,7 +653,7 @@ for i in range(N):
     png_path = f"{PLYMOUTH_DIR}/arc-{i:02d}.png"
     with open(svg_path, "w") as f:
         f.write(svg)
-    os.system(f"rsvg-convert -w {SIZE} -h {SIZE} '{svg_path}' -o '{png_path}'")
+    subprocess.run(["rsvg-convert", "-w", str(SIZE), "-h", str(SIZE), svg_path, "-o", png_path], check=True)
     os.unlink(svg_path)
 ARCEOF
 
