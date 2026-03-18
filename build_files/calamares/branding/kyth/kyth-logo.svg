@@ -1,56 +1,44 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 620" width="512" height="620">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 280 420" width="280" height="420">
   <defs>
-    <!-- Ambient glow on each figure — matches wallpaper logo-glow -->
-    <filter id="fig-glow" x="-60%" y="-60%" width="220%" height="220%">
-      <feGaussianBlur stdDeviation="14" result="blur"/>
-      <feMerge>
-        <feMergeNode in="blur"/>
-        <feMergeNode in="SourceGraphic"/>
-      </feMerge>
-    </filter>
-
-    <!-- Warm burst at the meeting point -->
-    <filter id="join-glow" x="-120%" y="-120%" width="340%" height="340%">
+    <!-- Identical to wallpaper logo-glow -->
+    <filter id="logo-glow" x="-80%" y="-80%" width="260%" height="260%">
       <feGaussianBlur stdDeviation="28" result="blur"/>
-      <feMerge>
-        <feMergeNode in="blur"/>
-        <feMergeNode in="SourceGraphic"/>
-      </feMerge>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="spark-glow" x="-200%" y="-200%" width="500%" height="500%">
+      <feGaussianBlur stdDeviation="32" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
     </filter>
   </defs>
 
   <!-- Pure black background — matches wallpaper -->
-  <rect width="512" height="620" fill="#000000"/>
+  <rect width="280" height="420" fill="#000000"/>
 
-  <!-- ── Figure 1 — upright, blue ──────────────────────────────── -->
-  <line x1="175" y1="452" x2="175" y2="88"
-        stroke="#7aa2f7" stroke-width="54" stroke-linecap="round"
-        filter="url(#fig-glow)"/>
-  <circle cx="175" cy="55" r="40" fill="#7aa2f7" filter="url(#fig-glow)"/>
+  <!-- Kyth logo — exact same drawing as wallpaper, scaled 2× and centred -->
+  <g transform="translate(-49, 25) scale(2.0)" filter="url(#logo-glow)">
+    <line x1="54.6" y1="140.6" x2="54.6" y2="27.5"
+          stroke="#7aa2f7" stroke-width="16.9" stroke-linecap="round"/>
+    <circle cx="54.6" cy="17.2" r="12.5" fill="#7aa2f7"/>
 
-  <!-- ── Figure 2 — upper-right, purple ───────────────────────── -->
-  <line x1="392" y1="86" x2="175" y2="262"
-        stroke="#bb9af7" stroke-width="54" stroke-linecap="round"
-        filter="url(#fig-glow)"/>
-  <circle cx="418" cy="62" r="40" fill="#bb9af7" filter="url(#fig-glow)"/>
+    <line x1="122.5" y1="26.9" x2="54.6" y2="82.0"
+          stroke="#bb9af7" stroke-width="16.9" stroke-linecap="round"/>
+    <circle cx="130.6" cy="19.4" r="12.5" fill="#bb9af7"/>
 
-  <!-- ── Figure 3 — lower-right, teal ─────────────────────────── -->
-  <line x1="392" y1="440" x2="175" y2="262"
-        stroke="#73daca" stroke-width="54" stroke-linecap="round"
-        filter="url(#fig-glow)"/>
-  <circle cx="418" cy="464" r="40" fill="#73daca" filter="url(#fig-glow)"/>
+    <line x1="122.5" y1="137.5" x2="54.6" y2="82.0"
+          stroke="#73daca" stroke-width="16.9" stroke-linecap="round"/>
+    <circle cx="130.6" cy="145.0" r="12.5" fill="#73daca"/>
 
-  <!-- ── Warm amber spark at the meeting point ─────────────────── -->
-  <circle cx="175" cy="262" r="32" fill="#e0af68" opacity="0.35"
-          filter="url(#join-glow)"/>
-  <circle cx="175" cy="262" r="18" fill="#e0af68"/>
+    <circle cx="54.6" cy="82.0" r="10.0" fill="#e0af68" opacity="0.4"
+            filter="url(#spark-glow)"/>
+    <circle cx="54.6" cy="82.0" r="5.6" fill="#e0af68"/>
+  </g>
 
-  <!-- "kyth" wordmark — centered under the K -->
-  <text x="297" y="578"
+  <!-- "kyth" wordmark — centred under the K -->
+  <text x="140" y="400"
         font-family="'DejaVu Sans', 'Liberation Sans', sans-serif"
-        font-size="52"
+        font-size="48"
         font-weight="300"
-        letter-spacing="18"
+        letter-spacing="15"
         fill="#a9b1d6"
         opacity="0.8"
         text-anchor="middle">kyth</text>
