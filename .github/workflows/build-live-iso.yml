@@ -101,8 +101,19 @@ jobs:
         # kyth-live:build  → used by build-live-iso.sh (skips the Docker build step)
         # localhost/kyth:latest → used by build-live-iso.sh for OCI bundling:
         #   skopeo copy docker-daemon:localhost/kyth:latest oci:rootfs/usr/share/kyth/image
+        #
+        # IMPORTANT: pull localhost/kyth:latest FIRST so that kyth-live:build
+        # (created via docker import below) ends up with the newest timestamp.
+        # build-live-iso.sh compares timestamps to decide if a rebuild is needed;
+        # if localhost/kyth:latest is newer than kyth-live:build the script
+        # triggers a full container rebuild inside the runner, exhausting disk/CPU.
         run: |
           echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+          # Pull the base image first so its timestamp is older than kyth-live:build.
+          BASE_IMAGE="ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:${{ inputs.source_tag || 'latest' }}"
+          docker pull "${BASE_IMAGE}"
+          docker tag  "${BASE_IMAGE}" localhost/kyth:latest
 
           # Pull the live container and flatten it into a single layer.
           # kyth:latest has 100+ layers; Containerfile.live adds more, so the
@@ -110,15 +121,13 @@ jobs:
           # brings it to 1 layer so 'docker create' / 'docker export' succeed.
           # (skopeo, used later for the OCI bundle, reads layers directly and has
           # no such limit, so localhost/kyth:latest does NOT need flattening.)
+          # docker import sets the image creation time to now, so kyth-live:build
+          # will be newer than localhost/kyth:latest — staleness check passes.
           docker pull "${{ needs.build-live-container.outputs.image-ref }}"
           CID=$(docker create "${{ needs.build-live-container.outputs.image-ref }}" /bin/true)
           docker export "${CID}" | docker import - kyth-live:build
           docker rm "${CID}"
           docker rmi "${{ needs.build-live-container.outputs.image-ref }}" || true
-
-          BASE_IMAGE="ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:${{ inputs.source_tag || 'latest' }}"
-          docker pull "${BASE_IMAGE}"
-          docker tag  "${BASE_IMAGE}" localhost/kyth:latest
 
       - name: Ensure permissions and directories
         run: |
