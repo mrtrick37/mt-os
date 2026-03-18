@@ -657,45 +657,6 @@ rsvg-convert -w 200 \
     /ctx/calamares/branding/kyth/kyth-logo.svg \
     -o "${PLYMOUTH_DIR}/kyth-logo.png"
 
-# Generate 16 arc-spinner frames (arc-00.png … arc-15.png).
-# Each frame is a 44×44 PNG: dim track circle + 250° colored arc at a
-# different rotation — the Plymouth script cycles through them to produce
-# the same spinning-arc look as the Calamares installer spinner.
-python3 << 'ARCEOF'
-import math, os, subprocess
-
-PLYMOUTH_DIR = "/usr/share/plymouth/themes/kyth"
-N     = 16
-SIZE  = 44
-CX    = CY = 22
-R     = 18
-SWEEP = 250   # degrees — matches the Calamares arc sweep
-
-for i in range(N):
-    start_deg = i * (360.0 / N) - 90.0   # rotate so frame 0 starts at top
-    end_deg   = start_deg + SWEEP
-
-    def pt(deg):
-        rad = math.radians(deg)
-        return CX + R * math.cos(rad), CY + R * math.sin(rad)
-
-    sx, sy = pt(start_deg)
-    ex, ey = pt(end_deg)
-
-    svg = f"""<svg xmlns="http://www.w3.org/2000/svg" width="{SIZE}" height="{SIZE}">
-  <circle cx="{CX}" cy="{CY}" r="{R}" fill="none" stroke="#1e1e2e" stroke-width="3.5"/>
-  <path d="M {sx:.4f} {sy:.4f} A {R} {R} 0 1 1 {ex:.4f} {ey:.4f}"
-        fill="none" stroke="#7aa2f7" stroke-width="3.5" stroke-linecap="round"/>
-</svg>"""
-
-    svg_path = f"{PLYMOUTH_DIR}/arc-{i:02d}.svg"
-    png_path = f"{PLYMOUTH_DIR}/arc-{i:02d}.png"
-    with open(svg_path, "w") as f:
-        f.write(svg)
-    subprocess.run(["rsvg-convert", "-w", str(SIZE), "-h", str(SIZE), svg_path, "-o", png_path], check=True)
-    os.unlink(svg_path)
-ARCEOF
-
 plymouth-set-default-theme kyth
 
 # librsvg2-tools was only needed for rsvg-convert above — remove it now
