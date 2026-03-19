@@ -345,6 +345,36 @@ def _current_tag(ref: str) -> str:
     return m.group(1) if m else ""
 
 
+def _detect_nvidia() -> bool:
+    """Return True if an NVIDIA GPU is present in the system."""
+    try:
+        r = subprocess.run(["lspci"], capture_output=True, text=True, timeout=5)
+        return "nvidia" in r.stdout.lower()
+    except Exception:
+        return False
+
+
+def _akmod_nvidia_installed() -> bool:
+    """Return True if akmod-nvidia is installed (driver source available)."""
+    try:
+        r = subprocess.run(
+            ["rpm", "-q", "akmod-nvidia"],
+            capture_output=True, text=True, timeout=5,
+        )
+        return r.returncode == 0
+    except Exception:
+        return False
+
+
+def _nvidia_module_loaded() -> bool:
+    """Return True if the nvidia kernel module is currently loaded."""
+    try:
+        r = subprocess.run(["lsmod"], capture_output=True, text=True, timeout=5)
+        return "nvidia" in r.stdout.lower()
+    except Exception:
+        return False
+
+
 def _sep() -> QFrame:
     """Horizontal rule."""
     f = QFrame()
@@ -918,12 +948,237 @@ class UpdatePage(QWidget):
         self._worker = None
 
 
+# ── NVIDIA drivers page ────────────────────────────────────────────────────────
+class NvidiaPage(QWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setObjectName("content")
+        self._worker: BootcWorker | None = None
+        self._dot_timer = QTimer(self)
+        self._dot_timer.setInterval(500)
+        self._dot_timer.timeout.connect(self._tick_dots)
+        self._dot_count = 0
+        self._stage_text = ""
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(32, 28, 32, 28)
+        root.setSpacing(0)
+
+        title = QLabel("NVIDIA Drivers")
+        title.setObjectName("page-title")
+        root.addWidget(title)
+
+        self._lbl_sub = QLabel()
+        self._lbl_sub.setObjectName("page-sub")
+        root.addWidget(self._lbl_sub)
+
+        root.addSpacing(6)
+        root.addWidget(_sep())
+
+        # Status card
+        status_card = QFrame()
+        status_card.setObjectName("card")
+        card_layout = QVBoxLayout(status_card)
+        card_layout.setContentsMargins(18, 16, 18, 16)
+        card_layout.setSpacing(8)
+
+        card_top = QHBoxLayout()
+        self._status_dot = QLabel("●")
+        self._status_dot.setStyleSheet("font-size: 16px;")
+        card_top.addWidget(self._status_dot)
+        self._status_label = QLabel()
+        self._status_label.setObjectName("card-label")
+        card_top.addWidget(self._status_label)
+        card_top.addStretch()
+        card_layout.addLayout(card_top)
+
+        self._status_desc = QLabel()
+        self._status_desc.setObjectName("card-desc")
+        self._status_desc.setWordWrap(True)
+        card_layout.addWidget(self._status_desc)
+
+        root.addWidget(status_card)
+        root.addSpacing(16)
+
+        # Action buttons
+        btn_row = QHBoxLayout()
+        self._btn_install = QPushButton("Install NVIDIA Drivers")
+        self._btn_install.setObjectName("btn-primary")
+        self._btn_install.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self._btn_install.clicked.connect(self._on_install)
+        btn_row.addWidget(self._btn_install)
+
+        self._btn_reboot = QPushButton("Reboot to Apply")
+        self._btn_reboot.setObjectName("btn-ghost")
+        self._btn_reboot.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self._btn_reboot.clicked.connect(
+            lambda: subprocess.Popen(["sudo", "systemctl", "reboot"])
+        )
+        self._btn_reboot.hide()
+        btn_row.addWidget(self._btn_reboot)
+
+        btn_row.addStretch()
+        root.addLayout(btn_row)
+
+        root.addSpacing(12)
+
+        # Progress status
+        self._status_widget = QWidget()
+        status_layout = QVBoxLayout(self._status_widget)
+        status_layout.setContentsMargins(0, 0, 0, 0)
+        status_layout.setSpacing(6)
+
+        self._lbl_stage = QLabel()
+        self._lbl_stage.setStyleSheet(
+            "color: #7aa2f7; font-size: 12px; font-weight: 600;"
+        )
+        status_layout.addWidget(self._lbl_stage)
+
+        self._progress = QProgressBar()
+        self._progress.setObjectName("switch-progress")
+        self._progress.setRange(0, 0)
+        self._progress.setFixedHeight(6)
+        self._progress.setTextVisible(False)
+        status_layout.addWidget(self._progress)
+
+        self._status_widget.hide()
+        root.addWidget(self._status_widget)
+
+        root.addSpacing(12)
+
+        self._log = QTextEdit()
+        self._log.setObjectName("log")
+        self._log.setReadOnly(True)
+        self._log.setPlaceholderText("Output will appear here during installation…")
+        self._log.setMinimumHeight(200)
+        root.addWidget(self._log)
+
+        root.addStretch()
+        self._refresh_status()
+
+    def _refresh_status(self):
+        has_gpu = _detect_nvidia()
+        module_loaded = _nvidia_module_loaded()
+        drivers_installed = _akmod_nvidia_installed()
+
+        if not has_gpu:
+            self._lbl_sub.setText("No NVIDIA GPU detected")
+            self._status_dot.setStyleSheet("color: #414868; font-size: 16px;")
+            self._status_label.setText("No NVIDIA hardware found")
+            self._status_label.setStyleSheet("color: #414868;")
+            self._status_desc.setText(
+                "No NVIDIA GPU was detected in this system. "
+                "If you have an NVIDIA card, ensure it is properly seated."
+            )
+            self._btn_install.hide()
+        elif module_loaded:
+            self._lbl_sub.setText("NVIDIA GPU detected — drivers active")
+            self._status_dot.setStyleSheet("color: #9ece6a; font-size: 16px;")
+            self._status_label.setText("Drivers active")
+            self._status_label.setStyleSheet("color: #9ece6a;")
+            self._status_desc.setText(
+                "The NVIDIA kernel module is loaded and active. "
+                "Your GPU is ready to use."
+            )
+            self._btn_install.hide()
+        elif drivers_installed:
+            self._lbl_sub.setText("NVIDIA GPU detected — reboot required")
+            self._status_dot.setStyleSheet("color: #e0af68; font-size: 16px;")
+            self._status_label.setText("Drivers installed — reboot to activate")
+            self._status_label.setStyleSheet("color: #e0af68;")
+            self._status_desc.setText(
+                "NVIDIA drivers have been compiled and installed. "
+                "Reboot to load the kernel module and activate your GPU."
+            )
+            self._btn_install.hide()
+            self._btn_reboot.show()
+        else:
+            self._lbl_sub.setText("NVIDIA GPU detected — drivers not installed")
+            self._status_dot.setStyleSheet("color: #f7768e; font-size: 16px;")
+            self._status_label.setText("Drivers not installed")
+            self._status_label.setStyleSheet("color: #f7768e;")
+            self._status_desc.setText(
+                "An NVIDIA GPU was detected but drivers are not installed. "
+                "Click below to compile and install the NVIDIA kernel module."
+            )
+            self._btn_install.show()
+
+    def _set_stage(self, text: str):
+        self._stage_text = text
+        self._dot_count = 0
+        self._lbl_stage.setText(text)
+
+    def _tick_dots(self):
+        self._dot_count = (self._dot_count + 1) % 4
+        base = self._stage_text.rstrip(".")
+        self._lbl_stage.setText(base + "." * self._dot_count)
+
+    def _on_install(self):
+        self._log.clear()
+        self._log.append("→ Installing NVIDIA drivers…\n")
+        self._btn_install.setEnabled(False)
+        self._btn_reboot.hide()
+        self._set_stage("Compiling kernel module…")
+        self._status_widget.show()
+        self._dot_timer.start()
+
+        kargs = (
+            "rd.driver.blacklist=nouveau,nova_core "
+            "modprobe.blacklist=nouveau,nova_core "
+            "nvidia-drm.modeset=1"
+        )
+        cmd = [
+            "sudo", "bash", "-c",
+            f"grubby --update-kernel=ALL --args='{kargs}' && "
+            "akmods --force --kernels \"$(uname -r)\"",
+        ]
+        self._worker = BootcWorker(cmd)
+        self._worker.line.connect(self._on_line)
+        self._worker.done.connect(self._on_done)
+        self._worker.start()
+
+    def _on_line(self, text: str):
+        self._log.append(text)
+        self._log.ensureCursorVisible()
+
+    def _on_done(self, code: int):
+        self._dot_timer.stop()
+        self._btn_install.setEnabled(True)
+
+        if code == 0:
+            self._set_stage("Done — reboot to activate drivers")
+            self._lbl_stage.setStyleSheet(
+                "color: #9ece6a; font-size: 12px; font-weight: 600;"
+            )
+            self._progress.setRange(0, 1)
+            self._progress.setValue(1)
+            self._log.append(
+                "\n✓ NVIDIA drivers installed successfully. Reboot to activate."
+            )
+            self._btn_reboot.show()
+        else:
+            self._set_stage("Installation failed")
+            self._lbl_stage.setStyleSheet(
+                "color: #f7768e; font-size: 12px; font-weight: 600;"
+            )
+            self._progress.setRange(0, 1)
+            self._progress.setValue(0)
+            self._log.append(
+                f"\n✗ Installation failed with exit code {code}.\n"
+                "Ensure akmod-nvidia is available and build tools are installed."
+            )
+
+        self._refresh_status()
+        self._worker = None
+
+
 # ── Main window ────────────────────────────────────────────────────────────────
 class MainWindow(QMainWindow):
     _PAGES = [
         ("Welcome",  WelcomePage),
         ("Update",   UpdatePage),
         ("Branches", BranchPage),
+        ("Drivers",  NvidiaPage),
     ]
 
     def __init__(self):

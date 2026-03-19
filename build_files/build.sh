@@ -604,6 +604,17 @@ wallpaperplugin=org.kde.image
 Image=/usr/share/wallpapers/kyth/contents/images/1920x1080.svg
 PLASMADESKTOPEOF
 
+# ── NVIDIA driver support ─────────────────────────────────────────────────────
+# akmod-nvidia and build tools are installed in the image so that the kyth-helper
+# app can compile the NVIDIA kernel module on user request without needing network
+# access to fetch packages at install time.
+# kernel-cachyos-devel provides the headers akmods needs to build against the
+# CachyOS kernel installed above.
+dnf5 install -y \
+    akmods \
+    akmod-nvidia \
+    kernel-cachyos-devel
+
 # ── Kyth Helper app ───────────────────────────────────────────────────────────
 # PyQt6 helper + branch switcher.  Autostarts on first login via skel.
 dnf5 install -y python3-pyqt6
