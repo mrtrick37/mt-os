@@ -110,10 +110,12 @@ jobs:
         run: |
           echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
 
-          # Pull the base image first so its timestamp is older than kyth-live:build.
-          BASE_IMAGE="ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:${{ inputs.source_tag || 'latest' }}"
+          # Pull the base image and tag it as localhost/kyth:<source_tag>
+          # so build-live-iso.sh finds it under LOCAL_BASE=localhost/kyth:${SOURCE_TAG}.
+          SOURCE_TAG="${{ inputs.source_tag || 'latest' }}"
+          BASE_IMAGE="ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:${SOURCE_TAG}"
           docker pull "${BASE_IMAGE}"
-          docker tag  "${BASE_IMAGE}" localhost/kyth:latest
+          docker tag  "${BASE_IMAGE}" "localhost/kyth:${SOURCE_TAG}"
 
           # Pull the live container and flatten it into a single layer.
           # kyth:latest has 100+ layers; Containerfile.live adds more, so the
@@ -123,9 +125,18 @@ jobs:
           # no such limit, so localhost/kyth:latest does NOT need flattening.)
           # docker import sets the image creation time to now, so kyth-live:build
           # will be newer than localhost/kyth:latest — staleness check passes.
+          # Import with the tag name build-live-iso.sh expects:
+          #   latest  → kyth-live:build
+          #   testing → kyth-live:build-testing
+          SOURCE_TAG="${{ inputs.source_tag || 'latest' }}"
+          if [[ "${SOURCE_TAG}" == "latest" ]]; then
+            LIVE_TAG="kyth-live:build"
+          else
+            LIVE_TAG="kyth-live:build-${SOURCE_TAG}"
+          fi
           docker pull "${{ needs.build-live-container.outputs.image-ref }}"
           CID=$(docker create "${{ needs.build-live-container.outputs.image-ref }}" /bin/true)
-          docker export "${CID}" | docker import - kyth-live:build
+          docker export "${CID}" | docker import - "${LIVE_TAG}"
           docker rm "${CID}"
           docker rmi "${{ needs.build-live-container.outputs.image-ref }}" || true
 
@@ -145,7 +156,14 @@ jobs:
         env:
           SKIP_REBUILD: "1"
         run: |
-          just build-live-iso "${{ inputs.source_tag || 'latest' }}" &
+          SOURCE_TAG="${{ inputs.source_tag || 'latest' }}"
+          if [[ "${SOURCE_TAG}" == "latest" ]]; then
+            LIVE_TAG="kyth-live:build"
+          else
+            LIVE_TAG="kyth-live:build-${SOURCE_TAG}"
+          fi
+
+          just build-live-iso "${SOURCE_TAG}" &
           BUILD_PID=$!
 
           # Wait for the container export to finish (ROOTFS will appear),
@@ -157,7 +175,7 @@ jobs:
               # Remove the live container image (already exported, no longer needed).
               # Do NOT prune -a: localhost/kyth:latest must survive for the skopeo
               # OCI bundle step that runs after squashfs.
-              docker rmi kyth-live:build || true
+              docker rmi "${LIVE_TAG}" || true
               docker system prune -f || true
               break
             fi
