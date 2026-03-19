@@ -645,44 +645,6 @@ Hidden=false
 NoDisplay=true
 WELCOMEEOF
 
-# ── Bazaar (Flatpak app store) — built from source ───────────────────────────
-# https://github.com/kolunmi/bazaar
-# Installed alongside KDE Discover as a Flatpak-focused storefront.
-dnf5 install -y \
-    meson ninja-build gcc git gettext desktop-file-utils \
-    glib2-devel \
-    libadwaita-devel \
-    libdex-devel \
-    flatpak-devel \
-    appstream-devel \
-    libxmlb-devel \
-    glycin-devel \
-    glycin-gtk4-devel \
-    libyaml-devel \
-    libsoup3-devel \
-    json-glib-devel \
-    md4c-devel \
-    webkitgtk6.0-devel \
-    libsecret-devel \
-    libproxy-devel \
-    malcontent-devel
-
-git clone --depth=1 https://github.com/kolunmi/bazaar /tmp/bazaar-build
-meson setup /tmp/bazaar-build/build /tmp/bazaar-build \
-    --prefix=/usr --libdir=/usr/lib64
-ninja -C /tmp/bazaar-build/build
-ninja -C /tmp/bazaar-build/build install
-rm -rf /tmp/bazaar-build
-
-# Remove build-only deps; runtime libs (.so) remain via their non-devel packages
-dnf5 remove -y \
-    meson ninja-build git \
-    libadwaita-devel libdex-devel flatpak-devel appstream-devel \
-    libxmlb-devel glycin-devel glycin-gtk4-devel libyaml-devel libsoup3-devel \
-    json-glib-devel md4c-devel webkitgtk6.0-devel libsecret-devel \
-    libproxy-devel malcontent-devel glib2-devel || true
-dnf5 autoremove -y || true
-
 # ── Outlook PWA ───────────────────────────────────────────────────────────────
 # Adds Microsoft Outlook to the Internet section of the app launcher via a
 # .desktop file that opens it as a Brave PWA (no browser chrome).
