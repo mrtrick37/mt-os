@@ -209,6 +209,8 @@ vm.compaction_proactiveness = 0
 vm.dirty_ratio = 10
 vm.dirty_background_ratio = 5
 vm.page_lock_unfairness = 1
+# Raise memory map limit for games with large numbers of mappings (Star Citizen, etc.)
+vm.max_map_count = 2147483642
 
 # Network — activate BBRv3 (built into CachyOS kernel)
 net.core.default_qdisc = fq
