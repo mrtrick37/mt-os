@@ -82,3 +82,17 @@ install-input-remapper:
     sudo rpm-ostree install input-remapper
     echo
     echo "input-remapper will be available after reboot."
+
+# Check for and apply firmware updates via fwupd.
+[group('Kyth')]
+firmware-update:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "Refreshing firmware metadata..."
+    fwupdmgr refresh --force
+    echo
+    echo "Checking for firmware updates..."
+    fwupdmgr get-updates || true
+    echo
+    echo "Applying available firmware updates..."
+    fwupdmgr update

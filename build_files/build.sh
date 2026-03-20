@@ -109,7 +109,8 @@ dnf5 install -y \
     gnome-boxes \
     ydotool \
     tmux \
-    gh
+    gh \
+    fwupd
 
 ## Gaming tweaks — Bazzite-style
 # Install gamescope from Fedora BEFORE enabling Bazzite COPR.
@@ -277,6 +278,13 @@ amd_performance_level = high
 GAMEMODEEOF
 
 
+# ── system76-scheduler ────────────────────────────────────────────────────────
+# Dynamically adjusts CFS nice values and I/O priority based on which window
+# is focused and whether a game is running.  Gives a noticeable responsiveness
+# boost during gaming without requiring per-app configuration.
+dnf5 install -y system76-scheduler
+systemctl enable com.system76.Scheduler 2>/dev/null || true
+
 # ── scx userspace schedulers ──────────────────────────────────────────────────
 # sched-ext (scx) is a BPF-based scheduler framework in the CachyOS kernel.
 # scx_lavd is optimised for interactive + gaming — it prioritises latency-
@@ -404,6 +412,7 @@ sed '/^PrefersNonDefaultGPU=\|^X-KDE-RunOnDiscreteGpu=/d' \
 # so version bumps only re-download that layer, not this entire layer.
 
 systemctl enable libvirtd.socket
+systemctl enable fwupd 2>/dev/null || true
 
 # ── Display / resolution auto-detection ──────────────────────────────────────
 # spice-vdagent: in QEMU/KVM VMs this daemon handles dynamic resolution changes

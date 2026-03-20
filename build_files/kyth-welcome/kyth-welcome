@@ -604,6 +604,152 @@ class UpdateTab(QWidget):
         self._status_lbl.style().polish(self._status_lbl)
 
 
+# ── Tab: Firmware Updates ─────────────────────────────────────────────────────
+class FirmwareTab(QWidget):
+    def __init__(self):
+        super().__init__()
+        self._worker = None
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(40, 36, 40, 36)
+        layout.setSpacing(16)
+
+        title = QLabel("Firmware Updates")
+        title.setObjectName("heading")
+        layout.addWidget(title)
+
+        sub = QLabel("Check for and install firmware updates via fwupd.")
+        sub.setObjectName("subheading")
+        layout.addWidget(sub)
+
+        layout.addWidget(_divider())
+
+        btn_row = QHBoxLayout()
+        self._check_btn = QPushButton("Check for Updates")
+        self._check_btn.clicked.connect(self._run_check)
+        self._update_btn = QPushButton("Apply Updates")
+        self._update_btn.setObjectName("primary")
+        self._update_btn.setEnabled(False)
+        self._update_btn.clicked.connect(self._run_update)
+        btn_row.addWidget(self._check_btn)
+        btn_row.addWidget(self._update_btn)
+        btn_row.addStretch()
+        layout.addLayout(btn_row)
+
+        self._status_lbl = QLabel()
+        self._status_lbl.hide()
+        layout.addWidget(self._status_lbl)
+
+        self._progress = QProgressBar()
+        self._progress.setRange(0, 0)
+        self._progress.hide()
+        layout.addWidget(self._progress)
+
+        self._log = QTextEdit()
+        self._log.setReadOnly(True)
+        self._log.setMinimumHeight(160)
+        self._log.hide()
+        layout.addWidget(self._log)
+
+        layout.addStretch()
+
+        note = QLabel("A reboot may be required after applying firmware updates.")
+        note.setObjectName("subheading")
+        note.setWordWrap(True)
+        layout.addWidget(note)
+
+    def _run_check(self):
+        self._log.clear()
+        self._log.append("→ fwupdmgr refresh\n")
+        self._log.show()
+        self._progress.setRange(0, 0)
+        self._progress.show()
+        self._status_lbl.setText("Refreshing firmware metadata…")
+        self._status_lbl.setObjectName("subheading")
+        self._status_lbl.show()
+        self._check_btn.setEnabled(False)
+        self._update_btn.setEnabled(False)
+
+        self._worker = Worker(["fwupdmgr", "refresh", "--force"])
+        self._worker.line.connect(self._on_line)
+        self._worker.done.connect(self._on_check_done)
+        self._worker.start()
+
+    def _on_check_done(self, code: int):
+        self._progress.hide()
+        self._check_btn.setEnabled(True)
+        self._worker = None
+
+        if code == 0:
+            self._log.append("\n→ fwupdmgr get-updates\n")
+            self._progress.setRange(0, 0)
+            self._progress.show()
+            self._status_lbl.setText("Checking for updates…")
+            self._worker = Worker(["fwupdmgr", "get-updates"])
+            self._worker.line.connect(self._on_line)
+            self._worker.done.connect(self._on_get_updates_done)
+            self._worker.start()
+        else:
+            self._status_lbl.setText("Failed to refresh firmware metadata.")
+            self._status_lbl.setObjectName("status-err")
+            self._status_lbl.style().unpolish(self._status_lbl)
+            self._status_lbl.style().polish(self._status_lbl)
+
+    def _on_get_updates_done(self, code: int):
+        self._progress.hide()
+        self._worker = None
+        # fwupdmgr get-updates exits 2 when no updates are available
+        if code == 0:
+            self._status_lbl.setText("Updates available.")
+            self._status_lbl.setObjectName("status-warn")
+            self._update_btn.setEnabled(True)
+        elif code == 2:
+            self._status_lbl.setText("Firmware is up to date.")
+            self._status_lbl.setObjectName("status-ok")
+        else:
+            self._status_lbl.setText("Could not retrieve update list.")
+            self._status_lbl.setObjectName("status-err")
+
+        self._status_lbl.style().unpolish(self._status_lbl)
+        self._status_lbl.style().polish(self._status_lbl)
+
+    def _run_update(self):
+        self._log.append("\n→ fwupdmgr update\n")
+        self._progress.setRange(0, 0)
+        self._progress.show()
+        self._status_lbl.setText("Applying firmware updates…")
+        self._status_lbl.setObjectName("subheading")
+        self._status_lbl.style().unpolish(self._status_lbl)
+        self._status_lbl.style().polish(self._status_lbl)
+        self._update_btn.setEnabled(False)
+        self._check_btn.setEnabled(False)
+
+        self._worker = Worker(["fwupdmgr", "update"])
+        self._worker.line.connect(self._on_line)
+        self._worker.done.connect(self._on_update_done)
+        self._worker.start()
+
+    def _on_update_done(self, code: int):
+        self._progress.hide()
+        self._check_btn.setEnabled(True)
+        self._worker = None
+
+        if code == 0:
+            self._status_lbl.setText("Firmware updated successfully.")
+            self._status_lbl.setObjectName("status-ok")
+            self._log.append("\nDone. A reboot may be required.")
+        else:
+            self._status_lbl.setText(f"Update failed (exit code {code}).")
+            self._status_lbl.setObjectName("status-err")
+
+        self._status_lbl.style().unpolish(self._status_lbl)
+        self._status_lbl.style().polish(self._status_lbl)
+
+    def _on_line(self, text: str):
+        self._log.append(text)
+        self._log.ensureCursorVisible()
+
+
 # ── Tab: NVIDIA Drivers ────────────────────────────────────────────────────────
 class NvidiaTab(QWidget):
     def __init__(self):
@@ -732,6 +878,146 @@ class NvidiaTab(QWidget):
         self._refresh_status()
 
 
+# ── Tab: Repair / Refresh ─────────────────────────────────────────────────────
+class RepairTab(QWidget):
+    def __init__(self):
+        super().__init__()
+        self._worker = None
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(40, 36, 40, 36)
+        layout.setSpacing(16)
+
+        title = QLabel("Repair / Refresh Install")
+        title.setObjectName("heading")
+        layout.addWidget(title)
+
+        sub = QLabel(
+            "Reset the OS back to its factory state while keeping your home folder."
+        )
+        sub.setObjectName("subheading")
+        sub.setWordWrap(True)
+        layout.addWidget(sub)
+
+        layout.addWidget(_divider())
+
+        # Warning box
+        warn_frame = QFrame()
+        warn_frame.setStyleSheet(
+            "QFrame { background: #2d1e2e; border: 1px solid #f7768e;"
+            " border-radius: 6px; padding: 4px; }"
+        )
+        warn_layout = QVBoxLayout(warn_frame)
+        warn_layout.setContentsMargins(14, 10, 14, 10)
+        warn_layout.setSpacing(6)
+
+        warn_title = QLabel("This action cannot be undone")
+        warn_title.setObjectName("status-err")
+        warn_layout.addWidget(warn_title)
+
+        warn_body = QLabel(
+            "Running a refresh will:\n"
+            "  • Remove any packages you have layered\n"
+            "  • Reset all system configuration to defaults\n"
+            "  • Keep everything in /home untouched\n\n"
+            "The system will reboot immediately after the reset is staged."
+        )
+        warn_body.setWordWrap(True)
+        warn_body.setStyleSheet("color: #cdd6f4;")
+        warn_layout.addWidget(warn_body)
+        layout.addWidget(warn_frame)
+
+        # Confirm + button row
+        confirm_row = QHBoxLayout()
+        confirm_row.setSpacing(10)
+
+        self._confirm_lbl = QLabel("Type  RESET  to confirm:")
+        self._confirm_lbl.setStyleSheet("color: #6c7086;")
+        confirm_row.addWidget(self._confirm_lbl)
+
+        from PyQt6.QtWidgets import QLineEdit
+        self._confirm_edit = QLineEdit()
+        self._confirm_edit.setFixedWidth(120)
+        self._confirm_edit.setStyleSheet(
+            "QLineEdit { background: #181825; border: 1px solid #313244;"
+            " border-radius: 4px; padding: 4px 8px; color: #cdd6f4; }"
+            "QLineEdit:focus { border-color: #f7768e; }"
+        )
+        self._confirm_edit.textChanged.connect(self._on_confirm_text)
+        confirm_row.addWidget(self._confirm_edit)
+        confirm_row.addStretch()
+        layout.addLayout(confirm_row)
+
+        btn_row = QHBoxLayout()
+        self._reset_btn = QPushButton("Refresh Install")
+        self._reset_btn.setObjectName("danger")
+        self._reset_btn.setEnabled(False)
+        self._reset_btn.clicked.connect(self._run_reset)
+        btn_row.addWidget(self._reset_btn)
+        btn_row.addStretch()
+        layout.addLayout(btn_row)
+
+        self._status_lbl = QLabel()
+        self._status_lbl.hide()
+        layout.addWidget(self._status_lbl)
+
+        self._progress = QProgressBar()
+        self._progress.setRange(0, 0)
+        self._progress.hide()
+        layout.addWidget(self._progress)
+
+        self._log = QTextEdit()
+        self._log.setReadOnly(True)
+        self._log.setMinimumHeight(120)
+        self._log.hide()
+        layout.addWidget(self._log)
+
+        layout.addStretch()
+
+    def _on_confirm_text(self, text: str):
+        self._reset_btn.setEnabled(text.strip() == "RESET")
+
+    def _run_reset(self):
+        self._confirm_edit.setEnabled(False)
+        self._reset_btn.setEnabled(False)
+        self._log.clear()
+        self._log.append("→ bootc reset\n")
+        self._log.show()
+        self._progress.setRange(0, 0)
+        self._progress.show()
+        self._status_lbl.setText("Resetting system…")
+        self._status_lbl.setObjectName("subheading")
+        self._status_lbl.show()
+
+        self._worker = Worker(["sudo", "bootc", "reset"])
+        self._worker.line.connect(self._on_line)
+        self._worker.done.connect(self._on_done)
+        self._worker.start()
+
+    def _on_line(self, text: str):
+        self._log.append(text)
+        self._log.ensureCursorVisible()
+
+    def _on_done(self, code: int):
+        self._progress.hide()
+        self._worker = None
+
+        if code == 0:
+            self._status_lbl.setText("Reset staged — rebooting…")
+            self._status_lbl.setObjectName("status-ok")
+            self._log.append("\nDone. Rebooting now.")
+            self._status_lbl.style().unpolish(self._status_lbl)
+            self._status_lbl.style().polish(self._status_lbl)
+            QTimer.singleShot(2000, lambda: subprocess.Popen(["systemctl", "reboot"]))
+        else:
+            self._status_lbl.setText(f"Reset failed (exit code {code}).")
+            self._status_lbl.setObjectName("status-err")
+            self._status_lbl.style().unpolish(self._status_lbl)
+            self._status_lbl.style().polish(self._status_lbl)
+            self._confirm_edit.setEnabled(True)
+            self._confirm_edit.clear()
+
+
 # ── Main window ────────────────────────────────────────────────────────────────
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -745,6 +1031,7 @@ class MainWindow(QMainWindow):
         tabs.addTab(WelcomeTab(), "Welcome")
         tabs.addTab(BranchesTab(), "Branches")
         tabs.addTab(UpdateTab(), "Update")
+        tabs.addTab(FirmwareTab(), "Firmware")
         tabs.addTab(NvidiaTab(), "NVIDIA Drivers")
 
         self.setCentralWidget(tabs)
