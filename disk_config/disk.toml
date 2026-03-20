@@ -1,0 +1,3 @@
+# Minimal bootc-image-builder config for disk images.
+# The image itself carries the OS content; this file exists so local Just
+# targets for qcow2/raw builds have a stable config path in-repo.

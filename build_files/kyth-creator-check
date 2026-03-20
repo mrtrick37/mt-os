@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+section() {
+    echo
+    echo "== $1 =="
+}
+
+safe_cmd() {
+    "$@" 2>/dev/null || true
+}
+
+echo "Kyth Creator Check"
+echo "Generated: $(date -Is)"
+
+section "Session"
+printf 'Session Type: %s\n' "${XDG_SESSION_TYPE:-unknown}"
+printf 'Desktop: %s\n' "${XDG_CURRENT_DESKTOP:-unknown}"
+safe_cmd loginctl session-status
+
+section "Audio / Video Stack"
+safe_cmd pipewire --version
+safe_cmd wireplumber --version
+safe_cmd rpm -q pipewire wireplumber xdg-desktop-portal xdg-desktop-portal-kde
+
+section "OBS Capture Components"
+safe_cmd rpm -q libobs_vkcapture libobs_glcapture
+safe_cmd flatpak info com.obsproject.Studio
+
+section "Hardware Video"
+safe_cmd vainfo
+safe_cmd lspci -nnk
+
+section "Recent Portal / PipeWire Warnings"
+safe_cmd journalctl -b --no-pager -n 50 -u xdg-desktop-portal.service -u xdg-desktop-portal-kde.service -u pipewire.service -u wireplumber.service

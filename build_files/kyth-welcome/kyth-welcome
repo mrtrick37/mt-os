@@ -1,50 +1,31 @@
 #!/usr/bin/env python3
-"""kyth-helper — Helper app for Kyth Linux.
+"""kyth-welcome — Helper app for Kyth Linux.
 
-A welcome centre and system management tool.  Runs on first login (via
-/etc/skel autostart) and is always accessible from the application menu.
+Shows once on first login (via /etc/skel autostart) and is always
+accessible from the application menu.
 """
 
-import sys
 import os
+import sys
 import json
-import subprocess
 import re
+import shutil
+import subprocess
+import time
+from dataclasses import dataclass
+from datetime import datetime
 
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-    QPushButton, QLabel, QFrame, QTextEdit, QStackedWidget,
-    QSizePolicy, QScrollArea, QSpacerItem, QProgressBar,
+    QPushButton, QLabel, QTextEdit, QTabWidget, QProgressBar,
+    QFrame, QScrollArea, QFileDialog, QMessageBox,
 )
-from PyQt6.QtCore import Qt, QThread, pyqtSignal, QUrl, QSize, QTimer
-from PyQt6.QtGui import QFont, QDesktopServices, QColor, QCursor, QIcon
+from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer, QUrl
+from PyQt6.QtGui import QDesktopServices, QIcon
 
 # ── Constants ──────────────────────────────────────────────────────────────────
-REGISTRY  = "ghcr.io/mrtrick37/kyth"
-APP_NAME  = "Kyth"
-APP_VER   = "0.1.0"
+REGISTRY = "ghcr.io/mrtrick37/kyth"
 
-BRANCHES = [
-    {
-        "tag":   "latest",
-        "label": "Stable",
-        "desc":  "Thoroughly tested updates.\nRecommended for most users.",
-        "color": "#9ece6a",
-    },
-    {
-        "tag":   "testing",
-        "label": "Testing",
-        "desc":  "Latest features and changes.\nMay occasionally be unstable.",
-        "color": "#e0af68",
-    },
-]
-
-LINKS = [
-    ("GitHub",         "https://github.com/mrtrick37/kyth"),
-    ("Report an Issue","https://github.com/mrtrick37/kyth/issues/new"),
-]
-
-# ── Tokyo Night stylesheet ─────────────────────────────────────────────────────
 QSS = """
 * {
     font-family: "Noto Sans", "Segoe UI", sans-serif;
@@ -52,833 +33,1422 @@ QSS = """
     color: #cdd6f4;
 }
 
-QMainWindow, QWidget#root {
+QMainWindow, QWidget {
     background: #1e1e2e;
 }
 
-/* ── Sidebar ──────────────────────────────────────────────────────────────── */
-QWidget#sidebar {
-    background: #13141e;
-    border-right: 1px solid #1a1b26;
-}
-
-QLabel#brand-name {
-    color: #cdd6f4;
-    font-size: 13px;
-    font-weight: 700;
-    letter-spacing: 3px;
-    padding: 0 20px 1px;
-}
-
-QLabel#brand-tagline {
-    color: #2e3354;
-    font-size: 10px;
-    padding: 0 20px 20px;
-}
-
-QFrame#sidebar-divider {
-    background: #1e1f2e;
-    max-height: 1px;
-    margin: 0 16px 8px;
-}
-
-QPushButton#navbtn {
-    background: transparent;
-    color: #414868;
+QTabWidget::pane {
     border: none;
-    border-radius: 8px;
-    text-align: left;
-    padding: 10px 16px;
-    margin: 2px 12px;
-    font-size: 13px;
-    min-height: 36px;
-}
-
-QPushButton#navbtn:hover {
-    background: rgba(122, 162, 247, 0.07);
-    color: #7983b0;
-}
-
-QPushButton#navbtn[active=true] {
-    background: rgba(122, 162, 247, 0.13);
-    color: #7aa2f7;
-    font-weight: 600;
-}
-
-QLabel#sidebar-version {
-    color: #20212e;
-    font-size: 11px;
-    padding: 12px 20px;
-}
-
-/* ── Content area ─────────────────────────────────────────────────────────── */
-QWidget#content {
     background: #1e1e2e;
 }
 
-QScrollArea {
-    background: transparent;
+QTabWidget::tab-bar {
+    left: 0;
+}
+
+QTabBar::tab {
+    background: #181825;
+    color: #6c7086;
+    padding: 10px 22px;
     border: none;
+    border-bottom: 2px solid transparent;
+    font-size: 13px;
 }
 
-QScrollArea > QWidget > QWidget {
-    background: transparent;
-}
-
-QLabel#page-title {
+QTabBar::tab:selected {
     color: #cdd6f4;
-    font-size: 22px;
-    font-weight: 700;
+    background: #1e1e2e;
+    border-bottom: 2px solid #7aa2f7;
 }
 
-QLabel#page-sub {
-    color: #414868;
-    font-size: 12px;
-    padding-bottom: 8px;
+QTabBar::tab:hover:!selected {
+    color: #a6adc8;
+    background: #1e1e2e;
 }
 
-QFrame#page-divider {
-    background: #1a1b26;
-    max-height: 1px;
-    margin: 4px 0 20px;
-}
-
-/* ── Cards ────────────────────────────────────────────────────────────────── */
-QFrame#card {
-    background: #181920;
-    border-radius: 12px;
+QPushButton {
+    background: #313244;
+    color: #cdd6f4;
     border: none;
+    border-radius: 6px;
+    padding: 8px 18px;
+    font-size: 13px;
 }
 
-QFrame#card-active {
-    background: #181920;
-    border-radius: 12px;
-    border: 1px solid #7aa2f7;
+QPushButton:hover {
+    background: #45475a;
 }
 
-QLabel#card-label {
-    font-size: 15px;
-    font-weight: 700;
+QPushButton:pressed {
+    background: #585b70;
 }
 
-QLabel#card-desc {
-    color: #414868;
-    font-size: 12px;
+QPushButton:disabled {
+    background: #2a2a3c;
+    color: #45475a;
 }
 
-QLabel#badge {
-    border-radius: 4px;
-    padding: 2px 8px;
-    font-size: 11px;
-    font-weight: 700;
-}
-
-/* ── Buttons ──────────────────────────────────────────────────────────────── */
-QPushButton#btn-primary {
+QPushButton#primary {
     background: #7aa2f7;
     color: #1e1e2e;
-    border: none;
-    border-radius: 8px;
-    padding: 8px 22px;
-    font-weight: 700;
-    font-size: 13px;
-    min-height: 34px;
-}
-
-QPushButton#btn-primary:hover   { background: #89b4fa; }
-QPushButton#btn-primary:pressed { background: #6a8edf; }
-QPushButton#btn-primary:disabled {
-    background: #181920;
-    color: #414868;
-}
-
-QPushButton#btn-ghost {
-    background: #181920;
-    color: #7aa2f7;
-    border: none;
-    border-radius: 8px;
-    padding: 8px 20px;
-    font-size: 13px;
-    min-height: 34px;
-}
-
-QPushButton#btn-ghost:hover {
-    background: rgba(122, 162, 247, 0.12);
-}
-
-QPushButton#btn-ghost:pressed {
-    background: rgba(122, 162, 247, 0.20);
-}
-
-QPushButton#btn-switch {
-    border-radius: 8px;
-    padding: 7px 18px;
-    font-size: 12px;
     font-weight: 600;
-    min-height: 32px;
-    border: none;
+}
+
+QPushButton#primary:hover {
+    background: #89b4fa;
+}
+
+QPushButton#primary:disabled {
+    background: #2d3561;
+    color: #45475a;
+}
+
+QPushButton#danger {
+    background: #f7768e;
     color: #1e1e2e;
+    font-weight: 600;
 }
 
-QPushButton#btn-switch:disabled {
-    background: #181920;
-    color: #414868;
+QPushButton#danger:hover {
+    background: #ff8da1;
 }
 
-/* ── Progress bar ─────────────────────────────────────────────────────────── */
-QProgressBar#switch-progress {
-    background: #181920;
+QPushButton#branch-active {
+    background: #2d3561;
+    color: #7aa2f7;
+    border: 1px solid #7aa2f7;
+    font-weight: 600;
+}
+
+QPushButton#branch-inactive {
+    background: #252535;
+    color: #6c7086;
+    border: 1px solid #313244;
+}
+
+QPushButton#branch-inactive:hover {
+    background: #2a2a3e;
+    color: #a6adc8;
+    border: 1px solid #45475a;
+}
+
+QTextEdit {
+    background: #181825;
+    color: #a6adc8;
+    border: 1px solid #313244;
+    border-radius: 6px;
+    font-family: "Noto Mono", "Consolas", monospace;
+    font-size: 12px;
+    padding: 8px;
+}
+
+QLabel#heading {
+    font-size: 20px;
+    font-weight: 700;
+    color: #cdd6f4;
+}
+
+QLabel#subheading {
+    font-size: 13px;
+    color: #6c7086;
+}
+
+QLabel#status-ok {
+    color: #9ece6a;
+    font-weight: 600;
+}
+
+QLabel#status-warn {
+    color: #e0af68;
+    font-weight: 600;
+}
+
+QLabel#status-err {
+    color: #f7768e;
+    font-weight: 600;
+}
+
+QLabel#status-dim {
+    color: #45475a;
+}
+
+QFrame#divider {
+    background: #313244;
+    max-height: 1px;
+}
+
+QFrame#card {
+    background: #181825;
+    border: 1px solid #313244;
+    border-radius: 8px;
+}
+
+QLabel#card-title {
+    font-size: 15px;
+    font-weight: 700;
+    color: #cdd6f4;
+}
+
+QLabel#card-copy {
+    color: #a6adc8;
+}
+
+QProgressBar {
+    background: #313244;
     border: none;
-    border-radius: 3px;
+    border-radius: 4px;
     height: 6px;
     text-align: center;
 }
-QProgressBar#switch-progress::chunk {
+
+QProgressBar::chunk {
     background: #7aa2f7;
-    border-radius: 3px;
-}
-
-/* ── Log output ───────────────────────────────────────────────────────────── */
-QTextEdit#log {
-    background: #0d0e17;
-    color: #7983b0;
-    border: none;
-    border-radius: 10px;
-    font-family: "Cascadia Code", "JetBrains Mono", "Fira Code", "Courier New", monospace;
-    font-size: 11px;
-    padding: 12px;
-    selection-background-color: #364a82;
-}
-
-/* ── Welcome page specifics ───────────────────────────────────────────────── */
-QLabel#welcome-title {
-    color: #cdd6f4;
-    font-size: 26px;
-    font-weight: 700;
-}
-
-QLabel#welcome-subtitle {
-    color: #2e3354;
-    font-size: 10px;
-    font-weight: 700;
-    letter-spacing: 2px;
-}
-
-QLabel#welcome-body {
-    color: #414868;
-    font-size: 13px;
-}
-
-QLabel#section-header {
-    color: #2e3354;
-    font-size: 10px;
-    font-weight: 700;
-    letter-spacing: 2px;
-    padding-bottom: 10px;
-}
-
-QLabel#info-key {
-    color: #414868;
-    font-size: 12px;
-}
-
-QLabel#info-val {
-    color: #a9b1d6;
-    font-size: 12px;
-    font-weight: 600;
+    border-radius: 4px;
 }
 """
 
 
 # ── Worker thread ──────────────────────────────────────────────────────────────
-class BootcWorker(QThread):
-    line     = pyqtSignal(str)
-    done     = pyqtSignal(int)   # exit code
+class Worker(QThread):
+    line = pyqtSignal(str)
+    done = pyqtSignal(int)
 
-    def __init__(self, cmd):
+    def __init__(self, cmd: list[str]):
         super().__init__()
-        self.cmd = cmd
+        self._cmd = cmd
 
     def run(self):
         try:
             proc = subprocess.Popen(
-                self.cmd,
+                self._cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
+                bufsize=1,
             )
             for ln in proc.stdout:
                 self.line.emit(ln.rstrip())
             proc.wait()
             self.done.emit(proc.returncode)
         except Exception as exc:
-            self.line.emit(f"ERROR: {exc}")
+            self.line.emit(f"Error: {exc}")
             self.done.emit(1)
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
-def _bootc_status() -> dict | None:
-    """Return parsed bootc status or None if unavailable."""
+@dataclass
+class HardwareProbe:
+    title: str
+    status: str
+    summary: str
+    details: str
+    action: str | None = None
+
+
+class HardwareProbeWorker(QThread):
+    done = pyqtSignal(object)
+    failed = pyqtSignal(str)
+
+    def run(self):
+        try:
+            self.done.emit(_collect_hardware_probes())
+        except Exception as exc:
+            self.failed.emit(str(exc))
+
+
+def _finish_worker(owner: object) -> None:
+    worker = getattr(owner, "_worker", None)
+    if worker is None:
+        return
+    worker.wait()
+    worker.deleteLater()
+    owner._worker = None
+
+
+def _set_session_inhibit(owner: object, reason: str | None = None) -> None:
+    current = getattr(owner, "_screen_inhibit_cookie", None)
+    if reason is None:
+        if current is None:
+            return
+        cmd = [
+            "gdbus",
+            "call",
+            "--session",
+            "--dest",
+            "org.freedesktop.ScreenSaver",
+            "--object-path",
+            "/ScreenSaver",
+            "--method",
+            "org.freedesktop.ScreenSaver.UnInhibit",
+            str(current),
+        ]
+        try:
+            subprocess.run(cmd, capture_output=True, text=True, timeout=5, check=False)
+        finally:
+            owner._screen_inhibit_cookie = None
+        return
+
+    if current is not None:
+        return
+
+    cmd = [
+        "gdbus",
+        "call",
+        "--session",
+        "--dest",
+        "org.freedesktop.ScreenSaver",
+        "--object-path",
+        "/ScreenSaver",
+        "--method",
+        "org.freedesktop.ScreenSaver.Inhibit",
+        "kyth-welcome",
+        reason,
+    ]
     try:
-        r = subprocess.run(
-            ["sudo", "bootc", "status", "--json"],
-            capture_output=True, text=True, timeout=10,
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
         )
-        if r.returncode == 0:
-            return json.loads(r.stdout)
+    except OSError:
+        return
+
+    if result.returncode != 0:
+        return
+
+    match = re.search(r"\((\d+),\)", result.stdout)
+    if match:
+        owner._screen_inhibit_cookie = int(match.group(1))
+
+
+def _run_command(cmd: list[str], timeout: int = 5) -> subprocess.CompletedProcess[str] | None:
+    try:
+        return subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
     except Exception:
-        pass
+        return None
+
+
+def _command_stdout(cmd: list[str], timeout: int = 5) -> str:
+    result = _run_command(cmd, timeout=timeout)
+    if result is None:
+        return ""
+    return result.stdout.strip()
+
+
+def _with_idle_inhibit(cmd: list[str], reason: str) -> list[str]:
+    inhibit = shutil.which("systemd-inhibit")
+    if not inhibit:
+        return cmd
+    return [
+        inhibit,
+        "--what=idle:sleep",
+        f"--why={reason}",
+        "--mode=block",
+        *cmd,
+    ]
+
+
+def _bootc_status_text() -> str:
+    for cmd in (["sudo", "-n", "bootc", "status"], ["bootc", "status"]):
+        result = _run_command(cmd, timeout=10)
+        if result is None or result.returncode != 0 or not result.stdout.strip():
+            continue
+        return result.stdout.strip()
+    return ""
+
+
+def _bootc_status_data() -> dict | None:
+    for cmd in (["sudo", "-n", "bootc", "status", "--json"], ["bootc", "status", "--json"]):
+        result = _run_command(cmd, timeout=10)
+        if result is None or result.returncode != 0 or not result.stdout.strip():
+            continue
+        try:
+            return json.loads(result.stdout)
+        except json.JSONDecodeError:
+            continue
     return None
 
 
-def _current_ref(status: dict | None) -> str:
-    """Extract the booted image ref from bootc status JSON."""
+def _nested_get(data: object, path: tuple[str, ...]) -> object | None:
+    current = data
+    for key in path:
+        if not isinstance(current, dict):
+            return None
+        current = current.get(key)
+    return current
+
+
+def _walk_strings(data: object):
+    if isinstance(data, str):
+        yield data
+        return
+    if isinstance(data, dict):
+        for value in data.values():
+            yield from _walk_strings(value)
+        return
+    if isinstance(data, list):
+        for value in data:
+            yield from _walk_strings(value)
+
+
+def _active_bootc_operation() -> str | None:
+    result = _run_command(["ps", "-eo", "pid=,args="], timeout=5)
+    if result is None or result.returncode != 0 or not result.stdout.strip():
+        return None
+    for line in result.stdout.splitlines():
+        text = line.strip()
+        if not text:
+            continue
+        if " bootc " not in f" {text} ":
+            continue
+        if not any(op in text for op in (" bootc upgrade", " bootc switch", " bootc rollback", " bootc reset")):
+            continue
+        return text
+    return None
+
+
+def _bootc_image_reference() -> str | None:
+    """Return the best-known image reference for the current deployment."""
+    data = _bootc_status_data() or {}
+    candidates = (
+        ("spec", "image", "image"),
+        ("spec", "image", "reference"),
+        ("status", "booted", "image", "reference"),
+        ("status", "booted", "image", "image", "reference"),
+        ("status", "booted", "image", "image", "image"),
+        ("status", "booted", "image", "image"),
+        ("status", "booted", "image"),
+    )
+    for path in candidates:
+        value = _nested_get(data, path)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    for value in _walk_strings(data):
+        stripped = value.strip()
+        if REGISTRY in stripped:
+            return stripped
+    text = _bootc_status_text()
+    if text:
+        pattern = re.compile(rf"({re.escape(REGISTRY)}(?::[A-Za-z0-9._-]+)?(?:@sha256:[a-fA-F0-9]+)?)")
+        match = pattern.search(text)
+        if match:
+            return match.group(1)
+    return None
+
+
+def _branch_from_ref(ref: str | None) -> str | None:
+    if not ref:
+        return None
+    ref = ref.strip()
+    if not ref:
+        return None
+    if f"{REGISTRY}:latest" in ref:
+        return "latest"
+    if f"{REGISTRY}:testing" in ref:
+        return "testing"
+    if "@" in ref:
+        return ref.split("@", 1)[0].rsplit(":", 1)[-1]
+    if ":" in ref:
+        return ref.rsplit(":", 1)[-1]
+    return None
+
+
+def _branch_display_name(tag: str | None) -> str:
+    if tag == "latest":
+        return "Stable (latest)"
+    if tag == "testing":
+        return "Testing"
+    return tag or "unknown"
+
+
+def _status_palette(status: str) -> tuple[str, str, str]:
+    if status == "ok":
+        return ("#1f3326", "#9ece6a", "Working")
+    if status == "warn":
+        return ("#3a2d1d", "#e0af68", "Needs Attention")
+    if status == "err":
+        return ("#3a1f29", "#f7768e", "Issue Found")
+    return ("#252535", "#6c7086", "Info")
+
+
+def _gpu_probe(pci_text: str, lsmod_text: str) -> HardwareProbe:
+    gpu_lines = [
+        line.strip()
+        for line in pci_text.splitlines()
+        if any(token in line.lower() for token in ("vga compatible controller", "3d controller", "display controller"))
+    ]
+    if not gpu_lines:
+        return HardwareProbe(
+            "Graphics",
+            "dim",
+            "No GPU information detected.",
+            "The helper app could not find a display adapter via lspci.",
+        )
+
+    joined = "\n".join(gpu_lines).lower()
+    has_nvidia = any("nvidia" in line.lower() for line in gpu_lines)
+    has_amd = any("[amd/ati]" in line.lower() or "advanced micro devices" in line.lower() for line in gpu_lines)
+    has_intel = any("intel corporation" in line.lower() for line in gpu_lines)
+    vendors = []
+    if has_nvidia:
+        vendors.append("NVIDIA")
+    if has_amd:
+        vendors.append("AMD")
+    if has_intel:
+        vendors.append("Intel")
+    hybrid = len(vendors) > 1
+
+    if has_nvidia:
+        if _nvidia_module_loaded():
+            summary = "Hybrid graphics detected with active NVIDIA drivers." if hybrid else "NVIDIA GPU detected with active proprietary drivers."
+            details = "Detected adapters:\n" + "\n".join(gpu_lines)
+            return HardwareProbe("Graphics", "ok", summary, details)
+        if _akmod_nvidia_built():
+            return HardwareProbe(
+                "Graphics",
+                "warn",
+                "NVIDIA drivers are installed but not active yet.",
+                "The nvidia kernel module exists for the current kernel, but it is not loaded.\n"
+                "Detected adapters:\n" + "\n".join(gpu_lines),
+                "Reboot to load the staged driver, then re-check this tab.",
+            )
+        summary = "NVIDIA hardware detected without an active proprietary driver."
+        if hybrid:
+            summary = "Hybrid graphics detected, but the NVIDIA driver is not active."
+        return HardwareProbe(
+            "Graphics",
+            "err",
+            summary,
+            "Detected adapters:\n" + "\n".join(gpu_lines),
+            "Use the NVIDIA Drivers tab to build and stage the driver.",
+        )
+
+    if has_amd:
+        status = "ok" if "amdgpu" in lsmod_text.lower() else "warn"
+        summary = "AMD graphics detected and the amdgpu kernel driver is loaded." if status == "ok" else "AMD graphics detected, but the amdgpu kernel driver does not appear to be loaded."
+        return HardwareProbe("Graphics", status, summary, "Detected adapters:\n" + "\n".join(gpu_lines))
+
+    if has_intel:
+        intel_loaded = "i915" in lsmod_text.lower() or "\nxe " in f"\n{lsmod_text.lower()}"
+        status = "ok" if intel_loaded else "warn"
+        summary = "Intel graphics detected and the kernel driver is loaded." if status == "ok" else "Intel graphics detected, but no Intel graphics kernel driver was found in lsmod."
+        return HardwareProbe("Graphics", status, summary, "Detected adapters:\n" + "\n".join(gpu_lines))
+
+    return HardwareProbe("Graphics", "dim", "GPU detected, but the vendor is not recognized by the helper app yet.", "Detected adapters:\n" + joined)
+
+
+def _firmware_probe() -> HardwareProbe:
+    devices = _run_command(["fwupdmgr", "get-devices"], timeout=15)
+    if devices is None:
+        return HardwareProbe(
+            "Firmware",
+            "dim",
+            "fwupd tools are not available.",
+            "Install or enable fwupd support to inspect firmware-managed devices.",
+        )
+    if devices.returncode != 0:
+        return HardwareProbe(
+            "Firmware",
+            "warn",
+            "Firmware tooling is installed, but device enumeration failed.",
+            devices.stdout.strip() or devices.stderr.strip() or "fwupdmgr get-devices exited with an error.",
+            "Open the Firmware tab to retry and inspect the command output.",
+        )
+
+    device_count = devices.stdout.count("Device ID:")
+    updates = _run_command(["fwupdmgr", "get-updates"], timeout=20)
+    if updates is not None and updates.returncode == 0:
+        return HardwareProbe(
+            "Firmware",
+            "warn",
+            f"Firmware updates are available for {device_count or 'one or more'} managed device(s).",
+            updates.stdout.strip() or devices.stdout.strip(),
+            "Use the Firmware tab to apply updates.",
+        )
+    if updates is not None and updates.returncode == 2:
+        return HardwareProbe(
+            "Firmware",
+            "ok",
+            f"fwupd is managing {device_count} device(s) and reports no pending firmware updates.",
+            devices.stdout.strip(),
+        )
+    return HardwareProbe(
+        "Firmware",
+        "dim",
+        f"fwupd is available and detected {device_count} managed device(s).",
+        devices.stdout.strip(),
+        "Use the Firmware tab to refresh metadata and check for updates.",
+    )
+
+
+def _connectivity_probe(pci_text: str, usb_text: str) -> HardwareProbe:
+    combined = "\n".join([pci_text.lower(), usb_text.lower()])
+    wifi_present = any(token in combined for token in ("network controller", "wireless", "wi-fi", "802.11", "wlan"))
+    bluetooth_present = "bluetooth" in combined
+    rfkill = _command_stdout(["rfkill", "list"], timeout=5)
+    nmcli = _command_stdout(["nmcli", "-t", "-f", "DEVICE,TYPE,STATE", "device", "status"], timeout=5)
+
+    blocked = []
+    if rfkill:
+        blocks = rfkill.lower().splitlines()
+        if any("soft blocked: yes" in line for line in blocks):
+            blocked.append("soft-blocked")
+        if any("hard blocked: yes" in line for line in blocks):
+            blocked.append("hard-blocked")
+
+    wifi_states = [line for line in nmcli.splitlines() if ":wifi:" in line]
+    wifi_connected = any(":connected" in line or ":connecting" in line for line in wifi_states)
+
+    parts = []
+    if wifi_present:
+        parts.append("Wi-Fi hardware detected")
+    if bluetooth_present:
+        parts.append("Bluetooth hardware detected")
+    if not parts:
+        return HardwareProbe(
+            "Connectivity",
+            "dim",
+            "No Wi-Fi or Bluetooth hardware was detected.",
+            "This may be expected on desktops or virtual machines.",
+        )
+
+    details = []
+    if wifi_states:
+        details.append("NetworkManager devices:\n" + "\n".join(wifi_states))
+    if rfkill:
+        details.append("rfkill state:\n" + rfkill)
+
+    if blocked:
+        return HardwareProbe(
+            "Connectivity",
+            "warn",
+            f"{', '.join(parts)}; radio controls are currently {', '.join(blocked)}.",
+            "\n\n".join(details) or "rfkill reports that one or more radios are blocked.",
+            "Clear the rfkill block or use your laptop's wireless toggle, then refresh this tab.",
+        )
+    if wifi_present and not wifi_connected and wifi_states:
+        return HardwareProbe(
+            "Connectivity",
+            "ok",
+            f"{', '.join(parts)}; wireless hardware is visible and ready.",
+            "\n\n".join(details) or "Wireless devices were detected successfully.",
+        )
+    return HardwareProbe(
+        "Connectivity",
+        "ok",
+        f"{', '.join(parts)}; no obvious radio or driver issues were detected.",
+        "\n\n".join(details) or "Wireless-related hardware looks healthy.",
+    )
+
+
+def _audio_probe() -> HardwareProbe:
+    pipewire = _run_command(["systemctl", "--user", "is-active", "pipewire.service"], timeout=5)
+    wireplumber = _run_command(["systemctl", "--user", "is-active", "wireplumber.service"], timeout=5)
+    pactl_info = _run_command(["pactl", "info"], timeout=5)
+    sinks = _command_stdout(["pactl", "list", "short", "sinks"], timeout=5)
+
+    sink_count = len([line for line in sinks.splitlines() if line.strip()])
+    if pactl_info is None:
+        return HardwareProbe(
+            "Audio",
+            "dim",
+            "Audio inspection tools are not available in this session.",
+            "The helper app could not query pactl for sink information.",
+        )
+
+    if pactl_info.returncode != 0:
+        return HardwareProbe(
+            "Audio",
+            "warn",
+            "PipeWire or PulseAudio is not responding to pactl.",
+            pactl_info.stdout.strip() or pactl_info.stderr.strip() or "pactl info returned a non-zero exit code.",
+            "Log out and back in, then refresh this tab. If the issue persists, inspect the audio services.",
+        )
+
+    services = []
+    if pipewire is not None and pipewire.returncode == 0:
+        services.append("pipewire active")
+    if wireplumber is not None and wireplumber.returncode == 0:
+        services.append("wireplumber active")
+
+    if sink_count == 0:
+        return HardwareProbe(
+            "Audio",
+            "warn",
+            "Audio services are running, but no playback sinks were detected.",
+            (pactl_info.stdout.strip() + "\n\nAvailable sinks:\n" + (sinks or "none")).strip(),
+            "Reconnect audio hardware or inspect your session audio configuration.",
+        )
+
+    return HardwareProbe(
+        "Audio",
+        "ok",
+        f"Audio stack responding normally with {sink_count} playback sink(s).",
+        ("Services: " + ", ".join(services) + "\n\n" if services else "") + pactl_info.stdout.strip(),
+    )
+
+
+def _storage_probe() -> HardwareProbe:
+    usage = shutil.disk_usage("/home")
+    free_percent = (usage.free / usage.total) * 100 if usage.total else 0
+    trim = _run_command(["systemctl", "is-enabled", "fstrim.timer"], timeout=5)
+    trim_enabled = trim is not None and trim.returncode == 0
+
+    summary = f"/home has {free_percent:.1f}% free space remaining."
+    details = (
+        f"Total: {usage.total / (1024 ** 3):.1f} GiB\n"
+        f"Used: {(usage.total - usage.free) / (1024 ** 3):.1f} GiB\n"
+        f"Free: {usage.free / (1024 ** 3):.1f} GiB\n"
+        f"TRIM timer enabled: {'yes' if trim_enabled else 'no'}"
+    )
+    if free_percent < 15:
+        return HardwareProbe(
+            "Storage",
+            "warn",
+            summary,
+            details,
+            "Free up disk space soon to avoid update and game install failures.",
+        )
+    return HardwareProbe("Storage", "ok", summary, details)
+
+
+def _platform_probe() -> HardwareProbe:
+    virt = _run_command(["systemd-detect-virt"], timeout=5)
+    if virt is not None and virt.returncode == 0:
+        virt_name = virt.stdout.strip() or "virtual machine"
+        spice = _run_command(["systemctl", "is-active", "spice-vdagentd.service"], timeout=5)
+        spice_active = spice is not None and spice.returncode == 0
+        details = f"Environment: {virt_name}\nspice-vdagentd active: {'yes' if spice_active else 'no'}"
+        return HardwareProbe(
+            "Platform",
+            "dim",
+            f"Kyth is running inside {virt_name}.",
+            details,
+            "Some gaming and driver checks behave differently in virtual machines.",
+        )
+    return HardwareProbe(
+        "Platform",
+        "ok",
+        "Bare-metal environment detected.",
+        f"Current branch: {_branch_display_name(_current_branch())}\nbootc staged update: {'yes' if _has_staged_update() else 'no'}",
+    )
+
+
+def _collect_hardware_probes() -> list[HardwareProbe]:
+    pci_text = _command_stdout(["lspci"], timeout=5)
+    usb_text = _command_stdout(["lsusb"], timeout=5)
+    lsmod_text = _command_stdout(["lsmod"], timeout=5)
+    return [
+        _gpu_probe(pci_text, lsmod_text),
+        _firmware_probe(),
+        _connectivity_probe(pci_text, usb_text),
+        _audio_probe(),
+        _storage_probe(),
+        _platform_probe(),
+    ]
+
+
+def _diagnostics_report(probes: list[HardwareProbe]) -> str:
+    timestamp = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
+    kernel = _command_stdout(["uname", "-r"], timeout=5) or "unknown"
+    hostname = _command_stdout(["hostnamectl", "--static"], timeout=5) or _command_stdout(["hostname"], timeout=5) or "unknown"
+    branch = _branch_display_name(_current_branch())
+    staged = "yes" if _has_staged_update() else "no"
+    rollback = "yes" if _has_rollback_deployment() else "no"
+    fwupd = _run_command(["fwupdmgr", "get-updates"], timeout=20)
+    if fwupd is None:
+        fwupd_status = "fwupd unavailable"
+    elif fwupd.returncode == 0:
+        fwupd_status = "updates available"
+    elif fwupd.returncode == 2:
+        fwupd_status = "up to date"
+    else:
+        fwupd_status = f"check failed (exit {fwupd.returncode})"
+
+    lines = [
+        "Kyth Diagnostics Report",
+        f"Generated: {timestamp}",
+        "",
+        "System",
+        f"- Hostname: {hostname}",
+        f"- Kernel: {kernel}",
+        f"- Branch: {branch}",
+        f"- Update staged: {staged}",
+        f"- Rollback available: {rollback}",
+        f"- Firmware state: {fwupd_status}",
+        "",
+        "Checks",
+    ]
+    for probe in probes:
+        lines.append(f"- {probe.title}: {probe.summary}")
+        lines.append(f"  Status: {probe.status}")
+        if probe.action:
+            lines.append(f"  Suggested action: {probe.action}")
+    lines.append("")
+    lines.append("Details")
+    for probe in probes:
+        lines.append(f"[{probe.title}]")
+        lines.append(probe.details.strip() or "No extra details.")
+        if probe.action:
+            lines.append(f"Suggested action: {probe.action}")
+        lines.append("")
+    return "\n".join(lines).strip() + "\n"
+
+
+def _current_branch() -> str | None:
+    """Return the image tag of the booted deployment, or None."""
+    return _branch_from_ref(_bootc_image_reference())
+
+
+def _has_staged_update() -> bool:
+    """Return True if bootc has a staged image waiting."""
+    data = _bootc_status_data() or {}
+    return data.get("status", {}).get("staged") is not None
+
+
+def _has_rollback_deployment() -> bool:
+    data = _bootc_status_data() or {}
+    return data.get("status", {}).get("rollback") is not None
+
+
+def _detect_nvidia() -> bool:
     try:
-        return status["status"]["booted"]["image"]["image"]["image"]
-    except (TypeError, KeyError):
-        return ""
+        r = subprocess.run(["lspci"], capture_output=True, text=True, timeout=5)
+        return "nvidia" in r.stdout.lower()
+    except Exception:
+        return False
 
 
-def _current_tag(ref: str) -> str:
-    """Return the tag portion of an image ref, e.g. 'latest'."""
-    m = re.search(r":([^:]+)$", ref)
-    return m.group(1) if m else ""
+def _nvidia_module_loaded() -> bool:
+    try:
+        r = subprocess.run(["lsmod"], capture_output=True, text=True, timeout=5)
+        return "nvidia" in r.stdout.lower()
+    except Exception:
+        return False
 
 
-def _sep() -> QFrame:
-    """Horizontal rule."""
+def _akmod_nvidia_built() -> bool:
+    try:
+        r = subprocess.run(
+            ["modinfo", "nvidia"],
+            capture_output=True, text=True, timeout=5,
+        )
+        return r.returncode == 0
+    except Exception:
+        return False
+
+
+def _remove_autostart():
+    path = os.path.expanduser("~/.config/autostart/kyth-welcome.desktop")
+    try:
+        os.remove(path)
+    except OSError:
+        pass
+
+
+def _wait_for_display_setup(timeout: float = 8.0, interval: float = 0.25):
+    """Avoid launching the helper while first-login display setup is still reconfiguring outputs."""
+    autostart = os.path.expanduser("~/.config/autostart/kyth-set-resolution.desktop")
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        result = _run_command(["pgrep", "-af", "kyth-set-resolution"], timeout=2)
+        running = bool(result is not None and result.returncode == 0 and result.stdout.strip())
+        pending = os.path.exists(autostart)
+        if not running and not pending:
+            return
+        time.sleep(interval)
+
+
+def _divider() -> QFrame:
     f = QFrame()
-    f.setObjectName("page-divider")
-    f.setFixedHeight(1)
+    f.setObjectName("divider")
+    f.setFrameShape(QFrame.Shape.HLine)
     return f
 
 
-# ── Sidebar navigation button ──────────────────────────────────────────────────
-class NavButton(QPushButton):
-    def __init__(self, text, parent=None):
-        super().__init__(text, parent)
-        self.setObjectName("navbtn")
-        self.setCheckable(False)
-        self.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-
-    def set_active(self, active: bool):
-        self.setProperty("active", "true" if active else "false")
-        self.style().unpolish(self)
-        self.style().polish(self)
-
-
-# ── Branch card ────────────────────────────────────────────────────────────────
-class BranchCard(QFrame):
-    switch_requested = pyqtSignal(str)   # emits tag
-
-    def __init__(self, branch: dict, parent=None):
-        super().__init__(parent)
-        self.tag   = branch["tag"]
-        self.color = branch["color"]
-        self._active = False
+# ── Hardware card ──────────────────────────────────────────────────────────────
+class HardwareCard(QFrame):
+    def __init__(self, probe: HardwareProbe):
+        super().__init__()
         self.setObjectName("card")
-        self.setMinimumWidth(200)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 14, 16, 14)
-        layout.setSpacing(6)
+        layout.setSpacing(10)
 
-        # Color dot + label row
         top = QHBoxLayout()
-        dot = QLabel("●")
-        dot.setStyleSheet(f"color: {self.color}; font-size: 16px;")
-        top.addWidget(dot)
+        top.setSpacing(10)
 
-        self.lbl_label = QLabel(branch["label"])
-        self.lbl_label.setObjectName("card-label")
-        self.lbl_label.setStyleSheet(f"color: {self.color};")
-        top.addWidget(self.lbl_label)
+        self._title = QLabel()
+        self._title.setObjectName("card-title")
+        top.addWidget(self._title)
         top.addStretch()
 
-        self.badge = QLabel()
-        self.badge.setObjectName("badge")
-        self.badge.hide()
-        top.addWidget(self.badge)
+        self._badge = QLabel()
+        self._badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        top.addWidget(self._badge)
         layout.addLayout(top)
 
-        # Description
-        desc = QLabel(branch["desc"])
-        desc.setObjectName("card-desc")
-        desc.setWordWrap(True)
-        layout.addWidget(desc)
+        self._summary = QLabel()
+        self._summary.setWordWrap(True)
+        self._summary.setStyleSheet("color: #cdd6f4; font-weight: 600;")
+        layout.addWidget(self._summary)
+
+        self._details = QLabel()
+        self._details.setObjectName("card-copy")
+        self._details.setWordWrap(True)
+        self._details.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        layout.addWidget(self._details)
+
+        self._action = QLabel()
+        self._action.setWordWrap(True)
+        self._action.setStyleSheet("color: #7aa2f7;")
+        layout.addWidget(self._action)
+
+        self.update_probe(probe)
+
+    def update_probe(self, probe: HardwareProbe):
+        bg, fg, badge = _status_palette(probe.status)
+        self._title.setText(probe.title)
+        self._summary.setText(probe.summary)
+        self._details.setText(probe.details)
+        self._badge.setText(badge)
+        self._badge.setStyleSheet(
+            f"background: {bg}; color: {fg}; border-radius: 10px; padding: 4px 10px; font-weight: 600;"
+        )
+        if probe.action:
+            self._action.setText(probe.action)
+            self._action.show()
+        else:
+            self._action.hide()
+
+
+# ── Tab: Hardware ──────────────────────────────────────────────────────────────
+class HardwareTab(QWidget):
+    def __init__(self):
+        super().__init__()
+        self._worker = None
+        self._cards: list[HardwareCard] = []
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(40, 36, 40, 36)
+        layout.setSpacing(16)
+
+        title = QLabel("Hardware Status")
+        title.setObjectName("heading")
+        layout.addWidget(title)
+
+        sub = QLabel(
+            "Check graphics, firmware, connectivity, audio, storage, and platform health."
+        )
+        sub.setObjectName("subheading")
+        sub.setWordWrap(True)
+        layout.addWidget(sub)
+
+        layout.addWidget(_divider())
+
+        btn_row = QHBoxLayout()
+        self._refresh_btn = QPushButton("Refresh Hardware Status")
+        self._refresh_btn.setObjectName("primary")
+        self._refresh_btn.clicked.connect(self.refresh)
+        btn_row.addWidget(self._refresh_btn)
+        btn_row.addStretch()
+        layout.addLayout(btn_row)
+
+        self._status_lbl = QLabel("Running hardware probes…")
+        self._status_lbl.setObjectName("subheading")
+        layout.addWidget(self._status_lbl)
+
+        self._progress = QProgressBar()
+        self._progress.setRange(0, 0)
+        layout.addWidget(self._progress)
+
+        self._scroll = QScrollArea()
+        self._scroll.setWidgetResizable(True)
+        self._scroll.setFrameShape(QFrame.Shape.NoFrame)
+        layout.addWidget(self._scroll, 1)
+
+        self._content = QWidget()
+        self._content_layout = QVBoxLayout(self._content)
+        self._content_layout.setContentsMargins(0, 0, 0, 0)
+        self._content_layout.setSpacing(12)
+        self._scroll.setWidget(self._content)
+
+        self.refresh()
+
+    def refresh(self):
+        self._refresh_btn.setEnabled(False)
+        self._status_lbl.setText("Running hardware probes…")
+        self._status_lbl.setObjectName("subheading")
+        self._status_lbl.style().unpolish(self._status_lbl)
+        self._status_lbl.style().polish(self._status_lbl)
+        self._progress.show()
+
+        self._worker = HardwareProbeWorker()
+        self._worker.done.connect(self._on_done)
+        self._worker.failed.connect(self._on_failed)
+        self._worker.start()
+
+    def _replace_cards(self, probes: list[HardwareProbe]):
+        while self._content_layout.count():
+            item = self._content_layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+
+        self._cards = []
+        for probe in probes:
+            card = HardwareCard(probe)
+            self._cards.append(card)
+            self._content_layout.addWidget(card)
+        self._content_layout.addStretch()
+
+    def _on_done(self, probes: list[HardwareProbe]):
+        self._progress.hide()
+        self._refresh_btn.setEnabled(True)
+        _finish_worker(self)
+        self._replace_cards(probes)
+
+        levels = {probe.status for probe in probes}
+        if "err" in levels:
+            self._status_lbl.setText("One or more hardware issues need attention.")
+            self._status_lbl.setObjectName("status-err")
+        elif "warn" in levels:
+            self._status_lbl.setText("Hardware looks mostly healthy, with a few items worth checking.")
+            self._status_lbl.setObjectName("status-warn")
+        else:
+            self._status_lbl.setText("Hardware checks completed successfully.")
+            self._status_lbl.setObjectName("status-ok")
+        self._status_lbl.style().unpolish(self._status_lbl)
+        self._status_lbl.style().polish(self._status_lbl)
+
+    def _on_failed(self, message: str):
+        self._progress.hide()
+        self._refresh_btn.setEnabled(True)
+        _finish_worker(self)
+        self._status_lbl.setText(f"Hardware probe failed: {message}")
+        self._status_lbl.setObjectName("status-err")
+        self._status_lbl.style().unpolish(self._status_lbl)
+        self._status_lbl.style().polish(self._status_lbl)
+
+
+# ── Tab: Diagnostics ───────────────────────────────────────────────────────────
+class DiagnosticsTab(QWidget):
+    def __init__(self):
+        super().__init__()
+        self._worker = None
+        self._last_probes: list[HardwareProbe] = []
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(40, 36, 40, 36)
+        layout.setSpacing(16)
+
+        title = QLabel("Diagnostics")
+        title.setObjectName("heading")
+        layout.addWidget(title)
+
+        sub = QLabel(
+            "Create a readable support report with the same hardware and system checks the helper app uses."
+        )
+        sub.setObjectName("subheading")
+        sub.setWordWrap(True)
+        layout.addWidget(sub)
+
+        layout.addWidget(_divider())
+
+        intro = QFrame()
+        intro.setObjectName("card")
+        intro_layout = QVBoxLayout(intro)
+        intro_layout.setContentsMargins(16, 14, 16, 14)
+        intro_layout.setSpacing(10)
+
+        intro_title = QLabel("What this report includes")
+        intro_title.setObjectName("card-title")
+        intro_layout.addWidget(intro_title)
+
+        intro_body = QLabel(
+            "Hardware, firmware, connectivity, audio, storage, update, and rollback state. "
+            "Use Copy Report when filing a bug, or Save Report if you want to attach it to a support request."
+        )
+        intro_body.setObjectName("card-copy")
+        intro_body.setWordWrap(True)
+        intro_layout.addWidget(intro_body)
+        layout.addWidget(intro)
+
+        btn_row = QHBoxLayout()
+        self._refresh_btn = QPushButton("Refresh Diagnostics")
+        self._refresh_btn.setObjectName("primary")
+        self._refresh_btn.clicked.connect(self.refresh)
+        btn_row.addWidget(self._refresh_btn)
+
+        self._copy_btn = QPushButton("Copy Report")
+        self._copy_btn.setEnabled(False)
+        self._copy_btn.clicked.connect(self._copy_report)
+        btn_row.addWidget(self._copy_btn)
+
+        self._save_btn = QPushButton("Save Report")
+        self._save_btn.setEnabled(False)
+        self._save_btn.clicked.connect(self._save_report)
+        btn_row.addWidget(self._save_btn)
+        btn_row.addStretch()
+        layout.addLayout(btn_row)
+
+        self._status_lbl = QLabel("Running diagnostics…")
+        self._status_lbl.setObjectName("subheading")
+        layout.addWidget(self._status_lbl)
+
+        self._progress = QProgressBar()
+        self._progress.setRange(0, 0)
+        layout.addWidget(self._progress)
+
+        self._report = QTextEdit()
+        self._report.setReadOnly(True)
+        self._report.setMinimumHeight(260)
+        layout.addWidget(self._report, 1)
+
+        self.refresh()
+
+    def refresh(self):
+        self._refresh_btn.setEnabled(False)
+        self._copy_btn.setEnabled(False)
+        self._save_btn.setEnabled(False)
+        self._status_lbl.setText("Running diagnostics…")
+        self._status_lbl.setObjectName("subheading")
+        self._status_lbl.style().unpolish(self._status_lbl)
+        self._status_lbl.style().polish(self._status_lbl)
+        self._progress.show()
+        self._report.setPlainText("Gathering system information...")
+
+        self._worker = HardwareProbeWorker()
+        self._worker.done.connect(self._on_done)
+        self._worker.failed.connect(self._on_failed)
+        self._worker.start()
+
+    def _on_done(self, probes: list[HardwareProbe]):
+        self._progress.hide()
+        self._refresh_btn.setEnabled(True)
+        self._copy_btn.setEnabled(True)
+        self._save_btn.setEnabled(True)
+        _finish_worker(self)
+        self._last_probes = probes
+        self._report.setPlainText(_diagnostics_report(probes))
+
+        levels = {probe.status for probe in probes}
+        if "err" in levels:
+            self._status_lbl.setText("Diagnostics found one or more issues worth fixing before filing a bug.")
+            self._status_lbl.setObjectName("status-err")
+        elif "warn" in levels:
+            self._status_lbl.setText("Diagnostics completed with a few warnings that may help explain problems.")
+            self._status_lbl.setObjectName("status-warn")
+        else:
+            self._status_lbl.setText("Diagnostics completed successfully.")
+            self._status_lbl.setObjectName("status-ok")
+        self._status_lbl.style().unpolish(self._status_lbl)
+        self._status_lbl.style().polish(self._status_lbl)
+
+    def _on_failed(self, message: str):
+        self._progress.hide()
+        self._refresh_btn.setEnabled(True)
+        _finish_worker(self)
+        self._report.setPlainText("")
+        self._status_lbl.setText(f"Diagnostics failed: {message}")
+        self._status_lbl.setObjectName("status-err")
+        self._status_lbl.style().unpolish(self._status_lbl)
+        self._status_lbl.style().polish(self._status_lbl)
+
+    def _copy_report(self):
+        QApplication.clipboard().setText(self._report.toPlainText())
+        self._status_lbl.setText("Diagnostics report copied to the clipboard.")
+        self._status_lbl.setObjectName("status-ok")
+        self._status_lbl.style().unpolish(self._status_lbl)
+        self._status_lbl.style().polish(self._status_lbl)
+
+    def _save_report(self):
+        default_name = os.path.expanduser(
+            f"~/Documents/kyth-diagnostics-{datetime.now().strftime('%Y%m%d-%H%M%S')}.txt"
+        )
+        path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Save Diagnostics Report",
+            default_name,
+            "Text Files (*.txt);;All Files (*)",
+        )
+        if not path:
+            return
+        try:
+            with open(path, "w", encoding="utf-8") as handle:
+                handle.write(self._report.toPlainText())
+            self._status_lbl.setText(f"Diagnostics report saved to {path}.")
+            self._status_lbl.setObjectName("status-ok")
+        except OSError as exc:
+            self._status_lbl.setText(f"Could not save report: {exc}")
+            self._status_lbl.setObjectName("status-err")
+        self._status_lbl.style().unpolish(self._status_lbl)
+        self._status_lbl.style().polish(self._status_lbl)
+
+
+# ── Tab: Welcome ───────────────────────────────────────────────────────────────
+class WelcomeTab(QWidget):
+    def __init__(self):
+        super().__init__()
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(40, 36, 40, 36)
+        layout.setSpacing(16)
+
+        title = QLabel("Welcome to Kyth")
+        title.setObjectName("heading")
+        layout.addWidget(title)
+
+        sub = QLabel("An atomic gaming and workstation OS built on Fedora.")
+        sub.setObjectName("subheading")
+        layout.addWidget(sub)
+
+        layout.addWidget(_divider())
+
+        overview = QLabel(
+            "Kyth keeps the operating system separate from your personal files. "
+            "Updates are downloaded safely, applied on reboot, and can be rolled back "
+            "if something goes wrong."
+        )
+        overview.setWordWrap(True)
+        overview.setStyleSheet("color: #cdd6f4;")
+        layout.addWidget(overview)
+
+        checklist = QFrame()
+        checklist.setObjectName("card")
+        checklist_layout = QVBoxLayout(checklist)
+        checklist_layout.setContentsMargins(16, 14, 16, 14)
+        checklist_layout.setSpacing(10)
+
+        checklist_title = QLabel("Recommended first steps")
+        checklist_title.setObjectName("card-title")
+        checklist_layout.addWidget(checklist_title)
+
+        branch = _branch_display_name(_current_branch())
+        staged = "ready next reboot" if _has_staged_update() else "nothing staged right now"
+        rollback = "available" if _has_rollback_deployment() else "not detected yet"
+        checklist_body = QLabel(
+            "1. Open Hardware and confirm your graphics, audio, and wireless status.\n"
+            "2. Open Firmware and check for device updates.\n"
+            "3. Open Update to download the latest Kyth image.\n"
+            "4. Review NVIDIA Drivers if this machine uses NVIDIA graphics.\n"
+            "5. Make sure your personal files in /home are backed up somewhere you trust.\n\n"
+            f"Current branch: {branch}\n"
+            f"Next boot status: {staged}\n"
+            f"Rollback state: {rollback}"
+        )
+        checklist_body.setObjectName("card-copy")
+        checklist_body.setWordWrap(True)
+        checklist_layout.addWidget(checklist_body)
+        layout.addWidget(checklist)
+
+        backup = QFrame()
+        backup.setObjectName("card")
+        backup_layout = QVBoxLayout(backup)
+        backup_layout.setContentsMargins(16, 14, 16, 14)
+        backup_layout.setSpacing(10)
+
+        backup_title = QLabel("Backup guidance")
+        backup_title.setObjectName("card-title")
+        backup_layout.addWidget(backup_title)
+
+        backup_body = QLabel(
+            "Kyth repairs and rollbacks protect the OS itself, but they are not a replacement "
+            "for backing up your personal files. Keep your game saves, projects, and documents "
+            "in /home and copy them to another drive or cloud service regularly."
+        )
+        backup_body.setObjectName("card-copy")
+        backup_body.setWordWrap(True)
+        backup_layout.addWidget(backup_body)
+
+        backup_btn_row = QHBoxLayout()
+        home_btn = QPushButton("Open Home Folder")
+        home_btn.clicked.connect(
+            lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(os.path.expanduser("~")))
+        )
+        docs_btn = QPushButton("Open Backup Location")
+        docs_btn.clicked.connect(
+            lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(os.path.expanduser("~/Documents")))
+        )
+        backup_btn_row.addWidget(home_btn)
+        backup_btn_row.addWidget(docs_btn)
+        backup_btn_row.addStretch()
+        backup_layout.addLayout(backup_btn_row)
+        layout.addWidget(backup)
+
+        layout.addWidget(_divider())
+
+        # Links
+        link_layout = QHBoxLayout()
+        link_layout.setSpacing(10)
+
+        gh_btn = QPushButton("GitHub")
+        gh_btn.clicked.connect(
+            lambda: QDesktopServices.openUrl(QUrl("https://github.com/mrtrick37/kyth"))
+        )
+        issue_btn = QPushButton("Report an Issue")
+        issue_btn.clicked.connect(
+            lambda: QDesktopServices.openUrl(
+                QUrl("https://github.com/mrtrick37/kyth/issues/new")
+            )
+        )
+        link_layout.addWidget(gh_btn)
+        link_layout.addWidget(issue_btn)
+        link_layout.addStretch()
+        layout.addLayout(link_layout)
+
+        note = QLabel(
+            "This window will not appear again on login. "
+            "You can reopen it from the application menu."
+        )
+        note.setObjectName("subheading")
+        note.setWordWrap(True)
+        layout.addWidget(note)
 
         layout.addStretch()
 
-        # Switch button
-        self.btn = QPushButton()
-        self.btn.setObjectName("btn-switch")
-        self.btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        self.btn.clicked.connect(lambda: self.switch_requested.emit(self.tag))
-        layout.addWidget(self.btn)
 
-        self._refresh_state(False)
-
-    def _refresh_state(self, is_active: bool):
-        self._active = is_active
-        self.setObjectName("card-active" if is_active else "card")
-        self.style().unpolish(self)
-        self.style().polish(self)
-
-        if is_active:
-            self.badge.setText("CURRENT")
-            self.badge.setStyleSheet(
-                f"background: rgba({self._hex_to_rgb(self.color)},0.18);"
-                f"color: {self.color}; border-radius: 4px; padding: 2px 8px;"
-            )
-            self.badge.show()
-            self.btn.setText("Up to date")
-            self.btn.setStyleSheet(
-                "background: #2a2e42; color: #565f89;"
-            )
-            self.btn.setEnabled(False)
-        else:
-            self.badge.hide()
-            self.btn.setText("Switch to this branch")
-            self.btn.setStyleSheet(
-                f"background: {self.color}; color: #1e1e2e;"
-            )
-            self.btn.setEnabled(True)
-
-    def mark_active(self, active: bool):
-        self._refresh_state(active)
-
-    def set_switching(self, busy: bool):
-        if busy:
-            self.btn.setEnabled(False)
-            self.btn.setText("Switching…")
-            self.btn.setStyleSheet("background: #2a2e42; color: #565f89;")
-        else:
-            self._refresh_state(self._active)
-
-    @staticmethod
-    def _hex_to_rgb(hex_color: str) -> str:
-        h = hex_color.lstrip("#")
-        r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
-        return f"{r},{g},{b}"
-
-
-# ── Welcome page ───────────────────────────────────────────────────────────────
-class WelcomePage(QWidget):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setObjectName("content")
-
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-
-        inner = QWidget()
-        inner.setObjectName("content")
-        vbox = QVBoxLayout(inner)
-        vbox.setContentsMargins(36, 36, 36, 36)
-        vbox.setSpacing(0)
-
-        # ── Hero ──────────────────────────────────────────────────────────────
-        title = QLabel("Welcome to Kyth")
-        title.setObjectName("welcome-title")
-        vbox.addWidget(title)
-
-        vbox.addSpacing(5)
-
-        subtitle = QLabel("ATOMIC GAMING WORKSTATION")
-        subtitle.setObjectName("welcome-subtitle")
-        vbox.addWidget(subtitle)
-
-        vbox.addSpacing(18)
-
-        body = QLabel(
-            "Kyth is built on Fedora Kinoite with image-based updates via bootc — "
-            "reliable, rollback-safe, and always up to date."
-        )
-        body.setObjectName("welcome-body")
-        body.setWordWrap(True)
-        vbox.addWidget(body)
-
-        vbox.addSpacing(32)
-        vbox.addWidget(_sep())
-
-        # ── Quick links ───────────────────────────────────────────────────────
-        sec = QLabel("LINKS")
-        sec.setObjectName("section-header")
-        vbox.addWidget(sec)
-
-        link_row = QHBoxLayout()
-        link_row.setSpacing(8)
-        for label, url in LINKS:
-            btn = QPushButton(label)
-            btn.setObjectName("btn-ghost")
-            btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-            btn.clicked.connect(lambda _, u=url: QDesktopServices.openUrl(QUrl(u)))
-            link_row.addWidget(btn)
-        link_row.addStretch()
-        vbox.addLayout(link_row)
-
-        vbox.addSpacing(32)
-        vbox.addWidget(_sep())
-
-        # ── System info ───────────────────────────────────────────────────────
-        sec2 = QLabel("SYSTEM")
-        sec2.setObjectName("section-header")
-        vbox.addWidget(sec2)
-
-        status = _bootc_status()
-        ref    = _current_ref(status)
-        tag    = _current_tag(ref)
-
-        info_card = QFrame()
-        info_card.setObjectName("card")
-        card_layout = QVBoxLayout(info_card)
-        card_layout.setContentsMargins(18, 14, 18, 14)
-        card_layout.setSpacing(10)
-
-        def _info_row(key, val_widget):
-            row = QHBoxLayout()
-            k = QLabel(key)
-            k.setObjectName("info-key")
-            k.setFixedWidth(52)
-            row.addWidget(k)
-            row.addWidget(val_widget)
-            row.addStretch()
-            card_layout.addLayout(row)
-
-        if ref:
-            colon_idx = ref.rfind(":")
-            registry  = ref[:colon_idx] if colon_idx != -1 else ref
-            img_tag   = ref[colon_idx:] if colon_idx != -1 else ""
-            img_lbl   = QLabel(
-                f'<span style="color:#2e3354">{registry}</span>'
-                f'<span style="color:#7aa2f7;font-weight:700">{img_tag}</span>'
-            )
-            img_lbl.setTextFormat(Qt.TextFormat.RichText)
-        else:
-            img_lbl = QLabel("Not available (live session?)")
-            img_lbl.setObjectName("info-key")
-        _info_row("Image", img_lbl)
-
-        branch_lbl = QLabel(tag or "—")
-        branch_lbl.setObjectName("info-val")
-        if tag:
-            color = "#9ece6a" if tag == "latest" else "#e0af68"
-            branch_lbl.setStyleSheet(f"color: {color}; font-weight: 700;")
-        _info_row("Branch", branch_lbl)
-
-        vbox.addWidget(info_card)
-        vbox.addStretch()
-        scroll.setWidget(inner)
-
-        root = QVBoxLayout(self)
-        root.setContentsMargins(0, 0, 0, 0)
-        root.addWidget(scroll)
-
-
-# Stage labels inferred from bootc output keywords (checked in order)
-_STAGE_PATTERNS = [
-    (["resolving", "resolve"],                        "Resolving image…"),
-    (["manifest", "fetching manifest"],               "Fetching manifest…"),
-    (["pulling", "fetching", "fetch", "layer", "blob",
-      "downloading", "download"],                     "Pulling image layers…"),
-    (["writing", "unpacking", "unpack", "extracting"],"Writing layers to disk…"),
-    (["staging", "stage", "deploying", "deploy"],     "Staging deployment…"),
-    (["queued", "next boot", "complete", "done"],     "Finalising…"),
-]
-
-def _infer_stage(line: str) -> str | None:
-    low = line.lower()
-    for keywords, label in _STAGE_PATTERNS:
-        if any(kw in low for kw in keywords):
-            return label
-    return None
-
-
-# ── Branches page ──────────────────────────────────────────────────────────────
-class BranchPage(QWidget):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setObjectName("content")
-        self._worker: BootcWorker | None = None
-        self._dot_timer = QTimer(self)
-        self._dot_timer.setInterval(500)
-        self._dot_timer.timeout.connect(self._tick_dots)
-        self._dot_count = 0
-        self._stage_text = ""
-
-        root = QVBoxLayout(self)
-        root.setContentsMargins(32, 28, 32, 28)
-        root.setSpacing(0)
-
-        # Title
-        title = QLabel("Image Branch")
-        title.setObjectName("page-title")
-        root.addWidget(title)
-
-        self.lbl_current = QLabel()
-        self.lbl_current.setObjectName("page-sub")
-        root.addWidget(self.lbl_current)
-
-        root.addSpacing(6)
-        root.addWidget(_sep())
-
-        # Cards row
-        card_row = QHBoxLayout()
-        card_row.setSpacing(16)
-        self.cards: dict[str, BranchCard] = {}
-        for branch in BRANCHES:
-            card = BranchCard(branch)
-            card.switch_requested.connect(self._on_switch)
-            card_row.addWidget(card)
-            self.cards[branch["tag"]] = card
-        card_row.addStretch()
-        root.addLayout(card_row)
-
-        root.addSpacing(16)
-
-        # Note about reboot
-        note = QLabel(
-            "⚠  A reboot is required for the branch change to take effect."
-        )
-        note.setStyleSheet("color: #e0af68; font-size: 12px;")
-        root.addWidget(note)
-
-        root.addSpacing(12)
-
-        # ── Status area (hidden while idle) ───────────────────────────────────
-        self._status_widget = QWidget()
-        status_layout = QVBoxLayout(self._status_widget)
-        status_layout.setContentsMargins(0, 0, 0, 0)
-        status_layout.setSpacing(6)
-
-        stage_row = QHBoxLayout()
-        stage_row.setSpacing(10)
-
-        self._lbl_stage = QLabel("Preparing…")
-        self._lbl_stage.setStyleSheet("color: #7aa2f7; font-size: 12px; font-weight: 600;")
-        stage_row.addWidget(self._lbl_stage)
-        stage_row.addStretch()
-        status_layout.addLayout(stage_row)
-
-        self._progress = QProgressBar()
-        self._progress.setObjectName("switch-progress")
-        self._progress.setRange(0, 0)   # indeterminate / busy
-        self._progress.setFixedHeight(6)
-        self._progress.setTextVisible(False)
-        status_layout.addWidget(self._progress)
-
-        self._status_widget.hide()
-        root.addWidget(self._status_widget)
-
-        root.addSpacing(12)
-
-        # Output log
-        self.log = QTextEdit()
-        self.log.setObjectName("log")
-        self.log.setReadOnly(True)
-        self.log.setPlaceholderText("Output will appear here when switching branches…")
-        self.log.setMinimumHeight(160)
-        root.addWidget(self.log)
-
-        root.addStretch()
-
-        self._refresh_status()
-
-    # ── helpers ───────────────────────────────────────────────────────────────
-
-    def _set_stage(self, text: str):
-        self._stage_text = text
-        self._dot_count  = 0
-        self._lbl_stage.setText(text)
-
-    def _tick_dots(self):
-        self._dot_count = (self._dot_count + 1) % 4
-        dots = "." * self._dot_count
-        # strip any trailing dots from the base label then re-add
-        base = self._stage_text.rstrip(".")
-        self._lbl_stage.setText(base + dots)
-
-    def _refresh_status(self):
-        status = _bootc_status()
-        ref    = _current_ref(status)
-        tag    = _current_tag(ref)
-
-        if ref:
-            self.lbl_current.setText(f"Current image: {ref}")
-        else:
-            self.lbl_current.setText("Current image: not available (live session?)")
-
-        for t, card in self.cards.items():
-            card.mark_active(t == tag)
-
-    # ── switch flow ───────────────────────────────────────────────────────────
-
-    def _on_switch(self, tag: str):
-        ref = f"{REGISTRY}:{tag}"
-        self.log.clear()
-        self.log.append(f"→ sudo bootc switch {ref}\n")
-
-        self._set_stage("Connecting to registry…")
-        self._status_widget.show()
-        self._dot_timer.start()
-
-        for card in self.cards.values():
-            card.set_switching(True)
-
-        self._worker = BootcWorker(["sudo", "bootc", "switch", ref])
-        self._worker.line.connect(self._on_line)
-        self._worker.done.connect(self._on_done)
-        self._worker.start()
-
-    def _on_line(self, text: str):
-        self.log.append(text)
-        self.log.ensureCursorVisible()
-        stage = _infer_stage(text)
-        if stage:
-            self._set_stage(stage)
-
-    def _on_done(self, code: int):
-        self._dot_timer.stop()
-
-        if code == 0:
-            self._set_stage("Done — reboot to apply")
-            self._lbl_stage.setStyleSheet(
-                "color: #9ece6a; font-size: 12px; font-weight: 600;"
-            )
-            self._progress.setRange(0, 1)
-            self._progress.setValue(1)
-            self.log.append(
-                "\n✓ Switch staged successfully.  "
-                "Reboot to boot into the new branch."
-            )
-        else:
-            self._set_stage("Switch failed")
-            self._lbl_stage.setStyleSheet(
-                "color: #f7768e; font-size: 12px; font-weight: 600;"
-            )
-            self._progress.setRange(0, 1)
-            self._progress.setValue(0)
-            self.log.append(f"\n✗ bootc switch exited with code {code}.")
-
-        for card in self.cards.values():
-            card.set_switching(False)
-
-        self._refresh_status()
+# ── Tab: Branches ──────────────────────────────────────────────────────────────
+class BranchesTab(QWidget):
+    def __init__(self):
+        super().__init__()
         self._worker = None
 
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(40, 36, 40, 36)
+        layout.setSpacing(16)
 
-# ── Update page ─────────────────────────────────────────────────────────────────
-class UpdatePage(QWidget):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setObjectName("content")
-        self._worker: BootcWorker | None = None
-        self._dot_timer = QTimer(self)
-        self._dot_timer.setInterval(500)
-        self._dot_timer.timeout.connect(self._tick_dots)
-        self._dot_count = 0
-        self._stage_text = ""
+        title = QLabel("Switch Branch")
+        title.setObjectName("heading")
+        layout.addWidget(title)
 
-        root = QVBoxLayout(self)
-        root.setContentsMargins(32, 28, 32, 28)
-        root.setSpacing(0)
+        sub = QLabel("Choose which image stream this system follows.")
+        sub.setObjectName("subheading")
+        layout.addWidget(sub)
 
-        title = QLabel("System Update")
-        title.setObjectName("page-title")
-        root.addWidget(title)
+        layout.addWidget(_divider())
 
-        self._lbl_current = QLabel()
-        self._lbl_current.setObjectName("page-sub")
-        root.addWidget(self._lbl_current)
+        # Current branch label
+        self._current_lbl = QLabel()
+        self._current_lbl.setObjectName("subheading")
+        layout.addWidget(self._current_lbl)
 
-        root.addSpacing(6)
-        root.addWidget(_sep())
-
-        # Update button row
+        # Branch buttons
         btn_row = QHBoxLayout()
-        self._btn_update = QPushButton("Update Now")
-        self._btn_update.setObjectName("btn-primary")
-        self._btn_update.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        self._btn_update.clicked.connect(self._on_update)
-        btn_row.addWidget(self._btn_update)
+        btn_row.setSpacing(12)
 
-        self._btn_reboot = QPushButton("Reboot to Apply")
-        self._btn_reboot.setObjectName("btn-ghost")
-        self._btn_reboot.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        self._btn_reboot.clicked.connect(
-            lambda: subprocess.Popen(["sudo", "systemctl", "reboot"])
-        )
-        self._btn_reboot.hide()
-        btn_row.addWidget(self._btn_reboot)
+        self._stable_btn = QPushButton("Stable  (latest)")
+        self._stable_btn.setFixedHeight(48)
+        self._stable_btn.clicked.connect(lambda: self._switch("latest"))
 
+        self._testing_btn = QPushButton("Testing")
+        self._testing_btn.setFixedHeight(48)
+        self._testing_btn.clicked.connect(lambda: self._switch("testing"))
+
+        btn_row.addWidget(self._stable_btn)
+        btn_row.addWidget(self._testing_btn)
         btn_row.addStretch()
-        root.addLayout(btn_row)
+        layout.addLayout(btn_row)
 
-        root.addSpacing(16)
+        # Branch descriptions
+        desc_row = QHBoxLayout()
+        desc_row.setSpacing(12)
+        stable_desc = QLabel("Thoroughly tested updates.\nRecommended for most users.")
+        stable_desc.setObjectName("subheading")
+        stable_desc.setFixedWidth(self._stable_btn.sizeHint().width())
+        stable_desc.setWordWrap(True)
+        testing_desc = QLabel("Latest features and changes.\nMay occasionally be unstable.")
+        testing_desc.setObjectName("subheading")
+        testing_desc.setWordWrap(True)
+        desc_row.addWidget(stable_desc)
+        desc_row.addWidget(testing_desc)
+        desc_row.addStretch()
+        layout.addLayout(desc_row)
 
-        # Status area
-        self._status_widget = QWidget()
-        status_layout = QVBoxLayout(self._status_widget)
-        status_layout.setContentsMargins(0, 0, 0, 0)
-        status_layout.setSpacing(6)
+        layout.addWidget(_divider())
 
-        self._lbl_stage = QLabel()
-        self._lbl_stage.setStyleSheet(
-            "color: #7aa2f7; font-size: 12px; font-weight: 600;"
-        )
-        status_layout.addWidget(self._lbl_stage)
+        # Status + progress
+        self._status_lbl = QLabel()
+        self._status_lbl.hide()
+        layout.addWidget(self._status_lbl)
 
         self._progress = QProgressBar()
-        self._progress.setObjectName("switch-progress")
         self._progress.setRange(0, 0)
-        self._progress.setFixedHeight(6)
-        self._progress.setTextVisible(False)
-        status_layout.addWidget(self._progress)
-
-        self._status_widget.hide()
-        root.addWidget(self._status_widget)
-
-        root.addSpacing(12)
+        self._progress.hide()
+        layout.addWidget(self._progress)
 
         self._log = QTextEdit()
-        self._log.setObjectName("log")
         self._log.setReadOnly(True)
-        self._log.setPlaceholderText("Output will appear here when updating…")
-        self._log.setMinimumHeight(200)
-        root.addWidget(self._log)
+        self._log.setMinimumHeight(120)
+        self._log.hide()
+        layout.addWidget(self._log)
 
-        root.addStretch()
+        # Reboot button
+        self._reboot_btn = QPushButton("Reboot to Apply")
+        self._reboot_btn.setObjectName("primary")
+        self._reboot_btn.hide()
+        self._reboot_btn.clicked.connect(
+            lambda: subprocess.Popen(["systemctl", "reboot"])
+        )
+        layout.addWidget(self._reboot_btn)
+
+        layout.addStretch()
+
         self._refresh_current()
 
     def _refresh_current(self):
-        status = _bootc_status()
-        ref    = _current_ref(status)
-        if ref:
-            self._lbl_current.setText(f"Current image: {ref}")
+        tag = _current_branch()
+        if tag == "latest":
+            self._current_lbl.setText(f"Currently on: {_branch_display_name(tag)}")
+            self._stable_btn.setText("Stable  (latest)  [Current]")
+            self._testing_btn.setText("Testing")
+            self._stable_btn.setObjectName("branch-active")
+            self._testing_btn.setObjectName("branch-inactive")
+        elif tag == "testing":
+            self._current_lbl.setText(f"Currently on: {_branch_display_name(tag)}")
+            self._stable_btn.setText("Stable  (latest)")
+            self._testing_btn.setText("Testing  [Current]")
+            self._stable_btn.setObjectName("branch-inactive")
+            self._testing_btn.setObjectName("branch-active")
         else:
-            self._lbl_current.setText("Current image: not available (live session?)")
+            self._current_lbl.setText(f"Currently on: {_branch_display_name(tag)}")
+            self._stable_btn.setText("Stable  (latest)")
+            self._testing_btn.setText("Testing")
+            self._stable_btn.setObjectName("branch-inactive")
+            self._testing_btn.setObjectName("branch-inactive")
+        self._stable_btn.style().unpolish(self._stable_btn)
+        self._stable_btn.style().polish(self._stable_btn)
+        self._testing_btn.style().unpolish(self._testing_btn)
+        self._testing_btn.style().polish(self._testing_btn)
 
-    def _set_stage(self, text: str):
-        self._stage_text = text
-        self._dot_count  = 0
-        self._lbl_stage.setText(text)
-
-    def _tick_dots(self):
-        self._dot_count = (self._dot_count + 1) % 4
-        base = self._stage_text.rstrip(".")
-        self._lbl_stage.setText(base + "." * self._dot_count)
-
-    def _on_update(self):
+    def _switch(self, tag: str):
+        ref = f"{REGISTRY}:{tag}"
         self._log.clear()
-        self._log.append("→ sudo bootc upgrade\n")
-        self._btn_update.setEnabled(False)
-        self._btn_reboot.hide()
-        self._set_stage("Connecting to registry…")
-        self._status_widget.show()
-        self._dot_timer.start()
+        self._log.append(f"→ bootc switch {ref}\n")
+        self._log.show()
+        self._progress.setRange(0, 0)
+        self._progress.show()
+        self._status_lbl.setText("Switching branch…")
+        self._status_lbl.setObjectName("subheading")
+        self._status_lbl.show()
+        self._reboot_btn.hide()
+        self._stable_btn.setEnabled(False)
+        self._testing_btn.setEnabled(False)
 
-        self._worker = BootcWorker(["sudo", "bootc", "upgrade"])
+        self._worker = Worker(
+            _with_idle_inhibit(
+                ["sudo", "bootc", "switch", ref],
+                "Kyth helper is switching the system branch",
+            )
+        )
+        _set_session_inhibit(self, "Kyth is switching the system branch")
         self._worker.line.connect(self._on_line)
         self._worker.done.connect(self._on_done)
         self._worker.start()
@@ -886,144 +1456,793 @@ class UpdatePage(QWidget):
     def _on_line(self, text: str):
         self._log.append(text)
         self._log.ensureCursorVisible()
-        stage = _infer_stage(text)
-        if stage:
-            self._set_stage(stage)
 
     def _on_done(self, code: int):
-        self._dot_timer.stop()
-        self._btn_update.setEnabled(True)
+        self._progress.hide()
+        self._stable_btn.setEnabled(True)
+        self._testing_btn.setEnabled(True)
+        _finish_worker(self)
+        _set_session_inhibit(self, None)
 
         if code == 0:
-            self._set_stage("Done — reboot to apply")
-            self._lbl_stage.setStyleSheet(
-                "color: #9ece6a; font-size: 12px; font-weight: 600;"
-            )
-            self._progress.setRange(0, 1)
-            self._progress.setValue(1)
-            self._log.append(
-                "\n✓ Update staged successfully.  Reboot to boot into the new image."
-            )
-            self._btn_reboot.show()
+            self._status_lbl.setText("Branch staged — reboot to apply.")
+            self._status_lbl.setObjectName("status-ok")
+            self._log.append("\nDone. Reboot to boot into the new branch.")
+            self._reboot_btn.show()
         else:
-            self._set_stage("Update failed")
-            self._lbl_stage.setStyleSheet(
-                "color: #f7768e; font-size: 12px; font-weight: 600;"
-            )
-            self._progress.setRange(0, 1)
-            self._progress.setValue(0)
-            self._log.append(f"\n✗ bootc upgrade exited with code {code}.")
+            self._status_lbl.setText(f"Switch failed (exit code {code}).")
+            self._status_lbl.setObjectName("status-err")
 
+        self._status_lbl.style().unpolish(self._status_lbl)
+        self._status_lbl.style().polish(self._status_lbl)
         self._refresh_current()
+
+
+# ── Tab: Update ────────────────────────────────────────────────────────────────
+class UpdateTab(QWidget):
+    def __init__(self):
+        super().__init__()
         self._worker = None
+        self._mode = "update"
+        self._last_update_output = 0.0
+        self._heartbeat = QTimer(self)
+        self._heartbeat.setInterval(15000)
+        self._heartbeat.timeout.connect(self._emit_update_heartbeat)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(40, 36, 40, 36)
+        layout.setSpacing(16)
+
+        title = QLabel("System Update")
+        title.setObjectName("heading")
+        layout.addWidget(title)
+
+        sub = QLabel(
+            "Download the next Kyth system image safely, reboot into it when you are ready, "
+            "and roll back if the new deployment does not behave the way you expect."
+        )
+        sub.setObjectName("subheading")
+        sub.setWordWrap(True)
+        layout.addWidget(sub)
+
+        layout.addWidget(_divider())
+
+        explainer = QFrame()
+        explainer.setObjectName("card")
+        explainer_layout = QVBoxLayout(explainer)
+        explainer_layout.setContentsMargins(16, 14, 16, 14)
+        explainer_layout.setSpacing(10)
+
+        explainer_title = QLabel("How Kyth updates work")
+        explainer_title.setObjectName("card-title")
+        explainer_layout.addWidget(explainer_title)
+
+        explainer_body = QLabel(
+            "1. Download the next system image.\n"
+            "2. Keep using your current session normally.\n"
+            "3. Reboot when you want to switch over.\n"
+            "4. If the new deployment causes trouble, use Roll Back to boot the previous one."
+        )
+        explainer_body.setObjectName("card-copy")
+        explainer_body.setWordWrap(True)
+        explainer_layout.addWidget(explainer_body)
+        layout.addWidget(explainer)
+
+        btn_row = QHBoxLayout()
+        self._update_btn = QPushButton("Download Next Update")
+        self._update_btn.setObjectName("primary")
+        self._update_btn.clicked.connect(self._run_update)
+        btn_row.addWidget(self._update_btn)
+
+        self._rollback_btn = QPushButton("Roll Back to Previous Boot")
+        self._rollback_btn.clicked.connect(self._run_rollback)
+        btn_row.addWidget(self._rollback_btn)
+        btn_row.addStretch()
+        layout.addLayout(btn_row)
+
+        self._summary_lbl = QLabel()
+        self._summary_lbl.setObjectName("card-copy")
+        self._summary_lbl.setWordWrap(True)
+        layout.addWidget(self._summary_lbl)
+
+        self._status_lbl = QLabel()
+        self._status_lbl.hide()
+        layout.addWidget(self._status_lbl)
+
+        self._activity_lbl = QLabel()
+        self._activity_lbl.setObjectName("card-copy")
+        self._activity_lbl.setWordWrap(True)
+        self._activity_lbl.hide()
+        layout.addWidget(self._activity_lbl)
+
+        self._progress = QProgressBar()
+        self._progress.setRange(0, 0)
+        self._progress.hide()
+        layout.addWidget(self._progress)
+
+        self._log = QTextEdit()
+        self._log.setReadOnly(True)
+        self._log.setMinimumHeight(160)
+        self._log.hide()
+        layout.addWidget(self._log)
+
+        self._reboot_btn = QPushButton("Reboot to Apply")
+        self._reboot_btn.setObjectName("primary")
+        self._reboot_btn.hide()
+        self._reboot_btn.clicked.connect(
+            lambda: subprocess.Popen(["systemctl", "reboot"])
+        )
+        layout.addWidget(self._reboot_btn)
+
+        recovery = QFrame()
+        recovery.setObjectName("card")
+        recovery_layout = QVBoxLayout(recovery)
+        recovery_layout.setContentsMargins(16, 14, 16, 14)
+        recovery_layout.setSpacing(10)
+
+        recovery_title = QLabel("Recovery and personal files")
+        recovery_title.setObjectName("card-title")
+        recovery_layout.addWidget(recovery_title)
+
+        recovery_body = QLabel(
+            "Rolling back switches the system deployment you boot into. It does not delete files in /home. "
+            "A full refresh in the Repair tab resets the OS to defaults while still leaving /home in place."
+        )
+        recovery_body.setObjectName("card-copy")
+        recovery_body.setWordWrap(True)
+        recovery_layout.addWidget(recovery_body)
+        layout.addWidget(recovery)
+
+        layout.addStretch()
+        self._refresh_summary()
+
+    def _run_update(self):
+        self._mode = "update"
+        self._last_update_output = time.monotonic()
+        self._log.clear()
+        self._log.append("→ bootc upgrade\n")
+        self._log.append("bootc keeps the system image lock while this runs, so manual bootc commands will be blocked until it finishes.\n")
+        self._log.show()
+        self._progress.setRange(0, 0)
+        self._progress.show()
+        self._status_lbl.setText("Downloading the next Kyth system update…")
+        self._status_lbl.setObjectName("subheading")
+        self._status_lbl.show()
+        self._reboot_btn.hide()
+        self._update_btn.setEnabled(False)
+        self._rollback_btn.setEnabled(False)
+
+        self._worker = Worker(
+            _with_idle_inhibit(
+                ["sudo", "bootc", "upgrade"],
+                "Kyth helper is downloading a system update",
+            )
+        )
+        _set_session_inhibit(self, "Kyth is downloading a system update")
+        self._worker.line.connect(self._on_line)
+        self._worker.done.connect(self._on_done)
+        self._worker.start()
+        self._update_activity_indicator()
+        self._heartbeat.start()
+
+    def _run_rollback(self):
+        self._mode = "rollback"
+        self._log.clear()
+        self._log.append("→ bootc rollback\n")
+        self._log.show()
+        self._progress.setRange(0, 0)
+        self._progress.show()
+        self._status_lbl.setText("Preparing the previous deployment for your next boot…")
+        self._status_lbl.setObjectName("subheading")
+        self._status_lbl.show()
+        self._reboot_btn.hide()
+        self._update_btn.setEnabled(False)
+        self._rollback_btn.setEnabled(False)
+
+        self._worker = Worker(
+            _with_idle_inhibit(
+                ["sudo", "bootc", "rollback"],
+                "Kyth helper is preparing a system rollback",
+            )
+        )
+        _set_session_inhibit(self, "Kyth is preparing a system rollback")
+        self._worker.line.connect(self._on_line)
+        self._worker.done.connect(self._on_done)
+        self._worker.start()
+        self._update_activity_indicator()
+
+    def _refresh_summary(self):
+        branch = _branch_display_name(_current_branch())
+        staged = _has_staged_update()
+        rollback = _has_rollback_deployment()
+        if staged:
+            summary = (
+                f"You are on the {branch} branch. A new deployment is already downloaded and ready for your next reboot."
+            )
+        else:
+            summary = (
+                f"You are on the {branch} branch. No new deployment is staged right now."
+            )
+        if rollback:
+            summary += " A previous deployment appears to be available if you need to roll back."
+        else:
+            summary += " A rollback target was not detected yet."
+        self._summary_lbl.setText(summary)
+        self._rollback_btn.setEnabled(rollback and self._worker is None)
+        self._update_activity_indicator()
+
+    def _on_line(self, text: str):
+        self._last_update_output = time.monotonic()
+        self._log.append(text)
+        self._log.ensureCursorVisible()
+        self._update_activity_indicator()
+
+    def _update_activity_indicator(self):
+        active = _active_bootc_operation()
+        if active:
+            self._activity_lbl.setText(
+                "Active bootc operation detected. Manual bootc commands will stay locked until it finishes.\n"
+                f"Process: {active}"
+            )
+            self._activity_lbl.show()
+        else:
+            self._activity_lbl.hide()
+
+    def _emit_update_heartbeat(self):
+        if self._worker is None or self._mode != "update":
+            self._heartbeat.stop()
+            self._update_activity_indicator()
+            return
+        quiet_for = int(time.monotonic() - self._last_update_output)
+        self._update_activity_indicator()
+        if quiet_for < 15:
+            return
+        self._log.append(
+            f"Still running after {quiet_for}s without new output. This can be normal while bootc is pulling/verifying layers, and the system image lock will remain held until it finishes."
+        )
+        self._log.ensureCursorVisible()
+
+    def _on_done(self, code: int):
+        self._heartbeat.stop()
+        self._progress.hide()
+        self._update_btn.setEnabled(True)
+        self._rollback_btn.setEnabled(True)
+        _finish_worker(self)
+        _set_session_inhibit(self, None)
+        self._update_activity_indicator()
+
+        if code == 0:
+            if self._mode == "rollback":
+                self._status_lbl.setText("Rollback ready — reboot to return to the previous deployment.")
+                self._status_lbl.setObjectName("status-warn")
+                self._log.append("\nDone. Reboot when you are ready to go back to the previous system image.")
+                self._reboot_btn.show()
+            else:
+                if _has_staged_update():
+                    self._status_lbl.setText("Update ready — reboot whenever you want to start using it.")
+                    self._status_lbl.setObjectName("status-ok")
+                    self._log.append("\nDone. Your next system image is downloaded and waiting for the next reboot.")
+                    self._reboot_btn.show()
+                else:
+                    self._status_lbl.setText("You are already on the newest available deployment.")
+                    self._status_lbl.setObjectName("status-ok")
+                    self._log.append("\nNo update was staged because this system is already current.")
+        else:
+            if self._mode == "rollback":
+                self._status_lbl.setText(f"Rollback failed (exit code {code}).")
+            else:
+                self._status_lbl.setText(f"Update failed (exit code {code}).")
+            self._status_lbl.setObjectName("status-err")
+
+        self._status_lbl.style().unpolish(self._status_lbl)
+        self._status_lbl.style().polish(self._status_lbl)
+        self._refresh_summary()
+
+
+# ── Tab: Firmware Updates ─────────────────────────────────────────────────────
+class FirmwareTab(QWidget):
+    def __init__(self):
+        super().__init__()
+        self._worker = None
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(40, 36, 40, 36)
+        layout.setSpacing(16)
+
+        title = QLabel("Firmware Updates")
+        title.setObjectName("heading")
+        layout.addWidget(title)
+
+        sub = QLabel("Check for and install firmware updates via fwupd.")
+        sub.setObjectName("subheading")
+        layout.addWidget(sub)
+
+        layout.addWidget(_divider())
+
+        btn_row = QHBoxLayout()
+        self._check_btn = QPushButton("Check for Updates")
+        self._check_btn.clicked.connect(self._run_check)
+        self._update_btn = QPushButton("Apply Updates")
+        self._update_btn.setObjectName("primary")
+        self._update_btn.setEnabled(False)
+        self._update_btn.clicked.connect(self._run_update)
+        btn_row.addWidget(self._check_btn)
+        btn_row.addWidget(self._update_btn)
+        btn_row.addStretch()
+        layout.addLayout(btn_row)
+
+        self._status_lbl = QLabel()
+        self._status_lbl.hide()
+        layout.addWidget(self._status_lbl)
+
+        self._progress = QProgressBar()
+        self._progress.setRange(0, 0)
+        self._progress.hide()
+        layout.addWidget(self._progress)
+
+        self._log = QTextEdit()
+        self._log.setReadOnly(True)
+        self._log.setMinimumHeight(160)
+        self._log.hide()
+        layout.addWidget(self._log)
+
+        layout.addStretch()
+
+        note = QLabel("A reboot may be required after applying firmware updates.")
+        note.setObjectName("subheading")
+        note.setWordWrap(True)
+        layout.addWidget(note)
+
+    def _run_check(self):
+        self._log.clear()
+        self._log.append("→ fwupdmgr refresh\n")
+        self._log.show()
+        self._progress.setRange(0, 0)
+        self._progress.show()
+        self._status_lbl.setText("Refreshing firmware metadata…")
+        self._status_lbl.setObjectName("subheading")
+        self._status_lbl.show()
+        self._check_btn.setEnabled(False)
+        self._update_btn.setEnabled(False)
+
+        self._worker = Worker(["fwupdmgr", "refresh", "--force"])
+        _set_session_inhibit(self, "Kyth is checking for firmware updates")
+        self._worker.line.connect(self._on_line)
+        self._worker.done.connect(self._on_check_done)
+        self._worker.start()
+
+    def _on_check_done(self, code: int):
+        self._progress.hide()
+        self._check_btn.setEnabled(True)
+        _finish_worker(self)
+
+        if code == 0:
+            self._log.append("\n→ fwupdmgr get-updates\n")
+            self._progress.setRange(0, 0)
+            self._progress.show()
+            self._status_lbl.setText("Checking for updates…")
+            self._worker = Worker(["fwupdmgr", "get-updates"])
+            self._worker.line.connect(self._on_line)
+            self._worker.done.connect(self._on_get_updates_done)
+            self._worker.start()
+        else:
+            _set_session_inhibit(self, None)
+            self._status_lbl.setText("Failed to refresh firmware metadata.")
+            self._status_lbl.setObjectName("status-err")
+            self._status_lbl.style().unpolish(self._status_lbl)
+            self._status_lbl.style().polish(self._status_lbl)
+
+    def _on_get_updates_done(self, code: int):
+        self._progress.hide()
+        _finish_worker(self)
+        _set_session_inhibit(self, None)
+        # fwupdmgr get-updates exits 2 when no updates are available
+        if code == 0:
+            self._status_lbl.setText("Updates available.")
+            self._status_lbl.setObjectName("status-warn")
+            self._update_btn.setEnabled(True)
+        elif code == 2:
+            self._status_lbl.setText("Firmware is up to date.")
+            self._status_lbl.setObjectName("status-ok")
+        else:
+            self._status_lbl.setText("Could not retrieve update list.")
+            self._status_lbl.setObjectName("status-err")
+
+        self._status_lbl.style().unpolish(self._status_lbl)
+        self._status_lbl.style().polish(self._status_lbl)
+
+    def _run_update(self):
+        self._log.append("\n→ fwupdmgr update\n")
+        self._progress.setRange(0, 0)
+        self._progress.show()
+        self._status_lbl.setText("Applying firmware updates…")
+        self._status_lbl.setObjectName("subheading")
+        self._status_lbl.style().unpolish(self._status_lbl)
+        self._status_lbl.style().polish(self._status_lbl)
+        self._update_btn.setEnabled(False)
+        self._check_btn.setEnabled(False)
+
+        self._worker = Worker(["fwupdmgr", "update"])
+        _set_session_inhibit(self, "Kyth is applying firmware updates")
+        self._worker.line.connect(self._on_line)
+        self._worker.done.connect(self._on_update_done)
+        self._worker.start()
+
+    def _on_update_done(self, code: int):
+        self._progress.hide()
+        self._check_btn.setEnabled(True)
+        _finish_worker(self)
+        _set_session_inhibit(self, None)
+
+        if code == 0:
+            self._status_lbl.setText("Firmware updated successfully.")
+            self._status_lbl.setObjectName("status-ok")
+            self._log.append("\nDone. A reboot may be required.")
+        else:
+            self._status_lbl.setText(f"Update failed (exit code {code}).")
+            self._status_lbl.setObjectName("status-err")
+
+        self._status_lbl.style().unpolish(self._status_lbl)
+        self._status_lbl.style().polish(self._status_lbl)
+
+    def _on_line(self, text: str):
+        self._log.append(text)
+        self._log.ensureCursorVisible()
+
+
+# ── Tab: NVIDIA Drivers ────────────────────────────────────────────────────────
+class NvidiaTab(QWidget):
+    def __init__(self):
+        super().__init__()
+        self._worker = None
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(40, 36, 40, 36)
+        layout.setSpacing(16)
+
+        title = QLabel("NVIDIA Drivers")
+        title.setObjectName("heading")
+        layout.addWidget(title)
+
+        self._sub = QLabel()
+        self._sub.setObjectName("subheading")
+        layout.addWidget(self._sub)
+
+        layout.addWidget(_divider())
+
+        self._status_lbl = QLabel()
+        layout.addWidget(self._status_lbl)
+
+        btn_row = QHBoxLayout()
+        self._install_btn = QPushButton("Install NVIDIA Drivers")
+        self._install_btn.setObjectName("primary")
+        self._install_btn.clicked.connect(self._run_install)
+        btn_row.addWidget(self._install_btn)
+        btn_row.addStretch()
+        layout.addLayout(btn_row)
+
+        self._progress = QProgressBar()
+        self._progress.setRange(0, 0)
+        self._progress.hide()
+        layout.addWidget(self._progress)
+
+        self._log = QTextEdit()
+        self._log.setReadOnly(True)
+        self._log.setMinimumHeight(160)
+        self._log.hide()
+        layout.addWidget(self._log)
+
+        self._reboot_btn = QPushButton("Reboot to Apply")
+        self._reboot_btn.setObjectName("primary")
+        self._reboot_btn.hide()
+        self._reboot_btn.clicked.connect(
+            lambda: subprocess.Popen(["systemctl", "reboot"])
+        )
+        layout.addWidget(self._reboot_btn)
+
+        layout.addStretch()
+
+        self._refresh_status()
+
+    def _refresh_status(self):
+        has_gpu = _detect_nvidia()
+        loaded = _nvidia_module_loaded()
+        built = _akmod_nvidia_built()
+
+        if not has_gpu:
+            self._sub.setText("No NVIDIA GPU detected in this system.")
+            self._status_lbl.setText("No NVIDIA hardware found.")
+            self._status_lbl.setObjectName("status-dim")
+            self._install_btn.hide()
+        elif loaded:
+            self._sub.setText("NVIDIA GPU detected.")
+            self._status_lbl.setText("Drivers are active and loaded.")
+            self._status_lbl.setObjectName("status-ok")
+            self._install_btn.hide()
+        elif built:
+            self._sub.setText("NVIDIA GPU detected.")
+            self._status_lbl.setText("Drivers installed — reboot to activate.")
+            self._status_lbl.setObjectName("status-warn")
+            self._install_btn.hide()
+            self._reboot_btn.show()
+        else:
+            self._sub.setText("NVIDIA GPU detected — drivers not installed.")
+            self._status_lbl.setText(
+                "Click below to compile and install the NVIDIA kernel module."
+            )
+            self._status_lbl.setObjectName("subheading")
+            self._install_btn.show()
+
+        for w in (self._sub, self._status_lbl):
+            w.style().unpolish(w)
+            w.style().polish(w)
+
+    def _run_install(self):
+        kargs = (
+            "rd.driver.blacklist=nouveau,nova_core "
+            "modprobe.blacklist=nouveau,nova_core "
+            "nvidia-drm.modeset=1"
+        )
+        cmd = [
+            "sudo", "bash", "-c",
+            f"grubby --update-kernel=ALL --args='{kargs}' && "
+            'akmods --force --kernels "$(uname -r)"',
+        ]
+        self._log.clear()
+        self._log.append("→ Installing NVIDIA drivers…\n")
+        self._log.show()
+        self._progress.setRange(0, 0)
+        self._progress.show()
+        self._install_btn.setEnabled(False)
+
+        self._worker = Worker(cmd)
+        _set_session_inhibit(self, "Kyth is installing NVIDIA drivers")
+        self._worker.line.connect(self._on_line)
+        self._worker.done.connect(self._on_done)
+        self._worker.start()
+
+    def _on_line(self, text: str):
+        self._log.append(text)
+        self._log.ensureCursorVisible()
+
+    def _on_done(self, code: int):
+        self._progress.hide()
+        self._install_btn.setEnabled(True)
+        _finish_worker(self)
+        _set_session_inhibit(self, None)
+
+        if code == 0:
+            self._log.append("\nDone. Reboot to activate NVIDIA drivers.")
+            self._reboot_btn.show()
+        else:
+            self._log.append(f"\nInstallation failed (exit code {code}).")
+
+        self._refresh_status()
+
+
+# ── Tab: Repair / Refresh ─────────────────────────────────────────────────────
+class RepairTab(QWidget):
+    def __init__(self):
+        super().__init__()
+        self._worker = None
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(40, 36, 40, 36)
+        layout.setSpacing(16)
+
+        title = QLabel("Repair / Refresh Install")
+        title.setObjectName("heading")
+        layout.addWidget(title)
+
+        sub = QLabel(
+            "Use this when you want to put the operating system back to a clean Kyth state without deleting your personal files."
+        )
+        sub.setObjectName("subheading")
+        sub.setWordWrap(True)
+        layout.addWidget(sub)
+
+        layout.addWidget(_divider())
+
+        backup_frame = QFrame()
+        backup_frame.setObjectName("card")
+        backup_layout = QVBoxLayout(backup_frame)
+        backup_layout.setContentsMargins(16, 14, 16, 14)
+        backup_layout.setSpacing(10)
+
+        backup_title = QLabel("What repair changes and what it does not")
+        backup_title.setObjectName("card-title")
+        backup_layout.addWidget(backup_title)
+
+        backup_body = QLabel(
+            "Repair resets the system image, layered packages, and system configuration. "
+            "It does not replace a real backup. Files in /home stay in place, so this is a safe way to recover the OS, "
+            "but you should still keep copies of important saves, documents, and projects somewhere else."
+        )
+        backup_body.setObjectName("card-copy")
+        backup_body.setWordWrap(True)
+        backup_layout.addWidget(backup_body)
+        layout.addWidget(backup_frame)
+
+        # Warning box
+        warn_frame = QFrame()
+        warn_frame.setStyleSheet(
+            "QFrame { background: #2d1e2e; border: 1px solid #f7768e;"
+            " border-radius: 6px; padding: 4px; }"
+        )
+        warn_layout = QVBoxLayout(warn_frame)
+        warn_layout.setContentsMargins(14, 10, 14, 10)
+        warn_layout.setSpacing(6)
+
+        warn_title = QLabel("This action cannot be undone")
+        warn_title.setObjectName("status-err")
+        warn_layout.addWidget(warn_title)
+
+        warn_body = QLabel(
+            "Running a refresh will:\n"
+            "  • Remove layered packages and custom OS-level changes\n"
+            "  • Reset system configuration back to Kyth defaults\n"
+            "  • Keep everything in /home untouched\n"
+            "  • Reboot automatically after the reset is staged\n\n"
+            "If you only need to undo a bad update, try Roll Back in the Update tab first."
+        )
+        warn_body.setWordWrap(True)
+        warn_body.setStyleSheet("color: #cdd6f4;")
+        warn_layout.addWidget(warn_body)
+        layout.addWidget(warn_frame)
+
+        # Confirm + button row
+        confirm_row = QHBoxLayout()
+        confirm_row.setSpacing(10)
+
+        self._confirm_lbl = QLabel("Type  RESET  to confirm:")
+        self._confirm_lbl.setStyleSheet("color: #6c7086;")
+        confirm_row.addWidget(self._confirm_lbl)
+
+        from PyQt6.QtWidgets import QLineEdit
+        self._confirm_edit = QLineEdit()
+        self._confirm_edit.setFixedWidth(120)
+        self._confirm_edit.setStyleSheet(
+            "QLineEdit { background: #181825; border: 1px solid #313244;"
+            " border-radius: 4px; padding: 4px 8px; color: #cdd6f4; }"
+            "QLineEdit:focus { border-color: #f7768e; }"
+        )
+        self._confirm_edit.textChanged.connect(self._on_confirm_text)
+        confirm_row.addWidget(self._confirm_edit)
+        confirm_row.addStretch()
+        layout.addLayout(confirm_row)
+
+        btn_row = QHBoxLayout()
+        self._reset_btn = QPushButton("Refresh Install")
+        self._reset_btn.setObjectName("danger")
+        self._reset_btn.setEnabled(False)
+        self._reset_btn.clicked.connect(self._run_reset)
+        btn_row.addWidget(self._reset_btn)
+        btn_row.addStretch()
+        layout.addLayout(btn_row)
+
+        self._status_lbl = QLabel()
+        self._status_lbl.hide()
+        layout.addWidget(self._status_lbl)
+
+        self._progress = QProgressBar()
+        self._progress.setRange(0, 0)
+        self._progress.hide()
+        layout.addWidget(self._progress)
+
+        self._log = QTextEdit()
+        self._log.setReadOnly(True)
+        self._log.setMinimumHeight(120)
+        self._log.hide()
+        layout.addWidget(self._log)
+
+        layout.addStretch()
+
+    def _on_confirm_text(self, text: str):
+        self._reset_btn.setEnabled(text.strip() == "RESET")
+
+    def _run_reset(self):
+        self._confirm_edit.setEnabled(False)
+        self._reset_btn.setEnabled(False)
+        self._log.clear()
+        self._log.append("→ bootc reset\n")
+        self._log.show()
+        self._progress.setRange(0, 0)
+        self._progress.show()
+        self._status_lbl.setText("Resetting system…")
+        self._status_lbl.setObjectName("subheading")
+        self._status_lbl.show()
+
+        self._worker = Worker(
+            _with_idle_inhibit(
+                ["sudo", "bootc", "reset"],
+                "Kyth helper is resetting the system image",
+            )
+        )
+        _set_session_inhibit(self, "Kyth is resetting the system image")
+        self._worker.line.connect(self._on_line)
+        self._worker.done.connect(self._on_done)
+        self._worker.start()
+
+    def _on_line(self, text: str):
+        self._log.append(text)
+        self._log.ensureCursorVisible()
+
+    def _on_done(self, code: int):
+        self._progress.hide()
+        _finish_worker(self)
+        _set_session_inhibit(self, None)
+
+        if code == 0:
+            self._status_lbl.setText("Reset staged — rebooting…")
+            self._status_lbl.setObjectName("status-ok")
+            self._log.append("\nDone. Rebooting now.")
+            self._status_lbl.style().unpolish(self._status_lbl)
+            self._status_lbl.style().polish(self._status_lbl)
+            QTimer.singleShot(2000, lambda: subprocess.Popen(["systemctl", "reboot"]))
+        else:
+            self._status_lbl.setText(f"Reset failed (exit code {code}).")
+            self._status_lbl.setObjectName("status-err")
+            self._status_lbl.style().unpolish(self._status_lbl)
+            self._status_lbl.style().polish(self._status_lbl)
+            self._confirm_edit.setEnabled(True)
+            self._confirm_edit.clear()
 
 
 # ── Main window ────────────────────────────────────────────────────────────────
 class MainWindow(QMainWindow):
-    _PAGES = [
-        ("Welcome",  WelcomePage),
-        ("Update",   UpdatePage),
-        ("Branches", BranchPage),
-    ]
-
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Kyth")
-        self.setMinimumSize(860, 540)
-        self.resize(860, 560)
+        self.setMinimumSize(700, 500)
+        self.resize(760, 520)
 
-        root = QWidget()
-        root.setObjectName("root")
-        self.setCentralWidget(root)
-        hbox = QHBoxLayout(root)
-        hbox.setContentsMargins(0, 0, 0, 0)
-        hbox.setSpacing(0)
+        tabs = QTabWidget()
+        tabs.setDocumentMode(True)
+        tabs.addTab(WelcomeTab(), "Welcome")
+        tabs.addTab(HardwareTab(), "Hardware")
+        tabs.addTab(DiagnosticsTab(), "Diagnostics")
+        tabs.addTab(BranchesTab(), "Branches")
+        tabs.addTab(UpdateTab(), "Update")
+        tabs.addTab(FirmwareTab(), "Firmware")
+        tabs.addTab(NvidiaTab(), "NVIDIA Drivers")
+        tabs.addTab(RepairTab(), "Repair")
 
-        # ── Sidebar ───────────────────────────────────────────────────────────
-        sidebar = QWidget()
-        sidebar.setObjectName("sidebar")
-        sidebar.setFixedWidth(200)
-        sidebar_layout = QVBoxLayout(sidebar)
-        sidebar_layout.setContentsMargins(0, 0, 0, 0)
-        sidebar_layout.setSpacing(0)
+        self.setCentralWidget(tabs)
 
-        # Brand: K badge + name + tagline
-        brand_area = QWidget()
-        brand_area_layout = QVBoxLayout(brand_area)
-        brand_area_layout.setContentsMargins(20, 24, 20, 16)
-        brand_area_layout.setSpacing(0)
+    def closeEvent(self, event):
+        active = []
+        for child in self.findChildren(QWidget):
+            worker = getattr(child, "_worker", None)
+            if worker is not None and worker.isRunning():
+                active.append(child)
 
-        badge_row = QHBoxLayout()
-        badge_row.setContentsMargins(0, 0, 0, 0)
-        brand_k = QLabel("K")
-        brand_k.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        brand_k.setFixedSize(34, 34)
-        brand_k.setStyleSheet(
-            "background: #7aa2f7; color: #1e1e2e; font-size: 17px; font-weight: 900;"
-            "border-radius: 9px;"
-        )
-        badge_row.addWidget(brand_k)
-        badge_row.addStretch()
-        brand_area_layout.addLayout(badge_row)
+        if active:
+            QMessageBox.warning(
+                self,
+                "Kyth Is Busy",
+                "A task is still running in the helper. Please wait for it to finish before closing this window.",
+            )
+            event.ignore()
+            self.raise_()
+            self.activateWindow()
+            return
 
-        brand_area_layout.addSpacing(12)
-
-        brand_name = QLabel("KYTH")
-        brand_name.setObjectName("brand-name")
-        brand_area_layout.addWidget(brand_name)
-
-        brand_tag = QLabel("atomic gaming workstation")
-        brand_tag.setObjectName("brand-tagline")
-        brand_area_layout.addWidget(brand_tag)
-
-        sidebar_layout.addWidget(brand_area)
-
-        div = QFrame()
-        div.setObjectName("sidebar-divider")
-        div.setFixedHeight(1)
-        sidebar_layout.addWidget(div)
-        sidebar_layout.addSpacing(6)
-
-        self._nav_buttons: list[NavButton] = []
-        self._stack = QStackedWidget()
-
-        for i, (label, PageClass) in enumerate(self._PAGES):
-            btn = NavButton(label)
-            btn.clicked.connect(lambda _, idx=i: self._switch_page(idx))
-            sidebar_layout.addWidget(btn)
-            self._nav_buttons.append(btn)
-            self._stack.addWidget(PageClass())
-
-        sidebar_layout.addStretch()
-
-        ver_lbl = QLabel(f"v{APP_VER}")
-        ver_lbl.setObjectName("sidebar-version")
-        sidebar_layout.addWidget(ver_lbl)
-
-        hbox.addWidget(sidebar)
-        hbox.addWidget(self._stack)
-
-        self._switch_page(0)
-
-    def _switch_page(self, index: int):
-        self._stack.setCurrentIndex(index)
-        for i, btn in enumerate(self._nav_buttons):
-            btn.set_active(i == index)
+        super().closeEvent(event)
 
 
 # ── Entry point ────────────────────────────────────────────────────────────────
 def main():
+    _remove_autostart()
+    _wait_for_display_setup()
+
     app = QApplication(sys.argv)
-    app.setApplicationName("kyth-helper")
-    app.setApplicationDisplayName("Kyth")
+    app.setApplicationName("kyth-welcome")
+    app.setDesktopFileName("kyth-welcome")
+    app.setWindowIcon(QIcon.fromTheme("kyth"))
     app.setStyleSheet(QSS)
 
-    # Use system icon if available, otherwise skip
-    icon = QIcon.fromTheme("kyth")
-    if not icon.isNull():
-        app.setWindowIcon(icon)
-
     win = MainWindow()
+    win.setWindowIcon(QIcon.fromTheme("kyth"))
     win.show()
     sys.exit(app.exec())
 

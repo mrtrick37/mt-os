@@ -1,0 +1,7 @@
+#!/usr/bin/bash
+# Root-side launcher for Calamares in the live session.
+
+set -euo pipefail
+
+export QML_XHR_ALLOW_FILE_READ=1
+exec /usr/bin/calamares "$@"

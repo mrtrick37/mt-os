@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+print_kv() {
+    printf '%-20s %s\n' "$1" "$2"
+}
+
+bootc_ref="unavailable"
+if command -v bootc >/dev/null 2>&1; then
+    bootc_ref=$(bootc status --json 2>/dev/null | jq -r '.spec.image.image // .status.booted.image.image.image // "unavailable"' 2>/dev/null || true)
+    bootc_ref=${bootc_ref:-unavailable}
+fi
+
+power_profile="unavailable"
+if command -v powerprofilesctl >/dev/null 2>&1; then
+    power_profile=$(powerprofilesctl get 2>/dev/null || true)
+    power_profile=${power_profile:-unavailable}
+fi
+
+thp_mode=$(< /sys/kernel/mm/transparent_hugepage/enabled 2>/dev/null || echo "unavailable")
+tcp_cc=$(sysctl -n net.ipv4.tcp_congestion_control 2>/dev/null || echo "unavailable")
+zram_summary=$(zramctl --output NAME,ALGORITHM,DISKSIZE --noheadings 2>/dev/null | xargs echo || true)
+zram_summary=${zram_summary:-disabled}
+
+scx_state="inactive"
+if [[ -r /sys/kernel/sched_ext/state ]]; then
+    scx_state=$(< /sys/kernel/sched_ext/state)
+elif systemctl is-active --quiet scx_loader.service 2>/dev/null; then
+    scx_state="active (scx_loader.service)"
+elif systemctl is-active --quiet scxd.service 2>/dev/null; then
+    scx_state="active (scxd.service)"
+fi
+
+gamemode_state="unavailable"
+if systemctl list-unit-files gamemoded.service >/dev/null 2>&1; then
+    gamemode_state=$(systemctl is-active gamemoded.service 2>/dev/null || true)
+    gamemode_state=${gamemode_state:-inactive}
+fi
+
+ntsync_state="missing"
+[[ -e /dev/ntsync ]] && ntsync_state="present"
+
+echo "Kyth Kernel / Runtime Summary"
+echo
+print_kv "Kernel" "$(uname -r)"
+print_kv "Bootc Image" "${bootc_ref}"
+print_kv "Power Profile" "${power_profile}"
+print_kv "Sched-ext" "${scx_state}"
+print_kv "TCP CC" "${tcp_cc}"
+print_kv "THP" "${thp_mode}"
+print_kv "ZRAM" "${zram_summary}"
+print_kv "GameMode" "${gamemode_state}"
+print_kv "NTSYNC" "${ntsync_state}"
+echo
+echo "I/O Schedulers"
+while IFS= read -r line; do
+    dev=${line%%:*}
+    sched=${line#*:}
+    printf '  %-16s %s\n' "${dev}" "${sched}"
+done < <(
+    for dev in /sys/block/*; do
+        [[ -r "${dev}/queue/scheduler" ]] || continue
+        printf '%s:%s\n' "$(basename "${dev}")" "$(tr -d '\n' < "${dev}/queue/scheduler")"
+    done
+)

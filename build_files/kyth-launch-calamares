@@ -1,7 +1,11 @@
 #!/usr/bin/bash
 # kyth-launch-calamares — launch Calamares as root from the live desktop.
 #
-# liveuser has passwordless sudo, so this runs silently without a password
-# prompt.  The -E flag preserves DISPLAY and XAUTHORITY so the Qt GUI can
-# connect to the X server.
-exec sudo -E QML_XHR_ALLOW_FILE_READ=1 /usr/bin/calamares "$@"
+# liveuser is allowed to sudo only the narrow installer/reboot command set.
+# Pass the display-related environment explicitly so the root Calamares process
+# can connect to the live X11 session without granting unrestricted sudo.
+exec sudo DISPLAY="${DISPLAY:-}" XAUTHORITY="${XAUTHORITY:-}" \
+    WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-}" \
+    XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-}" \
+    DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-}" \
+    /usr/bin/kyth-calamares-root "$@"

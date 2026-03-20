@@ -3,6 +3,7 @@ _build-bib.*
 
 # Ignore build logs
 *.log
+__pycache__/
 
 # Ignore local output directories (keep committed outputs explicit)
 output/previous-built-iso/

@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ $# -eq 0 ]]; then
+    echo "Usage: game-performance <command> [args...]" >&2
+    exit 1
+fi
+
+old_profile=""
+restore_profile() {
+    if [[ -n "${old_profile}" ]] && command -v powerprofilesctl >/dev/null 2>&1; then
+        powerprofilesctl set "${old_profile}" >/dev/null 2>&1 || true
+    fi
+}
+trap restore_profile EXIT INT TERM
+
+if command -v powerprofilesctl >/dev/null 2>&1; then
+    old_profile=$(powerprofilesctl get 2>/dev/null || true)
+    if [[ "${old_profile}" != "performance" ]]; then
+        powerprofilesctl set performance >/dev/null 2>&1 || true
+    fi
+fi
+
+if command -v systemd-inhibit >/dev/null 2>&1; then
+    systemd-inhibit \
+        --what=idle:sleep \
+        --why="Kyth game-performance session" \
+        "$@"
+else
+    "$@"
+fi

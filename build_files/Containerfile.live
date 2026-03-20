@@ -63,9 +63,12 @@ RUN dnf5 install -y \
 RUN systemctl disable sddm 2>/dev/null || true \
     && systemctl set-default multi-user.target \
     && groupadd -r autologin \
-    && useradd -c "Live User" -G wheel,autologin liveuser \
+    && useradd -c "Live User" -G autologin liveuser \
     && passwd -d liveuser \
-    && echo "liveuser ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/liveuser \
+    && printf '%s\n' \
+        'Defaults:liveuser env_keep += "DISPLAY XAUTHORITY WAYLAND_DISPLAY XDG_RUNTIME_DIR DBUS_SESSION_BUS_ADDRESS"' \
+        'liveuser ALL=(root) NOPASSWD: SETENV: /usr/bin/kyth-calamares-root, /usr/bin/kyth-manual-install, /usr/bin/systemctl reboot' \
+        > /etc/sudoers.d/liveuser \
     && chmod 440 /etc/sudoers.d/liveuser \
     && mkdir -p /etc/systemd/system/getty@tty1.service.d \
     && printf '[Service]\nExecStart=\nExecStart=-/sbin/agetty --autologin liveuser --noclear %%I $TERM\n' \
@@ -156,6 +159,8 @@ COPY build_files/calamares-modules/kyth-bootcinstall \
 COPY build_files/calamares-modules/kyth-umount \
      /usr/lib64/calamares/modules/kyth-umount
 COPY build_files/kyth-launch-calamares  /usr/bin/kyth-launch-calamares
+COPY build_files/kyth-calamares-root    /usr/bin/kyth-calamares-root
+COPY build_files/kyth-manual-install.sh /usr/bin/kyth-manual-install
 COPY build_files/plymouth/kyth.plymouth /usr/share/plymouth/themes/kyth/kyth.plymouth
 COPY build_files/plymouth/kyth.script   /usr/share/plymouth/themes/kyth/kyth.script
 
@@ -171,7 +176,7 @@ RUN mkdir -p /usr/share/wallpapers/kyth/contents/images \
           /usr/share/icons/breeze-dark/apps/scalable/start-here.svg \
     && gtk-update-icon-cache -f /usr/share/icons/hicolor/    2>/dev/null || true \
     && gtk-update-icon-cache -f /usr/share/icons/breeze-dark/ 2>/dev/null || true \
-    && chmod +x /usr/bin/kyth-launch-calamares \
+    && chmod +x /usr/bin/kyth-launch-calamares /usr/bin/kyth-calamares-root /usr/bin/kyth-manual-install \
     && sed -i 's/^PRETTY_NAME=.*/PRETTY_NAME="Kyth 43 Live"/' /etc/os-release \
     && BREEZE_DARK_DEFAULTS="/usr/share/plasma/look-and-feel/org.kde.breezedark.desktop/contents/defaults" \
     && if [ -f "$BREEZE_DARK_DEFAULTS" ]; then \

@@ -1,0 +1,10 @@
+[Unit]
+Description=Kyth Steam/Wine dedupe pass
+Documentation=https://github.com/mrtrick37/kyth
+After=local-fs.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/kyth-duperemove
+Nice=19
+IOSchedulingClass=idle

@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+section() {
+    echo
+    echo "== $1 =="
+}
+
+safe_cmd() {
+    "$@" 2>/dev/null || true
+}
+
+echo "Kyth Device Info"
+echo "Generated: $(date -Is)"
+
+section "OS"
+safe_cmd uname -a
+safe_cmd grep -E '^(NAME|PRETTY_NAME|VERSION_ID)=' /etc/os-release
+safe_cmd bootc status
+
+section "Desktop"
+printf 'Session Type: %s\n' "${XDG_SESSION_TYPE:-unknown}"
+printf 'Desktop: %s\n' "${XDG_CURRENT_DESKTOP:-unknown}"
+printf 'Session: %s\n' "${DESKTOP_SESSION:-unknown}"
+safe_cmd loginctl session-status
+
+section "Hardware"
+safe_cmd lscpu
+safe_cmd free -h
+safe_cmd lsblk -o NAME,SIZE,FSTYPE,TYPE,MOUNTPOINTS
+safe_cmd lspci -nnk
+
+section "Graphics Stack"
+safe_cmd rpm -q kernel-cachyos kernel-cachyos-core mesa-dri-drivers mesa-vulkan-drivers libdrm
+safe_cmd sh -lc 'ls /usr/lib/modules | grep cachyos | head -1'
+safe_cmd sh -lc 'for dev in /sys/class/drm/card*/device/power_dpm_force_performance_level; do printf "%s: %s\n" "$dev" "$(cat "$dev")"; done'
+
+section "Kyth Tunings"
+safe_cmd /usr/bin/kyth-kerver
+
+section "Flatpaks"
+safe_cmd flatpak list --app --columns=application,branch,origin
+
+section "Recent Warnings"
+safe_cmd journalctl -b -p warning --no-pager -n 50

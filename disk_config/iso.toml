@@ -1,0 +1,3 @@
+# Minimal bootc-image-builder config for installer ISO builds.
+# Keep this separate from disk.toml so ISO-specific settings can be added
+# later without changing the qcow2/raw workflow.

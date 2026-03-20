@@ -14,6 +14,20 @@ dnf5 install -y docker || true
 dnf5 install -y https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-43.noarch.rpm || true
 dnf5 install -y https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-43.noarch.rpm || true
 
+# ── Multimedia baseline ───────────────────────────────────────────────────────
+# Install a full system codec stack so common local playback, browser media,
+# and creator workflows work without extra setup.  RPM Fusion provides the
+# patent-encumbered pieces Fedora does not ship by default.
+dnf5 install -y --skip-unavailable \
+    ffmpeg \
+    ffmpegthumbnailer \
+    gstreamer1-plugin-openh264 \
+    gstreamer1-plugins-bad-freeworld \
+    gstreamer1-plugins-ugly \
+    gstreamer1-libav \
+    mozilla-openh264 \
+    mpv
+
 # Always upgrade all packages (except kernel/gamescope) before graphics/mesa installs
 dnf5 upgrade -y --exclude='kernel*' --exclude='gamescope*'
 
@@ -36,7 +50,8 @@ depmod -a "${CACHYOS_KVER}"
 
 dnf5 install -y --setopt=tsflags=noscripts --skip-unavailable \
     kernel-cachyos \
-    kernel-cachyos-core
+    kernel-cachyos-core \
+    kernel-cachyos-devel
 
 # Run depmod again now that all module packages are installed
 depmod -a "${CACHYOS_KVER}"
@@ -82,31 +97,34 @@ done
 rpm -qa | grep -E '^kernel' | grep -v cachyos | xargs -r rpm --nodeps -e 2>/dev/null || true
 
 # Disable COPR after install
+dnf5 copr disable -y bieszczaders/kernel-cachyos
 
-    # Install all required packages
-    dnf5 install -y \
-        p7zip \
-        p7zip-plugins \
-        qemu \
-        qemu-char-spice \
-        qemu-device-display-virtio-gpu \
-        qemu-device-display-virtio-vga \
-        qemu-device-usb-redirect \
-        qemu-img \
-        qemu-system-x86-core \
-        sysprof \
-        incus \
-        incus-agent \
-        lxc \
-        tiptop \
-        trace-cmd \
-        util-linux-script \
-        virt-manager \
-        virt-viewer \
-        gnome-boxes \
-        ydotool \
-        tmux \
-        gh
+# Install all required packages
+dnf5 install -y \
+    p7zip \
+    p7zip-plugins \
+    duperemove \
+    qemu \
+    qemu-char-spice \
+    qemu-device-display-virtio-gpu \
+    qemu-device-display-virtio-vga \
+    qemu-device-usb-redirect \
+    qemu-img \
+    qemu-system-x86-core \
+    sysprof \
+    incus \
+    incus-agent \
+    lxc \
+    tiptop \
+    trace-cmd \
+    util-linux-script \
+    virt-manager \
+    virt-viewer \
+    gnome-boxes \
+    ydotool \
+    tmux \
+    gh \
+    fwupd
 
 ## Gaming tweaks — Bazzite-style
 # Install gamescope from Fedora BEFORE enabling Bazzite COPR.
@@ -157,8 +175,6 @@ dnf5 install -y --skip-unavailable --exclude=libde265.i686 \
     nss \
     nss.i686
 
-## Removed ananicy-cpp service enablement per user request
-
 # KDE-specific gaming integrations
 dnf5 install -y \
     kdeconnectd \
@@ -166,11 +182,13 @@ dnf5 install -y \
     rom-properties-kf6
 
 # Download winetricks from upstream (package version is often outdated)
-# Pinned to a specific release tag for reproducibility; update WINETRICKS_VER to upgrade.
+# Pin to the signed release commit so the build does not trust a mutable ref
+# for an executable shell script.
 # /usr/local symlinks to /var/usrlocal — ensure the target dir exists
 WINETRICKS_VER="20260125"
+WINETRICKS_COMMIT="b76e1ee"
 mkdir -p /usr/local/bin
-curl -fsSL "https://raw.githubusercontent.com/Winetricks/winetricks/${WINETRICKS_VER}/src/winetricks" \
+curl -fsSL "https://raw.githubusercontent.com/Winetricks/winetricks/${WINETRICKS_COMMIT}/src/winetricks" \
     -o /usr/local/bin/winetricks
 # Sanity-check: must be a shell script
 head -1 /usr/local/bin/winetricks | grep -q '^#!' || { echo "winetricks download looks invalid"; exit 1; }
@@ -192,8 +210,18 @@ sed -i "s/enabled=.*/enabled=0/g" /etc/yum.repos.d/fedora-steam.repo
 # amdgpu is in the CachyOS kernel; RADV (Vulkan) comes from mesa (Fedora repos).
 # linux-firmware provides the GPU firmware blobs that amdgpu loads at runtime —
 # without them the driver falls back to basic/non-accelerated mode.
-# libva-mesa-driver provides the AMD VA-API backend for hardware video decode.
-dnf5 install -y linux-firmware libva-utils mesa-va-drivers radeontop
+# libva-mesa-driver/mesa-vdpau-drivers provide AMD decode backends.
+# intel-media-driver/libva-intel-driver cover newer + older Intel iGPUs.
+# nvidia-vaapi-driver enables VA-API translation on supported NVIDIA systems.
+dnf5 install -y --skip-unavailable \
+    linux-firmware \
+    libva-utils \
+    mesa-va-drivers \
+    mesa-vdpau-drivers \
+    intel-media-driver \
+    libva-intel-driver \
+    nvidia-vaapi-driver \
+    radeontop
 dnf5 upgrade -y libdrm
 
 
@@ -206,6 +234,8 @@ vm.compaction_proactiveness = 0
 vm.dirty_ratio = 10
 vm.dirty_background_ratio = 5
 vm.page_lock_unfairness = 1
+# Raise memory map limit for games with large numbers of mappings (Star Citizen, etc.)
+vm.max_map_count = 2147483642
 
 # Network — activate BBRv3 (built into CachyOS kernel)
 net.core.default_qdisc = fq
@@ -271,6 +301,18 @@ apply_gpu_optimisations = accept-responsibility
 amd_performance_level = high
 GAMEMODEEOF
 
+
+# ── system76-scheduler ────────────────────────────────────────────────────────
+# Dynamically adjusts CFS nice values and I/O priority based on which window
+# is focused and whether a game is running.  Gives a noticeable responsiveness
+# boost during gaming without requiring per-app configuration.
+if dnf5 repoquery --available system76-scheduler >/dev/null 2>&1; then
+  dnf5 install -y --skip-unavailable system76-scheduler || true
+  rpm -q system76-scheduler >/dev/null 2>&1 && \
+    systemctl enable com.system76.Scheduler 2>/dev/null || true
+else
+  echo "system76-scheduler is unavailable in configured repos; skipping."
+fi
 
 # ── scx userspace schedulers ──────────────────────────────────────────────────
 # sched-ext (scx) is a BPF-based scheduler framework in the CachyOS kernel.
@@ -399,6 +441,7 @@ sed '/^PrefersNonDefaultGPU=\|^X-KDE-RunOnDiscreteGpu=/d' \
 # so version bumps only re-download that layer, not this entire layer.
 
 systemctl enable libvirtd.socket
+systemctl enable fwupd 2>/dev/null || true
 
 # ── Display / resolution auto-detection ──────────────────────────────────────
 # spice-vdagent: in QEMU/KVM VMs this daemon handles dynamic resolution changes
@@ -416,13 +459,13 @@ cat > /etc/skel/.config/autostart/kyth-set-resolution.desktop <<'RESEOF'
 [Desktop Entry]
 Type=Application
 Name=Kyth: Set display resolution
-Exec=/usr/local/bin/kyth-set-resolution
+Exec=/usr/bin/kyth-set-resolution
 X-KDE-autostart-after=panel
 Hidden=false
 NoDisplay=true
 RESEOF
 
-cat > /usr/local/bin/kyth-set-resolution <<'SCRIPTEOF'
+cat > /usr/bin/kyth-set-resolution <<'SCRIPTEOF'
 #!/usr/bin/env python3
 # Set every connected output to its preferred (first-listed) mode.
 # kscreen-doctor -o output format:
@@ -462,7 +505,7 @@ try:
 except OSError:
     pass
 SCRIPTEOF
-chmod +x /usr/local/bin/kyth-set-resolution
+chmod +x /usr/bin/kyth-set-resolution
 
 # Homebrew — system-wide install to /home/linuxbrew (= /var/home/linuxbrew at runtime)
 # Wheel group members can install/update formulae without sudo.
@@ -511,6 +554,31 @@ cat > /etc/skel/.config/plasmarc <<'PLASMAEOF'
 name=breeze-dark
 PLASMAEOF
 
+# ── Plasma / PowerDevil hardening ─────────────────────────────────────────────
+# KDE documents POWERDEVIL_NO_DDCUTIL=1 as a supported workaround when
+# PowerDevil's DDC/CI monitor integration causes instability. On Kyth's AMD
+# laptop targets, repeated libddcutil/backlight activity has correlated with
+# display-timeout/pageflip failures, so default to the safer path:
+# keep PowerDevil running, but stop it from talking to external monitors via
+# ddcutil. Tradeoff: external monitor brightness control via DDC/CI is disabled.
+#
+# Add a second guardrail at the libddcutil layer as well. This keeps any
+# consumer that does load libddcutil from starting display-watch threads, which
+# are a known source of instability on some monitor/GPU combinations.
+mkdir -p /etc/environment.d /etc/xdg/plasma-workspace/env /etc/xdg/ddcutil
+cat > /etc/environment.d/90-kyth-powerdevil.conf <<'POWERDEVILEOF'
+POWERDEVIL_NO_DDCUTIL=1
+POWERDEVILEOF
+cat > /etc/xdg/plasma-workspace/env/90-kyth-powerdevil.sh <<'POWERDEVILSHEOF'
+#!/bin/sh
+export POWERDEVIL_NO_DDCUTIL=1
+POWERDEVILSHEOF
+chmod +x /etc/xdg/plasma-workspace/env/90-kyth-powerdevil.sh
+cat > /etc/xdg/ddcutil/ddcutilrc <<'DDCUTILRCEOF'
+[libddcutil]
+options: --disable-watch-displays
+DDCUTILRCEOF
+
 # ── Kyth wallpaper package ────────────────────────────────────────────────────
 # Install as a proper KDE wallpaper package so the L&F lookup 'Image=kyth' works.
 mkdir -p /usr/share/wallpapers/kyth/contents/images
@@ -551,8 +619,7 @@ gtk-update-icon-cache -f /usr/share/icons/breeze-dark/ 2>/dev/null || true
 # Belt-and-suspenders: the icon theme install above should be enough, but this
 # also writes the icon key directly into each user's Kickoff applet config in
 # case the theme lookup is overridden by a previously cached value.
-mkdir -p /usr/local/bin
-cat > /usr/local/bin/kyth-set-kickoff-icon <<'KICKOFEOF'
+cat > /usr/bin/kyth-set-kickoff-icon <<'KICKOFEOF'
 #!/usr/bin/env python3
 import os, re, subprocess
 
@@ -583,14 +650,14 @@ try:
 except OSError:
     pass
 KICKOFEOF
-chmod +x /usr/local/bin/kyth-set-kickoff-icon
+chmod +x /usr/bin/kyth-set-kickoff-icon
 
 mkdir -p /etc/skel/.config/autostart
 cat > /etc/skel/.config/autostart/kyth-set-kickoff-icon.desktop <<'AUTOSTARTEOF'
 [Desktop Entry]
 Type=Application
 Name=Kyth: Set Kickoff Icon
-Exec=/usr/local/bin/kyth-set-kickoff-icon
+Exec=/usr/bin/kyth-set-kickoff-icon
 X-KDE-autostart-after=panel
 Hidden=false
 NoDisplay=true
@@ -604,13 +671,34 @@ wallpaperplugin=org.kde.image
 Image=/usr/share/wallpapers/kyth/contents/images/1920x1080.svg
 PLASMADESKTOPEOF
 
+# ── NVIDIA driver support ─────────────────────────────────────────────────────
+# akmod-nvidia and build tools are installed in the image so that the kyth-helper
+# app can compile the NVIDIA kernel module on user request without needing network
+# access to fetch packages at install time.
+# kernel-cachyos-devel is installed earlier while the CachyOS COPR is still
+# enabled so the matching headers are available in CI/container builds.
+dnf5 install -y \
+    akmods \
+    akmod-nvidia
+
 # ── Kyth Helper app ───────────────────────────────────────────────────────────
 # PyQt6 helper + branch switcher.  Autostarts on first login via skel.
 dnf5 install -y python3-pyqt6
 
-install -m 0755 /ctx/kyth-welcome/kyth-welcome /usr/local/bin/kyth-welcome
+install -m 0755 /ctx/kyth-welcome/kyth-welcome /usr/bin/kyth-welcome
 install -m 0644 /ctx/kyth-welcome/kyth-welcome.desktop \
     /usr/share/applications/kyth-welcome.desktop
+install -m 0755 /ctx/game-performance /usr/bin/game-performance
+install -m 0755 /ctx/zink-run /usr/bin/zink-run
+install -m 0755 /ctx/kyth-kerver /usr/bin/kyth-kerver
+install -m 0755 /ctx/kyth-device-info /usr/bin/kyth-device-info
+install -m 0755 /ctx/kyth-creator-check /usr/bin/kyth-creator-check
+install -m 0755 /ctx/kyth-duperemove /usr/bin/kyth-duperemove
+install -m 0755 /ctx/kyth-local-bin-migrate /usr/bin/kyth-local-bin-migrate
+install -m 0644 /ctx/kyth-duperemove.service /usr/lib/systemd/system/kyth-duperemove.service
+install -m 0644 /ctx/kyth-duperemove.timer /usr/lib/systemd/system/kyth-duperemove.timer
+install -m 0644 /ctx/kyth-local-bin-migrate.service /usr/lib/systemd/system/kyth-local-bin-migrate.service
+install -m 0440 /ctx/kyth-bootc-sudo /etc/sudoers.d/kyth-bootc
 
 # Autostart on first login — removes itself after running once (like kyth-set-resolution).
 mkdir -p /etc/skel/.config/autostart
@@ -618,49 +706,11 @@ cat > /etc/skel/.config/autostart/kyth-welcome.desktop <<'WELCOMEEOF'
 [Desktop Entry]
 Type=Application
 Name=Kyth Helper
-Exec=/usr/local/bin/kyth-welcome
+Exec=/usr/bin/kyth-welcome
 X-KDE-autostart-after=panel
 Hidden=false
 NoDisplay=true
 WELCOMEEOF
-
-# ── Bazaar (Flatpak app store) — built from source ───────────────────────────
-# https://github.com/kolunmi/bazaar
-# Installed alongside KDE Discover as a Flatpak-focused storefront.
-dnf5 install -y \
-    meson ninja-build gcc git gettext desktop-file-utils \
-    glib2-devel \
-    libadwaita-devel \
-    libdex-devel \
-    flatpak-devel \
-    appstream-devel \
-    libxmlb-devel \
-    glycin-devel \
-    glycin-gtk4-devel \
-    libyaml-devel \
-    libsoup3-devel \
-    json-glib-devel \
-    md4c-devel \
-    webkitgtk6.0-devel \
-    libsecret-devel \
-    libproxy-devel \
-    malcontent-devel
-
-git clone --depth=1 https://github.com/kolunmi/bazaar /tmp/bazaar-build
-meson setup /tmp/bazaar-build/build /tmp/bazaar-build \
-    --prefix=/usr --libdir=/usr/lib64
-ninja -C /tmp/bazaar-build/build
-ninja -C /tmp/bazaar-build/build install
-rm -rf /tmp/bazaar-build
-
-# Remove build-only deps; runtime libs (.so) remain via their non-devel packages
-dnf5 remove -y \
-    meson ninja-build git \
-    libadwaita-devel libdex-devel flatpak-devel appstream-devel \
-    libxmlb-devel glycin-devel glycin-gtk4-devel libyaml-devel libsoup3-devel \
-    json-glib-devel md4c-devel webkitgtk6.0-devel libsecret-devel \
-    libproxy-devel malcontent-devel glib2-devel || true
-dnf5 autoremove -y || true
 
 # ── Outlook PWA ───────────────────────────────────────────────────────────────
 # Adds Microsoft Outlook to the Internet section of the app launcher via a
@@ -754,23 +804,12 @@ for grp in users video audio gamemode docker; do
     fi
 done
 
-# Create default user
-useradd -m -G wheel,users,video,audio,gamemode,docker -s /bin/bash kyth
-echo 'kyth:kyth' | chpasswd
-echo '%wheel ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/wheel-nopasswd
-
-# Hide the kyth system user from the SDDM login screen.
-# Users should only see their own account (created during installation).
-mkdir -p /etc/sddm.conf.d
-cat > /etc/sddm.conf.d/20-hide-users.conf <<'EOF'
-[Users]
-HideUsers=kyth
-EOF
-
 # ── ujust recipes ─────────────────────────────────────────────────────────────
 # Install Kyth-specific ujust recipes so users can run e.g. "ujust rebase kyth:stable".
 mkdir -p /usr/share/ublue-os/just
 cp /ctx/just/kyth.just /usr/share/ublue-os/just/75-kyth.just
+systemctl enable kyth-local-bin-migrate.service 2>/dev/null || true
+systemctl enable kyth-duperemove.timer 2>/dev/null || true
 
 # Purge dnf package cache — not needed at runtime and adds ~200 MB to the image.
 dnf5 clean all

@@ -212,7 +212,6 @@ sudoif command *args:
         fi
     }
     sudoif {{ command }} {{ args }}
-        TMPDIR=${TMPDIR:-/var/tmp}
 
 # Build the base image from build_base/ and tag it as localhost/kyth:latest
 # Override the upstream with: just build-base ghcr.io/ublue-os/kinoite-main:43
@@ -400,15 +399,15 @@ _build-bib $target_image $tag $type $config: (_rootful_load_image target_image t
 
 
 # Build a QCOW2 virtual machine image
-[group('Build Virtal Machine Image')]
+[group('Build Virtual Machine Image')]
 build-qcow2 $target_image=("localhost/" + image_name) $tag=default_tag: && (_build-bib target_image tag "qcow2" "disk_config/disk.toml")
 
 # Build a RAW virtual machine image
-[group('Build Virtal Machine Image')]
+[group('Build Virtual Machine Image')]
 build-raw $target_image=("localhost/" + image_name) $tag=default_tag: && (_build-bib target_image tag "raw" "disk_config/disk.toml")
 
 # Build an ISO virtual machine image
-[group('Build Virtal Machine Image')]
+[group('Build Virtual Machine Image')]
 build-iso $target_image=("localhost/" + image_name) $tag=default_tag: && (_build-bib target_image tag "iso" "disk_config/iso.toml")
 
 # Build a full live desktop ISO (boots to the complete Kyth KDE environment;
@@ -416,7 +415,7 @@ build-iso $target_image=("localhost/" + image_name) $tag=default_tag: && (_build
 # Requires: xorriso squashfs-tools mtools dosfstools
 # Builds localhost/kyth:latest automatically if not already present.
 # Pass source_tag to build from a different image: just build-live-iso testing
-[group('Build Virtal Machine Image')]
+[group('Build Virtual Machine Image')]
 build-live-iso source_tag="latest":
     #!/usr/bin/env bash
     set -euo pipefail
@@ -425,7 +424,7 @@ build-live-iso source_tag="latest":
 # Force a full rebuild of the live ISO, ignoring the cached live container layer.
 # Use this after changing Containerfile.live or any file it COPYs (modules, main.py, etc.)
 # Pass source_tag to rebuild from a different image: just rebuild-live-iso testing
-[group('Build Virtal Machine Image')]
+[group('Build Virtual Machine Image')]
 rebuild-live-iso source_tag="latest":
     #!/usr/bin/env bash
     set -euo pipefail
@@ -433,7 +432,7 @@ rebuild-live-iso source_tag="latest":
 
 # Boot the live desktop ISO in a VM (BIOS, web UI at http://localhost:PORT)
 # Builds the ISO first if it does not exist. Pass source_tag to run a testing ISO.
-[group('Run Virtal Machine')]
+[group('Run Virtual Machine')]
 run-live-iso source_tag="latest":
     #!/usr/bin/bash
     set -eoux pipefail
@@ -507,19 +506,19 @@ _run-vm $target_image $tag $type $config:
     docker run "${run_args[@]}"
 
 # Run a virtual machine from a QCOW2 image
-[group('Run Virtal Machine')]
+[group('Run Virtual Machine')]
 run-vm-qcow2 $target_image=("localhost/" + image_name) $tag=default_tag: && (_run-vm target_image tag "qcow2" "disk_config/disk.toml")
 
 # Run a virtual machine from a RAW image
-[group('Run Virtal Machine')]
+[group('Run Virtual Machine')]
 run-vm-raw $target_image=("localhost/" + image_name) $tag=default_tag: && (_run-vm target_image tag "raw" "disk_config/disk.toml")
 
 # Run a virtual machine from an ISO
-[group('Run Virtal Machine')]
+[group('Run Virtual Machine')]
 run-vm-iso $target_image=("localhost/" + image_name) $tag=default_tag: && (_run-vm target_image tag "iso" "disk_config/iso.toml")
 
 # Run a virtual machine using systemd-vmspawn
-[group('Run Virtal Machine')]
+[group('Run Virtual Machine')]
 spawn-vm rebuild="0" type="qcow2" ram="6G":
     #!/usr/bin/env bash
 

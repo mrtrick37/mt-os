@@ -94,12 +94,9 @@ systemctl set-default graphical.target 2>/dev/null || true
 # producing noisy FAILED entries in the boot log.
 systemctl mask bootloader-update.service 2>/dev/null || true
 
-# ── SDDM display server: X11 default, Wayland on confirmed real hardware ─────
-# X11 is baked in as the image default so SDDM always has a working config
-# even if kyth-sddm-setup fails to run (e.g. during the D-Bus race at boot).
-# kyth-sddm-setup then upgrades to Wayland only when systemd-detect-virt
-# confirms the system is NOT a VM, giving the best experience on real hardware
-# without risking a blank screen in VMs.
+# ── SDDM display server: Wayland by default ───────────────────────────────────
+# Keep the on-disk config aligned with the documented product defaults so
+# image behavior is obvious during debugging and CI review.
 mkdir -p /etc/sddm.conf.d
 cat > /etc/sddm.conf.d/10-display-server.conf <<'EOF'
 [General]
@@ -165,4 +162,3 @@ wallpaperplugin=org.kde.image
 [Containments][1][Wallpaper][org.kde.image][General]
 Image=/usr/share/wallpapers/kyth/contents/images/1920x1080.svg
 SKELEOF
-

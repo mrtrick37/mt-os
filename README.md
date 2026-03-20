@@ -27,6 +27,8 @@ Kyth is a custom [bootc](https://containers.github.io/bootc/) image. The entire 
 - RADV_PERFTEST=gpl — Vulkan Graphics Pipeline Library enabled by default
 - NTSYNC udev rules (faster Wine sync primitives)
 - AMD GPU high-performance power profile during gameplay (GameMode)
+- `game-performance` and `zink-run` helper wrappers for quick launch testing/tuning
+- Weekly `duperemove` timer for reclaiming duplicate Steam/Wine data on supported filesystems
 
 ### Development
 
@@ -48,6 +50,10 @@ Kyth is a custom [bootc](https://containers.github.io/bootc/) image. The entire 
 - GameMode CPU/GPU governor profiles
 - WiFi power-save disabled system-wide
 - spice-vdagent for automatic display resolution in VMs
+- PowerDevil DDC/CI monitor control disabled by default on Plasma sessions to reduce AMD display/power-management instability
+- `libddcutil` display-watch threads disabled system-wide; tradeoff: external-monitor brightness control via KDE is unavailable by default
+- `kyth-kerver` and matching `ujust` recipes for quick system/tuning inspection
+- `ujust device-info`, `ujust install-lact`, and `ujust install-input-remapper`
 
 ---
 
@@ -89,7 +95,8 @@ sudo bootc switch ghcr.io/mrtrick37/kyth:latest
 
 Minimum 8 GB RAM recommended for the live session and installer.
 
-Default live session credentials: `kyth` / `kyth`
+The live ISO autologins to the desktop as `liveuser`; the default workflow does
+not require entering a password.
 
 ### Rebase from an existing Fedora atomic system
 
@@ -137,7 +144,7 @@ The live ISO is written to `output/live-iso/kyth-live-latest.iso` (or `kyth-live
 
 ```text
 build_base/
-  Containerfile        Pulls kinoite-main:43, runs build_base/build.sh
+  Dockerfile           Pulls kinoite-main:43, runs build_base/build.sh
   build.sh             CachyOS kernel, initramfs, Plymouth boot splash, kargs, SDDM
 
 build_files/
@@ -151,7 +158,7 @@ build_files/
 
 disk_config/
   disk.toml            BIB config for qcow2/raw disk images
-  iso.toml             BIB config for Anaconda installer ISO
+  iso.toml             BIB config for installer ISO builds
 
 Dockerfile             Assembles the final kyth:latest image from the base
 Justfile               All build, run, and clean recipes

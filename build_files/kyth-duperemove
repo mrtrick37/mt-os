@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+log() {
+    printf 'kyth-duperemove: %s\n' "$*"
+}
+
+supports_dedupe() {
+    local path="$1"
+    local fstype
+    fstype=$(findmnt -no FSTYPE -T "$path" 2>/dev/null || true)
+    [[ "$fstype" == "btrfs" || "$fstype" == "xfs" ]]
+}
+
+mapfile -t targets < <(
+    find /var/home -mindepth 4 -maxdepth 7 -type d \
+        \( -path '*/Steam/steamapps/compatdata' -o -path '*/Steam/steamapps/shadercache' \) 2>/dev/null \
+        | sort -u
+)
+
+if [[ ${#targets[@]} -eq 0 ]]; then
+    log "no Steam compatdata/shadercache directories found"
+    exit 0
+fi
+
+for dir in "${targets[@]}"; do
+    if ! supports_dedupe "$dir"; then
+        log "skipping unsupported filesystem for $dir"
+        continue
+    fi
+
+    hash_name=$(printf '%s' "$dir" | tr '/ ' '__')
+    log "deduping $dir"
+    ionice -c3 nice -n 19 duperemove -rdh --hashfile "/var/tmp/${hash_name}.duperemove.hash" "$dir" || true
+done

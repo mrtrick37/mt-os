@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ $# -eq 0 ]]; then
+    echo "Usage: zink-run <command> [args...]" >&2
+    exit 1
+fi
+
+export MESA_LOADER_DRIVER_OVERRIDE="${MESA_LOADER_DRIVER_OVERRIDE:-zink}"
+export GALLIUM_DRIVER="${GALLIUM_DRIVER:-zink}"
+export LIBGL_KOPPER_DRI2="${LIBGL_KOPPER_DRI2:-1}"
+
+exec "$@"
