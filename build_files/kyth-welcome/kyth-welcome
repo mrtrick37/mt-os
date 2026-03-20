@@ -11,6 +11,7 @@ import json
 import re
 import shutil
 import subprocess
+import time
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -274,6 +275,19 @@ def _command_stdout(cmd: list[str], timeout: int = 5) -> str:
     return result.stdout.strip()
 
 
+def _with_idle_inhibit(cmd: list[str], reason: str) -> list[str]:
+    inhibit = shutil.which("systemd-inhibit")
+    if not inhibit:
+        return cmd
+    return [
+        inhibit,
+        "--what=idle:sleep",
+        f"--why={reason}",
+        "--mode=block",
+        *cmd,
+    ]
+
+
 def _bootc_status_text() -> str:
     for cmd in (["sudo", "-n", "bootc", "status"], ["bootc", "status"]):
         result = _run_command(cmd, timeout=10)
@@ -315,6 +329,22 @@ def _walk_strings(data: object):
     if isinstance(data, list):
         for value in data:
             yield from _walk_strings(value)
+
+
+def _active_bootc_operation() -> str | None:
+    result = _run_command(["ps", "-eo", "pid=,args="], timeout=5)
+    if result is None or result.returncode != 0 or not result.stdout.strip():
+        return None
+    for line in result.stdout.splitlines():
+        text = line.strip()
+        if not text:
+            continue
+        if " bootc " not in f" {text} ":
+            continue
+        if not any(op in text for op in (" bootc upgrade", " bootc switch", " bootc rollback", " bootc reset")):
+            continue
+        return text
+    return None
 
 
 def _bootc_image_reference() -> str | None:
@@ -1332,7 +1362,12 @@ class BranchesTab(QWidget):
         self._stable_btn.setEnabled(False)
         self._testing_btn.setEnabled(False)
 
-        self._worker = Worker(["sudo", "bootc", "switch", ref])
+        self._worker = Worker(
+            _with_idle_inhibit(
+                ["sudo", "bootc", "switch", ref],
+                "Kyth helper is switching the system branch",
+            )
+        )
         self._worker.line.connect(self._on_line)
         self._worker.done.connect(self._on_done)
         self._worker.start()
@@ -1367,6 +1402,10 @@ class UpdateTab(QWidget):
         super().__init__()
         self._worker = None
         self._mode = "update"
+        self._last_update_output = 0.0
+        self._heartbeat = QTimer(self)
+        self._heartbeat.setInterval(15000)
+        self._heartbeat.timeout.connect(self._emit_update_heartbeat)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(40, 36, 40, 36)
@@ -1428,6 +1467,12 @@ class UpdateTab(QWidget):
         self._status_lbl.hide()
         layout.addWidget(self._status_lbl)
 
+        self._activity_lbl = QLabel()
+        self._activity_lbl.setObjectName("card-copy")
+        self._activity_lbl.setWordWrap(True)
+        self._activity_lbl.hide()
+        layout.addWidget(self._activity_lbl)
+
         self._progress = QProgressBar()
         self._progress.setRange(0, 0)
         self._progress.hide()
@@ -1471,8 +1516,10 @@ class UpdateTab(QWidget):
 
     def _run_update(self):
         self._mode = "update"
+        self._last_update_output = time.monotonic()
         self._log.clear()
         self._log.append("→ bootc upgrade\n")
+        self._log.append("bootc keeps the system image lock while this runs, so manual bootc commands will be blocked until it finishes.\n")
         self._log.show()
         self._progress.setRange(0, 0)
         self._progress.show()
@@ -1483,10 +1530,17 @@ class UpdateTab(QWidget):
         self._update_btn.setEnabled(False)
         self._rollback_btn.setEnabled(False)
 
-        self._worker = Worker(["sudo", "bootc", "upgrade"])
+        self._worker = Worker(
+            _with_idle_inhibit(
+                ["sudo", "bootc", "upgrade"],
+                "Kyth helper is downloading a system update",
+            )
+        )
         self._worker.line.connect(self._on_line)
         self._worker.done.connect(self._on_done)
         self._worker.start()
+        self._update_activity_indicator()
+        self._heartbeat.start()
 
     def _run_rollback(self):
         self._mode = "rollback"
@@ -1502,10 +1556,16 @@ class UpdateTab(QWidget):
         self._update_btn.setEnabled(False)
         self._rollback_btn.setEnabled(False)
 
-        self._worker = Worker(["sudo", "bootc", "rollback"])
+        self._worker = Worker(
+            _with_idle_inhibit(
+                ["sudo", "bootc", "rollback"],
+                "Kyth helper is preparing a system rollback",
+            )
+        )
         self._worker.line.connect(self._on_line)
         self._worker.done.connect(self._on_done)
         self._worker.start()
+        self._update_activity_indicator()
 
     def _refresh_summary(self):
         branch = _branch_display_name(_current_branch())
@@ -1525,16 +1585,46 @@ class UpdateTab(QWidget):
             summary += " A rollback target was not detected yet."
         self._summary_lbl.setText(summary)
         self._rollback_btn.setEnabled(rollback and self._worker is None)
+        self._update_activity_indicator()
 
     def _on_line(self, text: str):
+        self._last_update_output = time.monotonic()
         self._log.append(text)
+        self._log.ensureCursorVisible()
+        self._update_activity_indicator()
+
+    def _update_activity_indicator(self):
+        active = _active_bootc_operation()
+        if active:
+            self._activity_lbl.setText(
+                "Active bootc operation detected. Manual bootc commands will stay locked until it finishes.\n"
+                f"Process: {active}"
+            )
+            self._activity_lbl.show()
+        else:
+            self._activity_lbl.hide()
+
+    def _emit_update_heartbeat(self):
+        if self._worker is None or self._mode != "update":
+            self._heartbeat.stop()
+            self._update_activity_indicator()
+            return
+        quiet_for = int(time.monotonic() - self._last_update_output)
+        self._update_activity_indicator()
+        if quiet_for < 15:
+            return
+        self._log.append(
+            f"Still running after {quiet_for}s without new output. This can be normal while bootc is pulling/verifying layers, and the system image lock will remain held until it finishes."
+        )
         self._log.ensureCursorVisible()
 
     def _on_done(self, code: int):
+        self._heartbeat.stop()
         self._progress.hide()
         self._update_btn.setEnabled(True)
         self._rollback_btn.setEnabled(True)
         self._worker = None
+        self._update_activity_indicator()
 
         if code == 0:
             if self._mode == "rollback":
@@ -1970,7 +2060,12 @@ class RepairTab(QWidget):
         self._status_lbl.setObjectName("subheading")
         self._status_lbl.show()
 
-        self._worker = Worker(["sudo", "bootc", "reset"])
+        self._worker = Worker(
+            _with_idle_inhibit(
+                ["sudo", "bootc", "reset"],
+                "Kyth helper is resetting the system image",
+            )
+        )
         self._worker.line.connect(self._on_line)
         self._worker.done.connect(self._on_done)
         self._worker.start()
