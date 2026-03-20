@@ -272,6 +272,18 @@ def _command_stdout(cmd: list[str], timeout: int = 5) -> str:
     return result.stdout.strip()
 
 
+def _bootc_status_data() -> dict | None:
+    for cmd in (["bootc", "status", "--json"], ["sudo", "-n", "bootc", "status", "--json"]):
+        result = _run_command(cmd, timeout=10)
+        if result is None or result.returncode != 0 or not result.stdout.strip():
+            continue
+        try:
+            return json.loads(result.stdout)
+        except json.JSONDecodeError:
+            continue
+    return None
+
+
 def _status_palette(status: str) -> tuple[str, str, str]:
     if status == "ok":
         return ("#1f3326", "#9ece6a", "Working")
@@ -561,37 +573,28 @@ def _collect_hardware_probes() -> list[HardwareProbe]:
 
 def _current_branch() -> str | None:
     """Return the image tag of the booted deployment, or None."""
-    try:
-        r = subprocess.run(
-            ["bootc", "status", "--json"],
-            capture_output=True, text=True, timeout=10,
-        )
-        data = json.loads(r.stdout)
-        img = (
-            data.get("status", {})
-                .get("booted", {})
-                .get("image", {})
-                .get("image", {})
-                .get("image", "")
-        )
-        if ":" in img:
-            return img.split(":")[-1]
-    except Exception:
-        pass
+    data = _bootc_status_data() or {}
+    img = (
+        data.get("status", {})
+            .get("booted", {})
+            .get("image", {})
+            .get("image", {})
+            .get("image", "")
+    )
+    if ":" in img:
+        return img.split(":")[-1]
     return None
 
 
 def _has_staged_update() -> bool:
     """Return True if bootc has a staged image waiting."""
-    try:
-        r = subprocess.run(
-            ["bootc", "status", "--json"],
-            capture_output=True, text=True, timeout=10,
-        )
-        data = json.loads(r.stdout)
-        return data.get("status", {}).get("staged") is not None
-    except Exception:
-        return False
+    data = _bootc_status_data() or {}
+    return data.get("status", {}).get("staged") is not None
+
+
+def _has_rollback_deployment() -> bool:
+    data = _bootc_status_data() or {}
+    return data.get("status", {}).get("rollback") is not None
 
 
 def _detect_nvidia() -> bool:
@@ -820,22 +823,77 @@ class WelcomeTab(QWidget):
 
         layout.addWidget(_divider())
 
+        overview = QLabel(
+            "Kyth keeps the operating system separate from your personal files. "
+            "Updates are downloaded safely, applied on reboot, and can be rolled back "
+            "if something goes wrong."
+        )
+        overview.setWordWrap(True)
+        overview.setStyleSheet("color: #cdd6f4;")
+        layout.addWidget(overview)
+
+        checklist = QFrame()
+        checklist.setObjectName("card")
+        checklist_layout = QVBoxLayout(checklist)
+        checklist_layout.setContentsMargins(16, 14, 16, 14)
+        checklist_layout.setSpacing(10)
+
+        checklist_title = QLabel("Recommended first steps")
+        checklist_title.setObjectName("card-title")
+        checklist_layout.addWidget(checklist_title)
+
         branch = _current_branch() or "unknown"
-        info_layout = QVBoxLayout()
-        info_layout.setSpacing(8)
+        staged = "ready next reboot" if _has_staged_update() else "nothing staged right now"
+        rollback = "available" if _has_rollback_deployment() else "not detected yet"
+        checklist_body = QLabel(
+            "1. Open Hardware and confirm your graphics, audio, and wireless status.\n"
+            "2. Open Firmware and check for device updates.\n"
+            "3. Open Update to download the latest Kyth image.\n"
+            "4. Review NVIDIA Drivers if this machine uses NVIDIA graphics.\n"
+            "5. Make sure your personal files in /home are backed up somewhere you trust.\n\n"
+            f"Current branch: {branch}\n"
+            f"Next boot status: {staged}\n"
+            f"Rollback state: {rollback}"
+        )
+        checklist_body.setObjectName("card-copy")
+        checklist_body.setWordWrap(True)
+        checklist_layout.addWidget(checklist_body)
+        layout.addWidget(checklist)
 
-        branch_row = QHBoxLayout()
-        branch_lbl = QLabel("Current branch:")
-        branch_lbl.setFixedWidth(130)
-        branch_lbl.setStyleSheet("color: #6c7086;")
-        branch_val = QLabel(branch)
-        branch_val.setStyleSheet("color: #7aa2f7; font-weight: 600;")
-        branch_row.addWidget(branch_lbl)
-        branch_row.addWidget(branch_val)
-        branch_row.addStretch()
-        info_layout.addLayout(branch_row)
+        backup = QFrame()
+        backup.setObjectName("card")
+        backup_layout = QVBoxLayout(backup)
+        backup_layout.setContentsMargins(16, 14, 16, 14)
+        backup_layout.setSpacing(10)
 
-        layout.addLayout(info_layout)
+        backup_title = QLabel("Backup guidance")
+        backup_title.setObjectName("card-title")
+        backup_layout.addWidget(backup_title)
+
+        backup_body = QLabel(
+            "Kyth repairs and rollbacks protect the OS itself, but they are not a replacement "
+            "for backing up your personal files. Keep your game saves, projects, and documents "
+            "in /home and copy them to another drive or cloud service regularly."
+        )
+        backup_body.setObjectName("card-copy")
+        backup_body.setWordWrap(True)
+        backup_layout.addWidget(backup_body)
+
+        backup_btn_row = QHBoxLayout()
+        home_btn = QPushButton("Open Home Folder")
+        home_btn.clicked.connect(
+            lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(os.path.expanduser("~")))
+        )
+        docs_btn = QPushButton("Open Backup Location")
+        docs_btn.clicked.connect(
+            lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(os.path.expanduser("~/Documents")))
+        )
+        backup_btn_row.addWidget(home_btn)
+        backup_btn_row.addWidget(docs_btn)
+        backup_btn_row.addStretch()
+        backup_layout.addLayout(backup_btn_row)
+        layout.addWidget(backup)
+
         layout.addWidget(_divider())
 
         # Links
@@ -857,8 +915,6 @@ class WelcomeTab(QWidget):
         link_layout.addStretch()
         layout.addLayout(link_layout)
 
-        layout.addStretch()
-
         note = QLabel(
             "This window will not appear again on login. "
             "You can reopen it from the application menu."
@@ -866,6 +922,8 @@ class WelcomeTab(QWidget):
         note.setObjectName("subheading")
         note.setWordWrap(True)
         layout.addWidget(note)
+
+        layout.addStretch()
 
 
 # ── Tab: Branches ──────────────────────────────────────────────────────────────
@@ -1023,6 +1081,7 @@ class UpdateTab(QWidget):
     def __init__(self):
         super().__init__()
         self._worker = None
+        self._mode = "update"
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(40, 36, 40, 36)
@@ -1032,19 +1091,53 @@ class UpdateTab(QWidget):
         title.setObjectName("heading")
         layout.addWidget(title)
 
-        sub = QLabel("Pull the latest image for the current branch.")
+        sub = QLabel(
+            "Download the next Kyth system image safely, reboot into it when you are ready, "
+            "and roll back if the new deployment does not behave the way you expect."
+        )
         sub.setObjectName("subheading")
+        sub.setWordWrap(True)
         layout.addWidget(sub)
 
         layout.addWidget(_divider())
 
+        explainer = QFrame()
+        explainer.setObjectName("card")
+        explainer_layout = QVBoxLayout(explainer)
+        explainer_layout.setContentsMargins(16, 14, 16, 14)
+        explainer_layout.setSpacing(10)
+
+        explainer_title = QLabel("How Kyth updates work")
+        explainer_title.setObjectName("card-title")
+        explainer_layout.addWidget(explainer_title)
+
+        explainer_body = QLabel(
+            "1. Download the next system image.\n"
+            "2. Keep using your current session normally.\n"
+            "3. Reboot when you want to switch over.\n"
+            "4. If the new deployment causes trouble, use Roll Back to boot the previous one."
+        )
+        explainer_body.setObjectName("card-copy")
+        explainer_body.setWordWrap(True)
+        explainer_layout.addWidget(explainer_body)
+        layout.addWidget(explainer)
+
         btn_row = QHBoxLayout()
-        self._update_btn = QPushButton("Update Now")
+        self._update_btn = QPushButton("Download Next Update")
         self._update_btn.setObjectName("primary")
         self._update_btn.clicked.connect(self._run_update)
         btn_row.addWidget(self._update_btn)
+
+        self._rollback_btn = QPushButton("Roll Back to Previous Boot")
+        self._rollback_btn.clicked.connect(self._run_rollback)
+        btn_row.addWidget(self._rollback_btn)
         btn_row.addStretch()
         layout.addLayout(btn_row)
+
+        self._summary_lbl = QLabel()
+        self._summary_lbl.setObjectName("card-copy")
+        self._summary_lbl.setWordWrap(True)
+        layout.addWidget(self._summary_lbl)
 
         self._status_lbl = QLabel()
         self._status_lbl.hide()
@@ -1069,24 +1162,84 @@ class UpdateTab(QWidget):
         )
         layout.addWidget(self._reboot_btn)
 
+        recovery = QFrame()
+        recovery.setObjectName("card")
+        recovery_layout = QVBoxLayout(recovery)
+        recovery_layout.setContentsMargins(16, 14, 16, 14)
+        recovery_layout.setSpacing(10)
+
+        recovery_title = QLabel("Recovery and personal files")
+        recovery_title.setObjectName("card-title")
+        recovery_layout.addWidget(recovery_title)
+
+        recovery_body = QLabel(
+            "Rolling back switches the system deployment you boot into. It does not delete files in /home. "
+            "A full refresh in the Repair tab resets the OS to defaults while still leaving /home in place."
+        )
+        recovery_body.setObjectName("card-copy")
+        recovery_body.setWordWrap(True)
+        recovery_layout.addWidget(recovery_body)
+        layout.addWidget(recovery)
+
         layout.addStretch()
+        self._refresh_summary()
 
     def _run_update(self):
+        self._mode = "update"
         self._log.clear()
         self._log.append("→ bootc upgrade\n")
         self._log.show()
         self._progress.setRange(0, 0)
         self._progress.show()
-        self._status_lbl.setText("Checking for updates…")
+        self._status_lbl.setText("Downloading the next Kyth system update…")
         self._status_lbl.setObjectName("subheading")
         self._status_lbl.show()
         self._reboot_btn.hide()
         self._update_btn.setEnabled(False)
+        self._rollback_btn.setEnabled(False)
 
         self._worker = Worker(["sudo", "bootc", "upgrade"])
         self._worker.line.connect(self._on_line)
         self._worker.done.connect(self._on_done)
         self._worker.start()
+
+    def _run_rollback(self):
+        self._mode = "rollback"
+        self._log.clear()
+        self._log.append("→ bootc rollback\n")
+        self._log.show()
+        self._progress.setRange(0, 0)
+        self._progress.show()
+        self._status_lbl.setText("Preparing the previous deployment for your next boot…")
+        self._status_lbl.setObjectName("subheading")
+        self._status_lbl.show()
+        self._reboot_btn.hide()
+        self._update_btn.setEnabled(False)
+        self._rollback_btn.setEnabled(False)
+
+        self._worker = Worker(["sudo", "bootc", "rollback"])
+        self._worker.line.connect(self._on_line)
+        self._worker.done.connect(self._on_done)
+        self._worker.start()
+
+    def _refresh_summary(self):
+        branch = _current_branch() or "unknown"
+        staged = _has_staged_update()
+        rollback = _has_rollback_deployment()
+        if staged:
+            summary = (
+                f"You are on the {branch} branch. A new deployment is already downloaded and ready for your next reboot."
+            )
+        else:
+            summary = (
+                f"You are on the {branch} branch. No new deployment is staged right now."
+            )
+        if rollback:
+            summary += " A previous deployment appears to be available if you need to roll back."
+        else:
+            summary += " A rollback target was not detected yet."
+        self._summary_lbl.setText(summary)
+        self._rollback_btn.setEnabled(rollback and self._worker is None)
 
     def _on_line(self, text: str):
         self._log.append(text)
@@ -1095,22 +1248,35 @@ class UpdateTab(QWidget):
     def _on_done(self, code: int):
         self._progress.hide()
         self._update_btn.setEnabled(True)
+        self._rollback_btn.setEnabled(True)
         self._worker = None
 
         if code == 0:
-            if _has_staged_update():
-                self._status_lbl.setText("Update staged — reboot to apply.")
-                self._status_lbl.setObjectName("status-ok")
+            if self._mode == "rollback":
+                self._status_lbl.setText("Rollback ready — reboot to return to the previous deployment.")
+                self._status_lbl.setObjectName("status-warn")
+                self._log.append("\nDone. Reboot when you are ready to go back to the previous system image.")
                 self._reboot_btn.show()
             else:
-                self._status_lbl.setText("Already up to date.")
-                self._status_lbl.setObjectName("status-ok")
+                if _has_staged_update():
+                    self._status_lbl.setText("Update ready — reboot whenever you want to start using it.")
+                    self._status_lbl.setObjectName("status-ok")
+                    self._log.append("\nDone. Your next system image is downloaded and waiting for the next reboot.")
+                    self._reboot_btn.show()
+                else:
+                    self._status_lbl.setText("You are already on the newest available deployment.")
+                    self._status_lbl.setObjectName("status-ok")
+                    self._log.append("\nNo update was staged because this system is already current.")
         else:
-            self._status_lbl.setText(f"Update failed (exit code {code}).")
+            if self._mode == "rollback":
+                self._status_lbl.setText(f"Rollback failed (exit code {code}).")
+            else:
+                self._status_lbl.setText(f"Update failed (exit code {code}).")
             self._status_lbl.setObjectName("status-err")
 
         self._status_lbl.style().unpolish(self._status_lbl)
         self._status_lbl.style().polish(self._status_lbl)
+        self._refresh_summary()
 
 
 # ── Tab: Firmware Updates ─────────────────────────────────────────────────────
@@ -1402,13 +1568,33 @@ class RepairTab(QWidget):
         layout.addWidget(title)
 
         sub = QLabel(
-            "Reset the OS back to its factory state while keeping your home folder."
+            "Use this when you want to put the operating system back to a clean Kyth state without deleting your personal files."
         )
         sub.setObjectName("subheading")
         sub.setWordWrap(True)
         layout.addWidget(sub)
 
         layout.addWidget(_divider())
+
+        backup_frame = QFrame()
+        backup_frame.setObjectName("card")
+        backup_layout = QVBoxLayout(backup_frame)
+        backup_layout.setContentsMargins(16, 14, 16, 14)
+        backup_layout.setSpacing(10)
+
+        backup_title = QLabel("What repair changes and what it does not")
+        backup_title.setObjectName("card-title")
+        backup_layout.addWidget(backup_title)
+
+        backup_body = QLabel(
+            "Repair resets the system image, layered packages, and system configuration. "
+            "It does not replace a real backup. Files in /home stay in place, so this is a safe way to recover the OS, "
+            "but you should still keep copies of important saves, documents, and projects somewhere else."
+        )
+        backup_body.setObjectName("card-copy")
+        backup_body.setWordWrap(True)
+        backup_layout.addWidget(backup_body)
+        layout.addWidget(backup_frame)
 
         # Warning box
         warn_frame = QFrame()
@@ -1426,10 +1612,11 @@ class RepairTab(QWidget):
 
         warn_body = QLabel(
             "Running a refresh will:\n"
-            "  • Remove any packages you have layered\n"
-            "  • Reset all system configuration to defaults\n"
-            "  • Keep everything in /home untouched\n\n"
-            "The system will reboot immediately after the reset is staged."
+            "  • Remove layered packages and custom OS-level changes\n"
+            "  • Reset system configuration back to Kyth defaults\n"
+            "  • Keep everything in /home untouched\n"
+            "  • Reboot automatically after the reset is staged\n\n"
+            "If you only need to undo a bad update, try Roll Back in the Update tab first."
         )
         warn_body.setWordWrap(True)
         warn_body.setStyleSheet("color: #cdd6f4;")
