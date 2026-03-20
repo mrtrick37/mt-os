@@ -307,8 +307,9 @@ GAMEMODEEOF
 # is focused and whether a game is running.  Gives a noticeable responsiveness
 # boost during gaming without requiring per-app configuration.
 if dnf5 repoquery --available system76-scheduler >/dev/null 2>&1; then
-  dnf5 install -y system76-scheduler
-  systemctl enable com.system76.Scheduler 2>/dev/null || true
+  dnf5 install -y --skip-unavailable system76-scheduler || true
+  rpm -q system76-scheduler >/dev/null 2>&1 && \
+    systemctl enable com.system76.Scheduler 2>/dev/null || true
 else
   echo "system76-scheduler is unavailable in configured repos; skipping."
 fi
