@@ -55,11 +55,8 @@ RUN dnf5 install -y \
     --skip-broken && dnf5 clean all
 
 # ── System setup: live user, getty autologin, mask setup service ─────────────
-# SDDM autologin is unreliable in QEMU/live environments (X11 VT handoff races
-# with Plymouth; autologin config is fragile across Plasma versions).
-# Instead: getty on tty1 autologins liveuser → .bash_profile → exec startx →
-# .xinitrc → startplasma-x11.  SDDM stays installed for the post-install system
-# but is not started in the live session.
+# SDDM autologin remains unreliable in some live/QEMU paths.
+# Use tty1 autologin + startx for deterministic live desktop startup.
 RUN systemctl disable sddm 2>/dev/null || true \
     && systemctl set-default multi-user.target \
     && groupadd -r autologin \
@@ -76,9 +73,6 @@ RUN systemctl disable sddm 2>/dev/null || true \
     && systemctl mask kyth-sddm-setup.service 2>/dev/null || true
 
 # ── SDDM: config for the post-install system (not used in live session) ───────
-# SDDM is installed but disabled in live mode (getty autologin is used instead).
-# This config is written so the installed system has sane defaults when SDDM is
-# re-enabled after 'bootc install to-disk'.
 # X11 is used because kwin_wayland requires EGL/virgl and fails in plain QEMU.
 #
 # Session name detection: Plasma 6 on Fedora uses plasmax11.desktop; earlier
