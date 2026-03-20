@@ -30,28 +30,28 @@ rebase image_ref="kyth:latest":
 game-performance +args:
     #!/usr/bin/env bash
     set -euo pipefail
-    /usr/local/bin/game-performance {{ args }}
+    /usr/bin/game-performance {{ args }}
 
 # Run an OpenGL app through Zink.
 [group('Kyth')]
 zink-run +args:
     #!/usr/bin/env bash
     set -euo pipefail
-    /usr/local/bin/zink-run {{ args }}
+    /usr/bin/zink-run {{ args }}
 
 # Print a short Kyth system/kernel tuning summary.
 [group('Kyth')]
 kerver:
     #!/usr/bin/env bash
     set -euo pipefail
-    /usr/local/bin/kyth-kerver
+    /usr/bin/kyth-kerver
 
 # Print a paste-friendly system support snapshot.
 [group('Kyth')]
 device-info:
     #!/usr/bin/env bash
     set -euo pipefail
-    /usr/local/bin/kyth-device-info
+    /usr/bin/kyth-device-info
 
 # Install LACT from Flathub on an immutable system.
 [group('Kyth')]

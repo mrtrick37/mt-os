@@ -5,6 +5,6 @@ After=local-fs.target
 
 [Service]
 Type=oneshot
-ExecStart=/usr/local/bin/kyth-duperemove
+ExecStart=/usr/bin/kyth-duperemove
 Nice=19
 IOSchedulingClass=idle

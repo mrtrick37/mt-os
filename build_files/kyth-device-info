@@ -36,7 +36,7 @@ safe_cmd sh -lc 'ls /usr/lib/modules | grep cachyos | head -1'
 safe_cmd sh -lc 'for dev in /sys/class/drm/card*/device/power_dpm_force_performance_level; do printf "%s: %s\n" "$dev" "$(cat "$dev")"; done'
 
 section "Kyth Tunings"
-safe_cmd /usr/local/bin/kyth-kerver
+safe_cmd /usr/bin/kyth-kerver
 
 section "Flatpaks"
 safe_cmd flatpak list --app --columns=application,branch,origin

@@ -2,7 +2,7 @@
 Version=1.0
 Name=Kyth Helper
 Comment=Helper and settings for Kyth
-Exec=/usr/local/bin/kyth-welcome
+Exec=/usr/bin/kyth-welcome
 Icon=kyth
 Terminal=false
 Type=Application

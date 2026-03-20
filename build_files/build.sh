@@ -459,13 +459,13 @@ cat > /etc/skel/.config/autostart/kyth-set-resolution.desktop <<'RESEOF'
 [Desktop Entry]
 Type=Application
 Name=Kyth: Set display resolution
-Exec=/usr/local/bin/kyth-set-resolution
+Exec=/usr/bin/kyth-set-resolution
 X-KDE-autostart-after=panel
 Hidden=false
 NoDisplay=true
 RESEOF
 
-cat > /usr/local/bin/kyth-set-resolution <<'SCRIPTEOF'
+cat > /usr/bin/kyth-set-resolution <<'SCRIPTEOF'
 #!/usr/bin/env python3
 # Set every connected output to its preferred (first-listed) mode.
 # kscreen-doctor -o output format:
@@ -505,7 +505,7 @@ try:
 except OSError:
     pass
 SCRIPTEOF
-chmod +x /usr/local/bin/kyth-set-resolution
+chmod +x /usr/bin/kyth-set-resolution
 
 # Homebrew — system-wide install to /home/linuxbrew (= /var/home/linuxbrew at runtime)
 # Wheel group members can install/update formulae without sudo.
@@ -594,8 +594,7 @@ gtk-update-icon-cache -f /usr/share/icons/breeze-dark/ 2>/dev/null || true
 # Belt-and-suspenders: the icon theme install above should be enough, but this
 # also writes the icon key directly into each user's Kickoff applet config in
 # case the theme lookup is overridden by a previously cached value.
-mkdir -p /usr/local/bin
-cat > /usr/local/bin/kyth-set-kickoff-icon <<'KICKOFEOF'
+cat > /usr/bin/kyth-set-kickoff-icon <<'KICKOFEOF'
 #!/usr/bin/env python3
 import os, re, subprocess
 
@@ -626,14 +625,14 @@ try:
 except OSError:
     pass
 KICKOFEOF
-chmod +x /usr/local/bin/kyth-set-kickoff-icon
+chmod +x /usr/bin/kyth-set-kickoff-icon
 
 mkdir -p /etc/skel/.config/autostart
 cat > /etc/skel/.config/autostart/kyth-set-kickoff-icon.desktop <<'AUTOSTARTEOF'
 [Desktop Entry]
 Type=Application
 Name=Kyth: Set Kickoff Icon
-Exec=/usr/local/bin/kyth-set-kickoff-icon
+Exec=/usr/bin/kyth-set-kickoff-icon
 X-KDE-autostart-after=panel
 Hidden=false
 NoDisplay=true
@@ -661,17 +660,19 @@ dnf5 install -y \
 # PyQt6 helper + branch switcher.  Autostarts on first login via skel.
 dnf5 install -y python3-pyqt6
 
-install -m 0755 /ctx/kyth-welcome/kyth-welcome /usr/local/bin/kyth-welcome
+install -m 0755 /ctx/kyth-welcome/kyth-welcome /usr/bin/kyth-welcome
 install -m 0644 /ctx/kyth-welcome/kyth-welcome.desktop \
     /usr/share/applications/kyth-welcome.desktop
-install -m 0755 /ctx/game-performance /usr/local/bin/game-performance
-install -m 0755 /ctx/zink-run /usr/local/bin/zink-run
-install -m 0755 /ctx/kyth-kerver /usr/local/bin/kyth-kerver
-install -m 0755 /ctx/kyth-device-info /usr/local/bin/kyth-device-info
-install -m 0755 /ctx/kyth-creator-check /usr/local/bin/kyth-creator-check
-install -m 0755 /ctx/kyth-duperemove /usr/local/bin/kyth-duperemove
+install -m 0755 /ctx/game-performance /usr/bin/game-performance
+install -m 0755 /ctx/zink-run /usr/bin/zink-run
+install -m 0755 /ctx/kyth-kerver /usr/bin/kyth-kerver
+install -m 0755 /ctx/kyth-device-info /usr/bin/kyth-device-info
+install -m 0755 /ctx/kyth-creator-check /usr/bin/kyth-creator-check
+install -m 0755 /ctx/kyth-duperemove /usr/bin/kyth-duperemove
+install -m 0755 /ctx/kyth-local-bin-migrate /usr/bin/kyth-local-bin-migrate
 install -m 0644 /ctx/kyth-duperemove.service /usr/lib/systemd/system/kyth-duperemove.service
 install -m 0644 /ctx/kyth-duperemove.timer /usr/lib/systemd/system/kyth-duperemove.timer
+install -m 0644 /ctx/kyth-local-bin-migrate.service /usr/lib/systemd/system/kyth-local-bin-migrate.service
 install -m 0440 /ctx/kyth-bootc-sudo /etc/sudoers.d/kyth-bootc
 
 # Autostart on first login — removes itself after running once (like kyth-set-resolution).
@@ -680,7 +681,7 @@ cat > /etc/skel/.config/autostart/kyth-welcome.desktop <<'WELCOMEEOF'
 [Desktop Entry]
 Type=Application
 Name=Kyth Helper
-Exec=/usr/local/bin/kyth-welcome
+Exec=/usr/bin/kyth-welcome
 X-KDE-autostart-after=panel
 Hidden=false
 NoDisplay=true
@@ -782,6 +783,7 @@ done
 # Install Kyth-specific ujust recipes so users can run e.g. "ujust rebase kyth:stable".
 mkdir -p /usr/share/ublue-os/just
 cp /ctx/just/kyth.just /usr/share/ublue-os/just/75-kyth.just
+systemctl enable kyth-local-bin-migrate.service 2>/dev/null || true
 systemctl enable kyth-duperemove.timer 2>/dev/null || true
 
 # Purge dnf package cache — not needed at runtime and adds ~200 MB to the image.

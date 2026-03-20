@@ -1,0 +1,11 @@
+[Unit]
+Description=Kyth migration for old /usr/local helper paths
+After=local-fs.target
+ConditionPathExists=!/var/lib/kyth/migrations/local-bin-v1.done
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/kyth-local-bin-migrate
+
+[Install]
+WantedBy=multi-user.target
