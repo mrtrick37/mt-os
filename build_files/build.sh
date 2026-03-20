@@ -306,8 +306,12 @@ GAMEMODEEOF
 # Dynamically adjusts CFS nice values and I/O priority based on which window
 # is focused and whether a game is running.  Gives a noticeable responsiveness
 # boost during gaming without requiring per-app configuration.
-dnf5 install -y system76-scheduler
-systemctl enable com.system76.Scheduler 2>/dev/null || true
+if dnf5 repoquery --available system76-scheduler >/dev/null 2>&1; then
+  dnf5 install -y system76-scheduler
+  systemctl enable com.system76.Scheduler 2>/dev/null || true
+else
+  echo "system76-scheduler is unavailable in configured repos; skipping."
+fi
 
 # ── scx userspace schedulers ──────────────────────────────────────────────────
 # sched-ext (scx) is a BPF-based scheduler framework in the CachyOS kernel.
