@@ -1,4 +1,4 @@
 # Allow wheel-group users to run bootc and reboot without a password prompt.
 # Required by the kyth-welcome GUI helper which calls these commands from a
 # non-interactive context (no terminal, so sudo cannot prompt for a password).
-%wheel ALL=(root) NOPASSWD: /usr/bin/bootc switch *, /usr/bin/bootc upgrade, /usr/bin/systemctl reboot
+%wheel ALL=(root) NOPASSWD: /usr/bin/bootc switch *, /usr/bin/bootc upgrade, /usr/bin/bootc status, /usr/bin/systemctl reboot

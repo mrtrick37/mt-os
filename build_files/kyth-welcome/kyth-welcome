@@ -8,6 +8,7 @@ accessible from the application menu.
 import os
 import sys
 import json
+import re
 import shutil
 import subprocess
 from dataclasses import dataclass
@@ -273,8 +274,17 @@ def _command_stdout(cmd: list[str], timeout: int = 5) -> str:
     return result.stdout.strip()
 
 
+def _bootc_status_text() -> str:
+    for cmd in (["sudo", "-n", "bootc", "status"], ["bootc", "status"]):
+        result = _run_command(cmd, timeout=10)
+        if result is None or result.returncode != 0 or not result.stdout.strip():
+            continue
+        return result.stdout.strip()
+    return ""
+
+
 def _bootc_status_data() -> dict | None:
-    for cmd in (["bootc", "status", "--json"], ["sudo", "-n", "bootc", "status", "--json"]):
+    for cmd in (["sudo", "-n", "bootc", "status", "--json"], ["bootc", "status", "--json"]):
         result = _run_command(cmd, timeout=10)
         if result is None or result.returncode != 0 or not result.stdout.strip():
             continue
@@ -294,11 +304,27 @@ def _nested_get(data: object, path: tuple[str, ...]) -> object | None:
     return current
 
 
+def _walk_strings(data: object):
+    if isinstance(data, str):
+        yield data
+        return
+    if isinstance(data, dict):
+        for value in data.values():
+            yield from _walk_strings(value)
+        return
+    if isinstance(data, list):
+        for value in data:
+            yield from _walk_strings(value)
+
+
 def _bootc_image_reference() -> str | None:
     """Return the best-known image reference for the current deployment."""
     data = _bootc_status_data() or {}
     candidates = (
         ("spec", "image", "image"),
+        ("spec", "image", "reference"),
+        ("status", "booted", "image", "reference"),
+        ("status", "booted", "image", "image", "reference"),
         ("status", "booted", "image", "image", "image"),
         ("status", "booted", "image", "image"),
         ("status", "booted", "image"),
@@ -307,6 +333,16 @@ def _bootc_image_reference() -> str | None:
         value = _nested_get(data, path)
         if isinstance(value, str) and value.strip():
             return value.strip()
+    for value in _walk_strings(data):
+        stripped = value.strip()
+        if REGISTRY in stripped:
+            return stripped
+    text = _bootc_status_text()
+    if text:
+        pattern = re.compile(rf"({re.escape(REGISTRY)}(?::[A-Za-z0-9._-]+)?(?:@sha256:[a-fA-F0-9]+)?)")
+        match = pattern.search(text)
+        if match:
+            return match.group(1)
     return None
 
 
@@ -316,6 +352,10 @@ def _branch_from_ref(ref: str | None) -> str | None:
     ref = ref.strip()
     if not ref:
         return None
+    if f"{REGISTRY}:latest" in ref:
+        return "latest"
+    if f"{REGISTRY}:testing" in ref:
+        return "testing"
     if "@" in ref:
         return ref.split("@", 1)[0].rsplit(":", 1)[-1]
     if ":" in ref:
