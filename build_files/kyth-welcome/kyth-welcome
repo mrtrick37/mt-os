@@ -18,7 +18,7 @@ from datetime import datetime
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLabel, QTextEdit, QTabWidget, QProgressBar,
-    QFrame, QScrollArea, QFileDialog,
+    QFrame, QScrollArea, QFileDialog, QMessageBox,
 )
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer, QUrl
 from PyQt6.QtGui import QDesktopServices, QIcon
@@ -2208,6 +2208,26 @@ class MainWindow(QMainWindow):
         tabs.addTab(RepairTab(), "Repair")
 
         self.setCentralWidget(tabs)
+
+    def closeEvent(self, event):
+        active = []
+        for child in self.findChildren(QWidget):
+            worker = getattr(child, "_worker", None)
+            if worker is not None and worker.isRunning():
+                active.append(child)
+
+        if active:
+            QMessageBox.warning(
+                self,
+                "Kyth Is Busy",
+                "A task is still running in the helper. Please wait for it to finish before closing this window.",
+            )
+            event.ignore()
+            self.raise_()
+            self.activateWindow()
+            return
+
+        super().closeEvent(event)
 
 
 # ── Entry point ────────────────────────────────────────────────────────────────

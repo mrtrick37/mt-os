@@ -50,6 +50,8 @@ Kyth is a custom [bootc](https://containers.github.io/bootc/) image. The entire 
 - GameMode CPU/GPU governor profiles
 - WiFi power-save disabled system-wide
 - spice-vdagent for automatic display resolution in VMs
+- PowerDevil DDC/CI monitor control disabled by default on Plasma sessions to reduce AMD display/power-management instability
+- `libddcutil` display-watch threads disabled system-wide; tradeoff: external-monitor brightness control via KDE is unavailable by default
 - `kyth-kerver` and matching `ujust` recipes for quick system/tuning inspection
 - `ujust device-info`, `ujust install-lact`, and `ujust install-input-remapper`
 
