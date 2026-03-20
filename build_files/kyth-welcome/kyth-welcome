@@ -256,6 +256,73 @@ class HardwareProbeWorker(QThread):
             self.failed.emit(str(exc))
 
 
+def _finish_worker(owner: object) -> None:
+    worker = getattr(owner, "_worker", None)
+    if worker is None:
+        return
+    worker.wait()
+    worker.deleteLater()
+    owner._worker = None
+
+
+def _set_session_inhibit(owner: object, reason: str | None = None) -> None:
+    current = getattr(owner, "_screen_inhibit_cookie", None)
+    if reason is None:
+        if current is None:
+            return
+        cmd = [
+            "gdbus",
+            "call",
+            "--session",
+            "--dest",
+            "org.freedesktop.ScreenSaver",
+            "--object-path",
+            "/ScreenSaver",
+            "--method",
+            "org.freedesktop.ScreenSaver.UnInhibit",
+            str(current),
+        ]
+        try:
+            subprocess.run(cmd, capture_output=True, text=True, timeout=5, check=False)
+        finally:
+            owner._screen_inhibit_cookie = None
+        return
+
+    if current is not None:
+        return
+
+    cmd = [
+        "gdbus",
+        "call",
+        "--session",
+        "--dest",
+        "org.freedesktop.ScreenSaver",
+        "--object-path",
+        "/ScreenSaver",
+        "--method",
+        "org.freedesktop.ScreenSaver.Inhibit",
+        "kyth-welcome",
+        reason,
+    ]
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+    except OSError:
+        return
+
+    if result.returncode != 0:
+        return
+
+    match = re.search(r"\((\d+),\)", result.stdout)
+    if match:
+        owner._screen_inhibit_cookie = int(match.group(1))
+
+
 def _run_command(cmd: list[str], timeout: int = 5) -> subprocess.CompletedProcess[str] | None:
     try:
         return subprocess.run(
@@ -946,7 +1013,7 @@ class HardwareTab(QWidget):
     def _on_done(self, probes: list[HardwareProbe]):
         self._progress.hide()
         self._refresh_btn.setEnabled(True)
-        self._worker = None
+        _finish_worker(self)
         self._replace_cards(probes)
 
         levels = {probe.status for probe in probes}
@@ -965,7 +1032,7 @@ class HardwareTab(QWidget):
     def _on_failed(self, message: str):
         self._progress.hide()
         self._refresh_btn.setEnabled(True)
-        self._worker = None
+        _finish_worker(self)
         self._status_lbl.setText(f"Hardware probe failed: {message}")
         self._status_lbl.setObjectName("status-err")
         self._status_lbl.style().unpolish(self._status_lbl)
@@ -1069,7 +1136,7 @@ class DiagnosticsTab(QWidget):
         self._refresh_btn.setEnabled(True)
         self._copy_btn.setEnabled(True)
         self._save_btn.setEnabled(True)
-        self._worker = None
+        _finish_worker(self)
         self._last_probes = probes
         self._report.setPlainText(_diagnostics_report(probes))
 
@@ -1089,7 +1156,7 @@ class DiagnosticsTab(QWidget):
     def _on_failed(self, message: str):
         self._progress.hide()
         self._refresh_btn.setEnabled(True)
-        self._worker = None
+        _finish_worker(self)
         self._report.setPlainText("")
         self._status_lbl.setText(f"Diagnostics failed: {message}")
         self._status_lbl.setObjectName("status-err")
@@ -1381,6 +1448,7 @@ class BranchesTab(QWidget):
                 "Kyth helper is switching the system branch",
             )
         )
+        _set_session_inhibit(self, "Kyth is switching the system branch")
         self._worker.line.connect(self._on_line)
         self._worker.done.connect(self._on_done)
         self._worker.start()
@@ -1393,7 +1461,8 @@ class BranchesTab(QWidget):
         self._progress.hide()
         self._stable_btn.setEnabled(True)
         self._testing_btn.setEnabled(True)
-        self._worker = None
+        _finish_worker(self)
+        _set_session_inhibit(self, None)
 
         if code == 0:
             self._status_lbl.setText("Branch staged — reboot to apply.")
@@ -1549,6 +1618,7 @@ class UpdateTab(QWidget):
                 "Kyth helper is downloading a system update",
             )
         )
+        _set_session_inhibit(self, "Kyth is downloading a system update")
         self._worker.line.connect(self._on_line)
         self._worker.done.connect(self._on_done)
         self._worker.start()
@@ -1575,6 +1645,7 @@ class UpdateTab(QWidget):
                 "Kyth helper is preparing a system rollback",
             )
         )
+        _set_session_inhibit(self, "Kyth is preparing a system rollback")
         self._worker.line.connect(self._on_line)
         self._worker.done.connect(self._on_done)
         self._worker.start()
@@ -1636,7 +1707,8 @@ class UpdateTab(QWidget):
         self._progress.hide()
         self._update_btn.setEnabled(True)
         self._rollback_btn.setEnabled(True)
-        self._worker = None
+        _finish_worker(self)
+        _set_session_inhibit(self, None)
         self._update_activity_indicator()
 
         if code == 0:
@@ -1734,6 +1806,7 @@ class FirmwareTab(QWidget):
         self._update_btn.setEnabled(False)
 
         self._worker = Worker(["fwupdmgr", "refresh", "--force"])
+        _set_session_inhibit(self, "Kyth is checking for firmware updates")
         self._worker.line.connect(self._on_line)
         self._worker.done.connect(self._on_check_done)
         self._worker.start()
@@ -1741,7 +1814,7 @@ class FirmwareTab(QWidget):
     def _on_check_done(self, code: int):
         self._progress.hide()
         self._check_btn.setEnabled(True)
-        self._worker = None
+        _finish_worker(self)
 
         if code == 0:
             self._log.append("\n→ fwupdmgr get-updates\n")
@@ -1753,6 +1826,7 @@ class FirmwareTab(QWidget):
             self._worker.done.connect(self._on_get_updates_done)
             self._worker.start()
         else:
+            _set_session_inhibit(self, None)
             self._status_lbl.setText("Failed to refresh firmware metadata.")
             self._status_lbl.setObjectName("status-err")
             self._status_lbl.style().unpolish(self._status_lbl)
@@ -1760,7 +1834,8 @@ class FirmwareTab(QWidget):
 
     def _on_get_updates_done(self, code: int):
         self._progress.hide()
-        self._worker = None
+        _finish_worker(self)
+        _set_session_inhibit(self, None)
         # fwupdmgr get-updates exits 2 when no updates are available
         if code == 0:
             self._status_lbl.setText("Updates available.")
@@ -1788,6 +1863,7 @@ class FirmwareTab(QWidget):
         self._check_btn.setEnabled(False)
 
         self._worker = Worker(["fwupdmgr", "update"])
+        _set_session_inhibit(self, "Kyth is applying firmware updates")
         self._worker.line.connect(self._on_line)
         self._worker.done.connect(self._on_update_done)
         self._worker.start()
@@ -1795,7 +1871,8 @@ class FirmwareTab(QWidget):
     def _on_update_done(self, code: int):
         self._progress.hide()
         self._check_btn.setEnabled(True)
-        self._worker = None
+        _finish_worker(self)
+        _set_session_inhibit(self, None)
 
         if code == 0:
             self._status_lbl.setText("Firmware updated successfully.")
@@ -1919,6 +1996,7 @@ class NvidiaTab(QWidget):
         self._install_btn.setEnabled(False)
 
         self._worker = Worker(cmd)
+        _set_session_inhibit(self, "Kyth is installing NVIDIA drivers")
         self._worker.line.connect(self._on_line)
         self._worker.done.connect(self._on_done)
         self._worker.start()
@@ -1930,7 +2008,8 @@ class NvidiaTab(QWidget):
     def _on_done(self, code: int):
         self._progress.hide()
         self._install_btn.setEnabled(True)
-        self._worker = None
+        _finish_worker(self)
+        _set_session_inhibit(self, None)
 
         if code == 0:
             self._log.append("\nDone. Reboot to activate NVIDIA drivers.")
@@ -2079,6 +2158,7 @@ class RepairTab(QWidget):
                 "Kyth helper is resetting the system image",
             )
         )
+        _set_session_inhibit(self, "Kyth is resetting the system image")
         self._worker.line.connect(self._on_line)
         self._worker.done.connect(self._on_done)
         self._worker.start()
@@ -2089,7 +2169,8 @@ class RepairTab(QWidget):
 
     def _on_done(self, code: int):
         self._progress.hide()
-        self._worker = None
+        _finish_worker(self)
+        _set_session_inhibit(self, None)
 
         if code == 0:
             self._status_lbl.setText("Reset staged — rebooting…")
