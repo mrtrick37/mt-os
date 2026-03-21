@@ -7,6 +7,12 @@ set -euo pipefail
 
 
 
+# ── Locale filtering ──────────────────────────────────────────────────────────
+# Strip non-English locale data from every subsequent RPM install.
+# Saves 100–300 MB across the full package set with no functional loss
+# on an English workstation.
+echo '%_install_langs en_US' >> /etc/rpm/macros
+
 ### Install Docker for container operations
 dnf5 install -y docker || true
 
@@ -104,7 +110,6 @@ dnf5 install -y \
     p7zip \
     p7zip-plugins \
     duperemove \
-    qemu \
     qemu-char-spice \
     qemu-device-display-virtio-gpu \
     qemu-device-display-virtio-vga \
@@ -221,9 +226,6 @@ dnf5 install -y --skip-unavailable \
     libva-utils \
     mesa-va-drivers \
     mesa-vdpau-drivers \
-    intel-media-driver \
-    libva-intel-driver \
-    nvidia-vaapi-driver \
     radeontop
 dnf5 upgrade -y libdrm
 
