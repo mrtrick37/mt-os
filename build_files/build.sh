@@ -574,13 +574,15 @@ SCRIPTEOF
 chmod +x /usr/bin/kyth-set-resolution
 
 # Homebrew — system-wide install to /home/linuxbrew (= /var/home/linuxbrew at runtime)
-# Wheel group members can install/update formulae without sudo.
+# Owned by a dedicated non-root 'linuxbrew' system user so topgrade does not invoke
+# brew via sudo (which brew refuses). Wheel group gets write access so any wheel
+# user can install/update formulae without privilege escalation.
 dnf5 install -y gcc glibc-devel libxcrypt-compat patch ruby
+useradd -r -d /home/linuxbrew -M -s /sbin/nologin linuxbrew
 git clone https://github.com/Homebrew/brew /home/linuxbrew/.linuxbrew
-# Make wheel group the owner so any wheel user can run brew
-chown -R root:wheel /home/linuxbrew/.linuxbrew
-chmod -R g+w /home/linuxbrew/.linuxbrew
-find /home/linuxbrew/.linuxbrew -type d -exec chmod g+s {} \;
+chown -R linuxbrew:wheel /home/linuxbrew
+chmod -R g+w /home/linuxbrew
+find /home/linuxbrew -type d -exec chmod g+s {} \;
 # Add brew to PATH for all login shells
 cat > /etc/profile.d/homebrew.sh <<'BREWEOF'
 if [ -d /home/linuxbrew/.linuxbrew ]; then
