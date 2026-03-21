@@ -106,7 +106,7 @@ rpm -qa | grep -E '^kernel' | grep -v cachyos | xargs -r rpm --nodeps -e 2>/dev/
 dnf5 copr disable -y bieszczaders/kernel-cachyos
 
 # Install all required packages
-dnf5 install -y \
+dnf5 install -y --skip-unavailable \
     p7zip \
     p7zip-plugins \
     duperemove \
