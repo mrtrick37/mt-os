@@ -124,6 +124,7 @@ dnf5 install -y \
     ydotool \
     tmux \
     gh \
+    topgrade \
     fwupd
 
 ## Gaming tweaks — Bazzite-style
@@ -152,11 +153,11 @@ dnf5 install -y --skip-unavailable --exclude=libde265.i686 \
     vkBasalt.i686 \
     libFAudio.x86_64 \
     libFAudio.i686 \
+    obs-studio \
     libobs_vkcapture.x86_64 \
     libobs_glcapture.x86_64 \
     libobs_vkcapture.i686 \
     libobs_glcapture.i686 \
-    openxr \
     xrandr \
     evtest \
     xdg-user-dirs \
@@ -179,7 +180,9 @@ dnf5 install -y --skip-unavailable --exclude=libde265.i686 \
 dnf5 install -y \
     kdeconnectd \
     kdeplasma-addons \
-    rom-properties-kf6
+    rom-properties-kf6 \
+    input-remapper
+systemctl enable input-remapper.service 2>/dev/null || true
 
 # Download winetricks from upstream (package version is often outdated)
 # Pin to the signed release commit so the build does not trust a mutable ref

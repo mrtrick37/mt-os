@@ -85,20 +85,6 @@ install-lact:
     echo "Launch it from the app launcher."
     echo "If you want overclocking/undervolting on AMD, review the official LACT Atomic guidance first."
 
-# Layer input-remapper onto the next deployment.
-[group('Kyth')]
-install-input-remapper:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    if ! command -v rpm-ostree >/dev/null 2>&1; then
-        echo "rpm-ostree is not available on this system." >&2
-        exit 1
-    fi
-    echo "Layering input-remapper into the next deployment..."
-    sudo rpm-ostree install input-remapper
-    echo
-    echo "input-remapper will be available after reboot."
-
 # Download and install the latest GE-Proton to /var/lib/kyth/ge-proton/.
 [group('Kyth')]
 update-ge-proton:
