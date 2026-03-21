@@ -161,10 +161,11 @@ WINETRICKS_VER="20260125"
 WINETRICKS_COMMIT="b76e1ee"
 mkdir -p /usr/local/bin
 curl -fsSL "https://raw.githubusercontent.com/Winetricks/winetricks/${WINETRICKS_COMMIT}/src/winetricks" \
-    -o /usr/local/bin/winetricks
-# Sanity-check: must be a shell script
-head -1 /usr/local/bin/winetricks | grep -q '^#!' || { echo "winetricks download looks invalid"; exit 1; }
-chmod +x /usr/local/bin/winetricks
+    -o /tmp/winetricks
+# Sanity-check: must be a shell script before installing
+head -1 /tmp/winetricks | grep -q '^#!' || { echo "winetricks download looks invalid"; exit 1; }
+install -m 0755 /tmp/winetricks /usr/local/bin/winetricks
+rm -f /tmp/winetricks
 
 # Disable COPRs so they don't persist in the final image
 dnf5 copr disable -y ublue-os/bazzite

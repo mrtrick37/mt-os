@@ -1601,6 +1601,10 @@ class UpdatePage(Page):
                 self._status_lbl.setObjectName("status-ok")
                 self._log.append("\nDone. Your next system image is staged and waiting for reboot.")
                 self._reboot_btn.show()
+            elif self._mode == "topgrade":
+                self._status_lbl.setText("Update complete — everything is up to date.")
+                self._status_lbl.setObjectName("status-ok")
+                self._log.append("\nDone. All managed tools and apps are up to date.")
             else:
                 self._status_lbl.setText("Already on the latest deployment — no image update was staged.")
                 self._status_lbl.setObjectName("status-ok")
