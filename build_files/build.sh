@@ -62,7 +62,6 @@ dnf5 install -y --skip-unavailable \
     tiptop \
     trace-cmd \
     util-linux-script \
-    virt-manager \
     virt-viewer \
     gnome-boxes \
     ydotool \
