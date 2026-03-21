@@ -1099,7 +1099,7 @@ class WelcomePage(Page):
         super().__init__()
 
         self._heading("Welcome to Kyth")
-        self._subheading("An atomic gaming and workstation OS built on Fedora.")
+        self._subheading("A fast, atomic desktop built for gaming and development.")
         self._divider()
 
         # System status tiles
@@ -2196,7 +2196,7 @@ class MainWindow(QMainWindow):
         logo_lbl.setObjectName("sidebar-logo")
         logo_layout.addWidget(logo_lbl)
 
-        ver_lbl = QLabel("Fedora 43 / CachyOS")
+        ver_lbl = QLabel("Kyth 43 · CachyOS")
         ver_lbl.setObjectName("sidebar-ver")
         logo_layout.addWidget(ver_lbl)
         sidebar_layout.addWidget(logo_area)
