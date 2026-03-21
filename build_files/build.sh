@@ -7,6 +7,12 @@ set -euo pipefail
 
 
 
+# ── Locale filtering ──────────────────────────────────────────────────────────
+# Strip non-English locale data from every subsequent RPM install.
+# Saves 100–300 MB across the full package set with no functional loss
+# on an English workstation.
+echo '%_install_langs en_US' >> /etc/rpm/macros
+
 ### Install Docker for container operations
 dnf5 install -y docker || true
 
@@ -34,77 +40,15 @@ dnf5 upgrade -y --exclude='kernel*' --exclude='gamescope*'
 # Mesa-git upgrade is handled in a separate image layer (build_files/scripts/mesa-git.sh)
 # so daily mesa updates only re-download that small layer, not this entire layer.
 
-### CachyOS kernel — replaces the stock Fedora kernel for better desktop/gaming performance
-# CachyOS COPR: https://copr.fedorainfracloud.org/coprs/bieszczaders/kernel-cachyos/
-dnf5 copr enable -y bieszczaders/kernel-cachyos
-
-# Install kernel packages with --noscripts to skip the %posttrans that calls
-# rpm-ostree kernel-install → dracut. That script fails in container builds
-# because it creates temp files in /tmp (tmpfs) then tries to rename them to the
-# overlay filesystem, hitting "Invalid cross-device link" (EXDEV). We do the
-# initramfs generation ourselves below with full control over the environment.
-dnf5 install -y --setopt=tsflags=noscripts kernel-cachyos-modules
-
-CACHYOS_KVER=$(ls /usr/lib/modules/ | grep cachyos | head -1)
-depmod -a "${CACHYOS_KVER}"
-
-dnf5 install -y --setopt=tsflags=noscripts --skip-unavailable \
-    kernel-cachyos \
-    kernel-cachyos-core \
-    kernel-cachyos-devel
-
-# Run depmod again now that all module packages are installed
-depmod -a "${CACHYOS_KVER}"
-
-# Ensure vmlinuz is in the OSTree-expected location
-# (kernel RPMs may put it in /boot; bootc needs it at /usr/lib/modules/<kver>/vmlinuz)
-if [ ! -f "/usr/lib/modules/${CACHYOS_KVER}/vmlinuz" ]; then
-    if [ -f "/boot/vmlinuz-${CACHYOS_KVER}" ]; then
-        cp --no-preserve=all "/boot/vmlinuz-${CACHYOS_KVER}" "/usr/lib/modules/${CACHYOS_KVER}/vmlinuz" 2>/dev/null
-    fi
-fi
-
-# Write dracut config before generating initramfs.
-# Force the ostree dracut module — required for bootc/ostree deployments.
-# Without this the initramfs cannot find or mount the root filesystem.
-# dracut skips it during container builds because there is no live ostree
-# deployment to auto-detect.
-mkdir -p /etc/dracut.conf.d
-cat > /etc/dracut.conf.d/99-kyth.conf <<'DRACUTEOF'
-add_dracutmodules+=" ostree "
-# virtio_blk/virtio_scsi/ahci are built into the CachyOS kernel (=y),
-# so add_drivers has no effect for them. Kept for documentation.
-add_drivers+=" virtio_blk virtio_scsi virtio_pci nvme ahci "
-DRACUTEOF
-
-# Generate initramfs directly — all paths stay on the overlay filesystem so
-# no cross-device link issues. TMPDIR=/var/tmp for safety.
-# Output to "initramfs" — bootc/ostree expects this exact filename.
-TMPDIR=/var/tmp dracut \
-    --no-hostonly \
-    --kver "${CACHYOS_KVER}" \
-    --force \
-    "/usr/lib/modules/${CACHYOS_KVER}/initramfs" \
-    2> >(grep -Ev 'xattr|fail to copy' >&2)
-
-# Remove the stock Fedora kernel so CachyOS is the only (and thus default) kernel.
-# dnf5 refuses to remove kernel-core if it considers it the "running" kernel in
-# the container build environment, so we remove the module directory directly and
-# clean up the RPM DB with rpm --nodeps.
-for OLD_KVER in $(ls /usr/lib/modules/ | grep -v "${CACHYOS_KVER}"); do
-    rm -rf "/usr/lib/modules/${OLD_KVER}"
-done
-rpm -qa | grep -E '^kernel' | grep -v cachyos | xargs -r rpm --nodeps -e 2>/dev/null || true
-
-# Disable COPR after install
-dnf5 copr disable -y bieszczaders/kernel-cachyos
+# Kernel was installed in the build_base layer. Capture the version here
+# since it's needed later for the Plymouth initramfs rebuild.
+CACHYOS_KVER=$(basename "$(echo /usr/lib/modules/*cachyos*)")
 
 # Install all required packages
-dnf5 install -y \
+dnf5 install -y --skip-unavailable \
     p7zip \
     p7zip-plugins \
     duperemove \
-    qemu \
     qemu-char-spice \
     qemu-device-display-virtio-gpu \
     qemu-device-display-virtio-vga \
@@ -118,13 +62,38 @@ dnf5 install -y \
     tiptop \
     trace-cmd \
     util-linux-script \
-    virt-manager \
     virt-viewer \
     gnome-boxes \
     ydotool \
     tmux \
     gh \
     fwupd
+
+# ── topgrade ─────────────────────────────────────────────────────────────────
+# Not in Fedora 43 repos — install pre-built binary from GitHub releases.
+# Uses the musl-linked build for maximum compatibility across libc versions.
+TOPGRADE_REPO_API="https://api.github.com/repos/topgrade-rs/topgrade/releases/latest"
+TMPDIR_TG=$(mktemp -d)
+release_json="${TMPDIR_TG}/release.json"
+if curl -fsSL "${TOPGRADE_REPO_API}" -o "${release_json}" 2>/dev/null; then
+    TOPGRADE_URL=$(
+        grep -o 'https://[^"]*x86_64[^"]*linux[^"]*musl[^"]*\.tar\.gz' "${release_json}" \
+        | head -n1
+    ) || true
+    if [[ -n "${TOPGRADE_URL}" ]]; then
+        TOPGRADE_TARBALL=$(basename "${TOPGRADE_URL}")
+        curl -fsSL "${TOPGRADE_URL}" -o "${TMPDIR_TG}/${TOPGRADE_TARBALL}"
+        tar -xzf "${TMPDIR_TG}/${TOPGRADE_TARBALL}" -C "${TMPDIR_TG}/"
+        find "${TMPDIR_TG}" -name 'topgrade' -type f \
+            -exec install -m 0755 {} /usr/bin/topgrade \;
+        echo "topgrade installed: $(topgrade --version 2>/dev/null || echo 'unknown version')"
+    else
+        echo "topgrade: no musl x86_64 tarball found in release assets; skipping."
+    fi
+else
+    echo "topgrade: failed to fetch release info from GitHub; skipping."
+fi
+rm -rf "${TMPDIR_TG}"
 
 ## Gaming tweaks — Bazzite-style
 # Install gamescope from Fedora BEFORE enabling Bazzite COPR.
@@ -152,11 +121,11 @@ dnf5 install -y --skip-unavailable --exclude=libde265.i686 \
     vkBasalt.i686 \
     libFAudio.x86_64 \
     libFAudio.i686 \
+    obs-studio \
     libobs_vkcapture.x86_64 \
     libobs_glcapture.x86_64 \
     libobs_vkcapture.i686 \
     libobs_glcapture.i686 \
-    openxr \
     xrandr \
     evtest \
     xdg-user-dirs \
@@ -179,7 +148,9 @@ dnf5 install -y --skip-unavailable --exclude=libde265.i686 \
 dnf5 install -y \
     kdeconnectd \
     kdeplasma-addons \
-    rom-properties-kf6
+    rom-properties-kf6 \
+    input-remapper
+systemctl enable input-remapper.service 2>/dev/null || true
 
 # Download winetricks from upstream (package version is often outdated)
 # Pin to the signed release commit so the build does not trust a mutable ref
@@ -189,10 +160,11 @@ WINETRICKS_VER="20260125"
 WINETRICKS_COMMIT="b76e1ee"
 mkdir -p /usr/local/bin
 curl -fsSL "https://raw.githubusercontent.com/Winetricks/winetricks/${WINETRICKS_COMMIT}/src/winetricks" \
-    -o /usr/local/bin/winetricks
-# Sanity-check: must be a shell script
-head -1 /usr/local/bin/winetricks | grep -q '^#!' || { echo "winetricks download looks invalid"; exit 1; }
-chmod +x /usr/local/bin/winetricks
+    -o /tmp/winetricks
+# Sanity-check: must be a shell script before installing
+head -1 /tmp/winetricks | grep -q '^#!' || { echo "winetricks download looks invalid"; exit 1; }
+install -m 0755 /tmp/winetricks /usr/local/bin/winetricks
+rm -f /tmp/winetricks
 
 # Disable COPRs so they don't persist in the final image
 dnf5 copr disable -y ublue-os/bazzite
@@ -218,9 +190,6 @@ dnf5 install -y --skip-unavailable \
     libva-utils \
     mesa-va-drivers \
     mesa-vdpau-drivers \
-    intel-media-driver \
-    libva-intel-driver \
-    nvidia-vaapi-driver \
     radeontop
 dnf5 upgrade -y libdrm
 
@@ -306,7 +275,7 @@ GAMEMODEEOF
 # Dynamically adjusts CFS nice values and I/O priority based on which window
 # is focused and whether a game is running.  Gives a noticeable responsiveness
 # boost during gaming without requiring per-app configuration.
-if dnf5 repoquery --available system76-scheduler >/dev/null 2>&1; then
+if dnf5 repoquery --available system76-scheduler 2>/dev/null | grep -q .; then
   dnf5 install -y --skip-unavailable system76-scheduler || true
   rpm -q system76-scheduler >/dev/null 2>&1 && \
     systemctl enable com.system76.Scheduler 2>/dev/null || true
@@ -325,7 +294,7 @@ is_enabled() {
 # Applies static per-process CPU/I/O priorities (browser, game launchers,
 # compilers, etc.) to smooth desktop responsiveness under mixed load.
 if is_enabled "${ENABLE_ANANICY:-1}"; then
-    if dnf5 repoquery --available ananicy-cpp >/dev/null 2>&1; then
+    if dnf5 repoquery --available ananicy-cpp 2>/dev/null | grep -q .; then
         dnf5 install -y --skip-unavailable \
                 ananicy-cpp \
                 ananicy-cpp-rules \
@@ -342,41 +311,85 @@ fi
 # ── scx userspace schedulers ──────────────────────────────────────────────────
 # sched-ext (scx) is a BPF-based scheduler framework in the CachyOS kernel.
 # scx_lavd is optimised for interactive + gaming — it prioritises latency-
-# sensitive threads (audio, input, render) while keeping throughputs tasks warm.
+# sensitive threads (audio, input, render) while keeping throughput tasks warm.
+#
+# We pull pre-built binaries directly from the upstream GitHub release rather
+# than relying on a COPR that may not have a Fedora 43 build available.
 if is_enabled "${ENABLE_SCX:-1}"; then
-    SCX_INSTALLED=0
-    if dnf5 copr enable -y bieszczaders/scx-scheds >/dev/null 2>&1; then
-        dnf5 install -y --skip-unavailable scx-scheds >/dev/null 2>&1 || true
-        dnf5 copr disable -y bieszczaders/scx-scheds >/dev/null 2>&1 || true
-    fi
+    SCX_REPO_API="https://api.github.com/repos/sched-ext/scx/releases/latest"
+    TMPDIR_SCX=$(mktemp -d)
 
-    if rpm -q scx-scheds >/dev/null 2>&1; then
-        SCX_INSTALLED=1
-    elif dnf5 repoquery --available scx-scheds >/dev/null 2>&1; then
-        dnf5 install -y --skip-unavailable scx-scheds >/dev/null 2>&1 || true
-        rpm -q scx-scheds >/dev/null 2>&1 && SCX_INSTALLED=1
-    fi
+    release_json="${TMPDIR_SCX}/release.json"
+    if curl -fsSL "${SCX_REPO_API}" -o "${release_json}" 2>/dev/null; then
+        # Find a Linux x86_64 binary tarball in the release assets
+        SCX_TARBALL_URL=$(
+            grep -o 'https://[^"]*\.tar\.gz' "${release_json}" \
+            | grep -i 'x86_64' \
+            | grep -iv 'source' \
+            | head -n1
+        ) || true
 
-    if [[ "${SCX_INSTALLED}" -eq 1 ]]; then
-        SCX_SCHEDULER=""
-        for sched in scx_lavd scx_rusty scx_bpfland; do
-            if command -v "$sched" >/dev/null 2>&1; then
-                SCX_SCHEDULER="$sched"
-                break
-            fi
-        done
+        if [[ -n "${SCX_TARBALL_URL}" ]]; then
+            SCX_TARBALL=$(basename "${SCX_TARBALL_URL}")
+            echo "scx: downloading ${SCX_TARBALL}"
+            curl -fsSL "${SCX_TARBALL_URL}" -o "${TMPDIR_SCX}/${SCX_TARBALL}"
+            tar -xzf "${TMPDIR_SCX}/${SCX_TARBALL}" -C "${TMPDIR_SCX}/"
 
-        if [[ -n "$SCX_SCHEDULER" ]]; then
-            mkdir -p /etc/scx
-            cat > /etc/scx/config <<SCXEOF
+            # Install scx_* scheduler binaries and scxd
+            find "${TMPDIR_SCX}" \( -name 'scx_*' -o -name 'scxd' \) -type f \
+                -exec install -m 0755 {} /usr/bin/ \;
+
+            if command -v scxd >/dev/null 2>&1; then
+                # Provide scxd.service — not present without the RPM
+                mkdir -p /usr/lib/systemd/system
+                cat > /usr/lib/systemd/system/scxd.service <<'SCXSVCEOF'
+[Unit]
+Description=sched-ext userspace scheduler daemon
+Documentation=https://github.com/sched-ext/scx
+After=basic.target
+
+[Service]
+Type=simple
+EnvironmentFile=-/etc/scx/config
+ExecStart=/usr/bin/scxd
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+SCXSVCEOF
+
+                # Pick the best available scheduler: lavd > rusty > bpfland
+                SCX_SCHEDULER=""
+                for sched in scx_lavd scx_rusty scx_bpfland; do
+                    if command -v "$sched" >/dev/null 2>&1; then
+                        SCX_SCHEDULER="$sched"
+                        break
+                    fi
+                done
+
+                if [[ -n "$SCX_SCHEDULER" ]]; then
+                    mkdir -p /etc/scx
+                    cat > /etc/scx/config <<SCXEOF
 SCX_SCHEDULER=${SCX_SCHEDULER}
 SCX_FLAGS=--auto-mode
 SCXEOF
-            systemctl enable scxd.service 2>/dev/null || true
+                    systemctl enable scxd.service 2>/dev/null || true
+                    echo "scx: enabled ${SCX_SCHEDULER}"
+                else
+                    echo "scx: no scheduler binaries found in archive"
+                fi
+            else
+                echo "scx: scxd not found after extraction"
+            fi
+        else
+            echo "scx: no x86_64 tarball found in release assets; skipping."
         fi
     else
-        echo "scx-scheds is unavailable in configured repos; skipping."
+        echo "scx: failed to fetch release info from GitHub; skipping."
     fi
+
+    rm -rf "${TMPDIR_SCX}"
 else
     echo "ENABLE_SCX is off; skipping scx scheduler install."
 fi
@@ -415,14 +428,15 @@ ACTION=="add|change", KERNEL=="sd[a-z]*", ATTR{queue/rotational}=="1", ATTR{queu
 IOEOF
 
 # ── PipeWire low-latency audio ─────────────────────────────────────────────────
-# Default quantum 1024 (~21 ms at 48 kHz) is a reasonable starting point for
-# gaming — low enough to avoid audio lag, high enough to avoid xruns.
-# Apps that need <1 ms (e.g. JACK DAW) can request smaller buffers directly.
+# 128 samples at 48 kHz = ~2.7 ms latency — low enough to eliminate perceptible
+# audio lag in games while staying stable on typical hardware.
+# min-quantum=32 lets pro-audio apps request sub-1 ms when needed.
+# Apps that need higher buffering (e.g. Bluetooth) negotiate up automatically.
 mkdir -p /etc/pipewire/pipewire.conf.d
 cat > /etc/pipewire/pipewire.conf.d/99-kyth.conf <<'PWEOF'
 context.properties = {
     default.clock.rate          = 48000
-    default.clock.quantum       = 1024
+    default.clock.quantum       = 128
     default.clock.min-quantum   = 32
     default.clock.max-quantum   = 8192
 }
@@ -472,7 +486,6 @@ code --no-sandbox --user-data-dir=/tmp/vscode-install \
 # Steam: disable CEF browser sandbox — required on bootc/ostree systems where
 # user namespace restrictions prevent the Chromium sandbox from initialising,
 # causing steamwebhelper to SEGV at startup.
-mkdir -p /etc/environment.d
 echo 'STEAM_DISABLE_BROWSER_SANDBOX=1' > /etc/environment.d/steam.conf
 
 # Steam: override the system .desktop file to remove PrefersNonDefaultGPU and
@@ -490,6 +503,11 @@ sed '/^PrefersNonDefaultGPU=\|^X-KDE-RunOnDiscreteGpu=/d' \
 
 systemctl enable libvirtd.socket
 systemctl enable fwupd 2>/dev/null || true
+
+# ── Distrobox ─────────────────────────────────────────────────────────────────
+# Lets users run mutable containers (any distro) alongside the immutable base OS.
+# Essential on atomic systems for one-off package installs without rpm-ostree.
+dnf5 install -y distrobox
 
 # ── Display / resolution auto-detection ──────────────────────────────────────
 # spice-vdagent: in QEMU/KVM VMs this daemon handles dynamic resolution changes
@@ -556,13 +574,15 @@ SCRIPTEOF
 chmod +x /usr/bin/kyth-set-resolution
 
 # Homebrew — system-wide install to /home/linuxbrew (= /var/home/linuxbrew at runtime)
-# Wheel group members can install/update formulae without sudo.
+# Owned by a dedicated non-root 'linuxbrew' system user so topgrade does not invoke
+# brew via sudo (which brew refuses). Wheel group gets write access so any wheel
+# user can install/update formulae without privilege escalation.
 dnf5 install -y gcc glibc-devel libxcrypt-compat patch ruby
+useradd -r -d /home/linuxbrew -M -s /sbin/nologin linuxbrew
 git clone https://github.com/Homebrew/brew /home/linuxbrew/.linuxbrew
-# Make wheel group the owner so any wheel user can run brew
-chown -R root:wheel /home/linuxbrew/.linuxbrew
-chmod -R g+w /home/linuxbrew/.linuxbrew
-find /home/linuxbrew/.linuxbrew -type d -exec chmod g+s {} \;
+chown -R linuxbrew:wheel /home/linuxbrew
+chmod -R g+w /home/linuxbrew
+find /home/linuxbrew -type d -exec chmod g+s {} \;
 # Add brew to PATH for all login shells
 cat > /etc/profile.d/homebrew.sh <<'BREWEOF'
 if [ -d /home/linuxbrew/.linuxbrew ]; then
@@ -613,7 +633,7 @@ PLASMAEOF
 # Add a second guardrail at the libddcutil layer as well. This keeps any
 # consumer that does load libddcutil from starting display-watch threads, which
 # are a known source of instability on some monitor/GPU combinations.
-mkdir -p /etc/environment.d /etc/xdg/plasma-workspace/env /etc/xdg/ddcutil
+mkdir -p /etc/xdg/plasma-workspace/env /etc/xdg/ddcutil
 cat > /etc/environment.d/90-kyth-powerdevil.conf <<'POWERDEVILEOF'
 POWERDEVIL_NO_DDCUTIL=1
 POWERDEVILEOF
@@ -635,14 +655,22 @@ cp /ctx/wallpaper/kyth-wallpaper.svg \
 printf '{"KPlugin":{"Authors":[{"Name":"Kyth"}],"Id":"kyth","Name":"Kyth","License":"CC-BY-SA-4.0"},"KPackageStructure":"Wallpaper/Images"}\n' \
     > /usr/share/wallpapers/kyth/metadata.json
 
-# Patch Breeze Dark L&F defaults to use Kyth wallpaper instead of the stock
-# 'Next' wallpaper, so applying the theme never overrides the Kyth background.
-BREEZE_DARK_DEFAULTS="/usr/share/plasma/look-and-feel/org.kde.breezedark.desktop/contents/defaults"
-if [ -f "$BREEZE_DARK_DEFAULTS" ]; then
-    sed -i 's/^Image=.*/Image=kyth/' "$BREEZE_DARK_DEFAULTS"
-    grep -q '^Image=' "$BREEZE_DARK_DEFAULTS" \
-        || printf '\n[Wallpaper]\nImage=kyth\n' >> "$BREEZE_DARK_DEFAULTS"
-fi || true
+# Patch all L&F defaults (Fedora variants + Breeze) to use Kyth wallpaper.
+# Fedora Kinoite ships org.fedoraproject.fedora*.desktop themes that set
+# Image=Fedora; we replace that in every theme so no L&F can restore the
+# stock Fedora rocket wallpaper.
+find /usr/share/plasma/look-and-feel -name defaults | while read -r f; do
+    sed -i 's/^Image=.*/Image=kyth/' "$f"
+    grep -q '^Image=' "$f" || printf '\n[Wallpaper]\nImage=kyth\n' >> "$f"
+done
+
+# System-wide XDG fallback — applied to every user before their personal
+# config exists, so first-boot always shows the Kyth wallpaper.
+mkdir -p /etc/xdg
+cat > /etc/xdg/plasma-org.kde.plasma.desktop-appletsrc <<'XDGPLASMAEOF'
+[Containments][1][Wallpaper][org.kde.image][General]
+Image=/usr/share/wallpapers/kyth/contents/images/1920x1080.svg
+XDGPLASMAEOF
 
 # ── Kyth logo as system icon ──────────────────────────────────────────────────
 # KDE Plasma 6 Kickoff looks up icons in this order:
@@ -733,6 +761,12 @@ dnf5 install -y \
 # PyQt6 helper + branch switcher.  Autostarts on first login via skel.
 dnf5 install -y python3-pyqt6
 
+# ── MangoHud defaults ─────────────────────────────────────────────────────────
+# Ship a sensible system-wide config so MangoHud shows useful info out of the box.
+# Users can override in ~/.config/MangoHud/MangoHud.conf or per-app.
+mkdir -p /etc/MangoHud
+install -m 0644 /ctx/MangoHud.conf /etc/MangoHud/MangoHud.conf
+
 install -m 0755 /ctx/kyth-welcome/kyth-welcome /usr/bin/kyth-welcome
 install -m 0644 /ctx/kyth-welcome/kyth-welcome.desktop \
     /usr/share/applications/kyth-welcome.desktop
@@ -747,6 +781,10 @@ install -m 0755 /ctx/kyth-local-bin-migrate /usr/bin/kyth-local-bin-migrate
 install -m 0644 /ctx/kyth-duperemove.service /usr/lib/systemd/system/kyth-duperemove.service
 install -m 0644 /ctx/kyth-duperemove.timer /usr/lib/systemd/system/kyth-duperemove.timer
 install -m 0644 /ctx/kyth-local-bin-migrate.service /usr/lib/systemd/system/kyth-local-bin-migrate.service
+install -m 0755 /ctx/kyth-ge-proton-update /usr/bin/kyth-ge-proton-update
+install -m 0644 /ctx/kyth-ge-proton-update.service /usr/lib/systemd/system/kyth-ge-proton-update.service
+install -m 0644 /ctx/kyth-ge-proton-update.timer /usr/lib/systemd/system/kyth-ge-proton-update.timer
+install -m 0644 /ctx/kyth-flathub-setup.service /usr/lib/systemd/system/kyth-flathub-setup.service
 install -m 0440 /ctx/kyth-bootc-sudo /etc/sudoers.d/kyth-bootc
 
 # Autostart on first login — removes itself after running once (like kyth-set-resolution).
@@ -822,7 +860,6 @@ dnf5 remove -y librsvg2-tools && dnf5 autoremove -y || true
 
 # Rebuild the initramfs to include Plymouth + the Kyth theme.
 # TMPDIR=/var/tmp avoids EXDEV cross-device rename errors.
-CACHYOS_KVER=$(ls /usr/lib/modules/ | grep cachyos | head -1)
 TMPDIR=/var/tmp dracut \
     --no-hostonly \
     --add "plymouth" \
@@ -859,6 +896,14 @@ mkdir -p /usr/share/ublue-os/just
 cp /ctx/just/kyth.just /usr/share/ublue-os/just/75-kyth.just
 systemctl enable kyth-local-bin-migrate.service 2>/dev/null || true
 systemctl enable kyth-duperemove.timer 2>/dev/null || true
+systemctl enable kyth-ge-proton-update.timer 2>/dev/null || true
+systemctl enable kyth-flathub-setup.service 2>/dev/null || true
+
+# ── GE-Proton runtime update path ─────────────────────────────────────────────
+# The weekly timer installs new GE-Proton to /var/lib/kyth/ge-proton/ (/var is
+# writable on an immutable system). Tell Steam to check this path in addition to
+# the build-time install in /usr/share/steam/compatibilitytools.d/.
+echo 'STEAM_EXTRA_COMPAT_TOOLS_PATHS=/var/lib/kyth/ge-proton' > /etc/environment.d/ge-proton.conf
 
 # Purge dnf package cache — not needed at runtime and adds ~200 MB to the image.
 dnf5 clean all

@@ -1,0 +1,10 @@
+[Unit]
+Description=Weekly GE-Proton update
+
+[Timer]
+OnCalendar=weekly
+Persistent=true
+RandomizedDelaySec=1h
+
+[Install]
+WantedBy=timers.target

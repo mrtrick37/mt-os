@@ -1,0 +1,11 @@
+[Unit]
+Description=Update GE-Proton compatibility layer
+Documentation=https://github.com/mrtrick37/kyth
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/kyth-ge-proton-update
+Nice=10
+IOSchedulingClass=idle

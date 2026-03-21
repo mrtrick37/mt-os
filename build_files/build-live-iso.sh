@@ -380,7 +380,7 @@ EFI_IMG="${ISO_DIR}/images/efiboot.img"
 truncate -s 15M "${EFI_IMG}"
 mkfs.fat -n "EFIBOOT" "${EFI_IMG}"
 mmd  -i "${EFI_IMG}" ::/EFI ::/EFI/BOOT
-if "${GRUB_EFI_BUILT}"; then
+if [[ "${GRUB_EFI_BUILT}" == "true" ]]; then
     mcopy -i "${EFI_IMG}" "${ISO_DIR}/EFI/BOOT/BOOTX64.EFI" ::/EFI/BOOT/BOOTX64.EFI
 fi
 mcopy -i "${EFI_IMG}" "${ISO_DIR}/EFI/BOOT/grub.cfg" ::/EFI/BOOT/grub.cfg

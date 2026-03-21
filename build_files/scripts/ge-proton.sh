@@ -18,7 +18,10 @@ else
 fi
 
 release_json="${TMPDIR_GE}/release.json"
-curl -fsSL "${release_api}" -o "${release_json}"
+if ! curl -fsSL "${release_api}" -o "${release_json}"; then
+    echo "Failed to fetch GE-Proton release info from ${release_api}" >&2
+    exit 1
+fi
 
 GE_PROTON_TARBALL_URL=$(
     grep -o 'https://[^"]*\.tar\.gz' "${release_json}" | head -n1

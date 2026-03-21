@@ -138,6 +138,13 @@ just --list
 
 The live ISO is written to `output/live-iso/kyth-live-latest.iso` (or `kyth-live-testing.iso` when building from the testing branch).
 
+**Optional feature flags** — both are enabled by default. Pass `0` to skip them if the packages are unavailable in your environment:
+
+```bash
+# Disable ananicy-cpp and/or scx-scheds during a local build
+ENABLE_ANANICY=0 ENABLE_SCX=0 sudo just build
+```
+
 ---
 
 ## Project layout

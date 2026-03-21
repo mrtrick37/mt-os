@@ -1,0 +1,16 @@
+[Unit]
+Description=Add Flathub remote for Flatpak
+Documentation=https://github.com/mrtrick37/kyth
+After=network-online.target
+Wants=network-online.target
+# Flatpak remotes live in /var — only configurable at runtime, not build time.
+# This service is idempotent: --if-not-exists means it exits immediately if
+# Flathub is already configured (e.g. after the first successful run).
+
+[Service]
+Type=oneshot
+ExecStart=flatpak remote-add --if-not-exists --system flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

@@ -448,7 +448,7 @@ run-live-iso source_tag="latest":
     fi
 
     port=8006
-    while grep -q :${port} <<< $(ss -tunalp); do
+    while grep -q ":${port}" <<< $(ss -tunalp); do
         port=$(( port + 1 ))
     done
     echo "Using Port: ${port}"
@@ -486,7 +486,7 @@ _run-vm $target_image $tag $type $config:
 
     # Determine an available port to use
     port=8006
-    while grep -q :${port} <<< $(ss -tunalp); do
+    while grep -q ":${port}" <<< $(ss -tunalp); do
         port=$(( port + 1 ))
     done
     echo "Using Port: ${port}"

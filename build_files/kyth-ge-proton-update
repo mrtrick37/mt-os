@@ -1,0 +1,65 @@
+#!/bin/bash
+set -euo pipefail
+
+# ── kyth-ge-proton-update ─────────────────────────────────────────────────────
+# Downloads the latest GE-Proton to /var/lib/kyth/ge-proton/, where Steam picks
+# it up via STEAM_EXTRA_COMPAT_TOOLS_PATHS. Keeps the two most recent versions
+# so there is always a fallback if a new release breaks something.
+#
+# The build-time GE-Proton in /usr/share/steam/compatibilitytools.d/ is separate
+# and provides a working version without network access (e.g. fresh installs).
+
+INSTALL_DIR="/var/lib/kyth/ge-proton"
+GE_PROTON_REPO_API="https://api.github.com/repos/GloriousEggroll/proton-ge-custom/releases"
+TMPDIR_GE=$(mktemp -d)
+trap 'rm -rf "${TMPDIR_GE}"' EXIT
+
+release_json="${TMPDIR_GE}/release.json"
+if ! curl -fsSL "${GE_PROTON_REPO_API}/latest" -o "${release_json}"; then
+    echo "Failed to fetch GE-Proton release info" >&2
+    exit 1
+fi
+
+GE_PROTON_VER=$(grep '"tag_name"' "${release_json}" | head -n1 | cut -d'"' -f4)
+INSTALL_PATH="${INSTALL_DIR}/${GE_PROTON_VER}"
+
+if [[ -d "${INSTALL_PATH}" ]]; then
+    echo "GE-Proton ${GE_PROTON_VER} is already up to date."
+    exit 0
+fi
+
+echo "Updating to GE-Proton ${GE_PROTON_VER}..."
+
+GE_PROTON_TARBALL_URL=$(
+    grep -o 'https://[^"]*\.tar\.gz' "${release_json}" | head -n1
+)
+GE_PROTON_SHA512_URL=$(
+    grep -o 'https://[^"]*\.sha512sum' "${release_json}" | head -n1
+)
+
+if [[ -z "${GE_PROTON_TARBALL_URL}" || -z "${GE_PROTON_SHA512_URL}" ]]; then
+    echo "Failed to locate GE-Proton release assets" >&2
+    exit 1
+fi
+
+GE_PROTON_TARBALL=$(basename "${GE_PROTON_TARBALL_URL}")
+GE_PROTON_SHA512=$(basename "${GE_PROTON_SHA512_URL}")
+
+mkdir -p "${INSTALL_DIR}"
+curl -fsSL "${GE_PROTON_TARBALL_URL}" -o "${TMPDIR_GE}/${GE_PROTON_TARBALL}"
+curl -fsSL "${GE_PROTON_SHA512_URL}" -o "${TMPDIR_GE}/${GE_PROTON_SHA512}"
+
+(
+    cd "${TMPDIR_GE}"
+    sha512sum -c "${GE_PROTON_SHA512}"
+)
+
+tar -xzf "${TMPDIR_GE}/${GE_PROTON_TARBALL}" -C "${INSTALL_DIR}/"
+echo "GE-Proton ${GE_PROTON_VER} installed to ${INSTALL_DIR}/"
+
+# Keep only the 2 most recent versions (current + one rollback)
+mapfile -t old_versions < <(ls -dt "${INSTALL_DIR}"/GE-Proton* 2>/dev/null | tail -n +3)
+for old in "${old_versions[@]}"; do
+    echo "Removing old version: $(basename "${old}")"
+    rm -rf "${old}"
+done
