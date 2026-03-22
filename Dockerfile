@@ -20,22 +20,41 @@ LABEL org.osbuild.branding.release="Kyth 43"
 ARG ENABLE_ANANICY=1
 ARG ENABLE_SCX=1
 
-# Layer 1: All packages, kernel, system config, branding.
-# Large but stable — only re-downloaded when packages or config change.
+# Layer 1: All RPM packages, repos, and dnf upgrade (~2-3 GB).
+# Re-downloaded only when packages are added/removed or upstream RPMs update.
 RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
     --mount=type=cache,dst=/var/cache \
     --mount=type=cache,dst=/var/log \
     --mount=type=tmpfs,dst=/tmp \
-    ENABLE_ANANICY=${ENABLE_ANANICY} ENABLE_SCX=${ENABLE_SCX} /ctx/build.sh
+    ENABLE_ANANICY=${ENABLE_ANANICY} /ctx/scripts/packages.sh
 
-# Layer 2: GE-Proton (~700 MB). Only re-downloaded when GE_PROTON_VER is bumped.
+# Layer 2: Third-party binaries — topgrade, winetricks, SCX schedulers, Homebrew (~400 MB).
+# Re-downloaded when upstream projects cut new releases.
+RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
+    --mount=type=cache,dst=/var/cache \
+    --mount=type=tmpfs,dst=/tmp \
+    ENABLE_SCX=${ENABLE_SCX} /ctx/scripts/thirdparty.sh
+
+# Layer 3: System configuration — sysctl, audio, gaming tuning, env vars (~few KB).
+# Re-downloaded only when tuning values change.
+RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
+    --mount=type=tmpfs,dst=/tmp \
+    /ctx/scripts/sysconfig.sh
+
+# Layer 4: Branding, theming, helper app, Plymouth (~10 MB).
+# Re-downloaded on Kyth version bumps or welcome app updates.
+RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
+    --mount=type=cache,dst=/var/cache \
+    --mount=type=tmpfs,dst=/tmp \
+    /ctx/scripts/branding.sh
+
+# Layer 5: GE-Proton (~700 MB). Only re-downloaded when GE_PROTON_VER is bumped.
 RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
     --mount=type=cache,dst=/var/cache \
     --mount=type=tmpfs,dst=/tmp \
     /ctx/scripts/ge-proton.sh
 
-# Layer 3: Mesa-git (~300-500 MB). Re-downloaded on daily CI builds, kept small
-# so bootc updates pull this layer instead of the full 3+ GB base layer.
+# Layer 6: Mesa-git (~300-500 MB). Re-downloaded on daily CI builds.
 RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
     --mount=type=cache,dst=/var/cache \
     --mount=type=tmpfs,dst=/tmp \
