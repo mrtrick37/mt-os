@@ -1,0 +1,99 @@
+#!/usr/bin/env python3
+# kyth-topgrade-migrate — ensure all users have topgrade configured to use
+# bootc upgrade instead of rpm-ostree upgrade (which pulls from Kinoite).
+#
+# Run once at boot via kyth-topgrade-migrate.service; state is tracked in
+# /var/lib/kyth/migrations/topgrade-v1.done so it never runs again.
+
+import os
+import sys
+
+STATE_DIR = "/var/lib/kyth/migrations"
+STATE_FILE = os.path.join(STATE_DIR, "topgrade-v1.done")
+
+SKEL_CONFIG = "/etc/skel/.config/topgrade.toml"
+
+TOPGRADE_DISABLE_BLOCK = """
+# Added by kyth-topgrade-migrate: disable rpm-ostree step so topgrade
+# does not pull system updates from the upstream Kinoite ostree remote.
+[misc]
+disable = ["rpm_ostree"]
+
+[commands]
+"Kyth system update" = "sudo bootc upgrade"
+"""
+
+
+def log(msg):
+    print(f"kyth-topgrade-migrate: {msg}", flush=True)
+
+
+def needs_patch(path):
+    """Return True if topgrade.toml exists but doesn't disable rpm_ostree."""
+    try:
+        content = open(path).read()
+    except OSError:
+        return False
+    # Simple check: if rpm_ostree appears anywhere in a disable list, we're good.
+    return "rpm_ostree" not in content
+
+
+def patch_config(path):
+    """Append the disable block to an existing config that lacks it."""
+    with open(path, "a") as f:
+        f.write(TOPGRADE_DISABLE_BLOCK)
+    log(f"  patched {path}")
+
+
+def write_default(path):
+    """Write the skel config to path."""
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    try:
+        content = open(SKEL_CONFIG).read()
+    except OSError:
+        content = TOPGRADE_DISABLE_BLOCK.lstrip()
+    with open(path, "w") as f:
+        f.write(content)
+    log(f"  wrote default config to {path}")
+
+
+def main():
+    os.makedirs(STATE_DIR, exist_ok=True)
+    if os.path.exists(STATE_FILE):
+        sys.exit(0)
+
+    homes = []
+    try:
+        for name in os.listdir("/var/home"):
+            p = os.path.join("/var/home", name)
+            if os.path.isdir(p):
+                homes.append(p)
+    except OSError:
+        pass
+    if os.path.isdir("/root"):
+        homes.append("/root")
+
+    for home in homes:
+        cfg = os.path.join(home, ".config", "topgrade.toml")
+        if not os.path.exists(cfg):
+            log(f"{home}: no topgrade.toml — writing default")
+            write_default(cfg)
+            # Preserve ownership
+            try:
+                st = os.stat(home)
+                os.chown(os.path.dirname(cfg), st.st_uid, st.st_gid)
+                os.chown(cfg, st.st_uid, st.st_gid)
+            except OSError as e:
+                log(f"  warning: chown failed: {e}")
+        elif needs_patch(cfg):
+            log(f"{home}: topgrade.toml missing rpm_ostree disable — patching")
+            patch_config(cfg)
+        else:
+            log(f"{home}: topgrade.toml already correct — skipping")
+
+    open(STATE_FILE, "w").close()
+    log("done")
+
+
+if __name__ == "__main__":
+    main()

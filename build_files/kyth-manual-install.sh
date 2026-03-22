@@ -47,7 +47,7 @@ echo ""
 echo "  bootc will erase $TARGET and create its own partition layout:"
 echo "    p1  1MB    BIOS boot"
 echo "    p2  512MB  EFI"
-echo "    p3  rest   Root (XFS)"
+echo "    p3  rest   Root (Btrfs)"
 echo ""
 echo "WARNING: ALL DATA on $TARGET will be erased."
 echo ""
@@ -63,7 +63,7 @@ echo ""
 bootc install to-disk            \
     --source-imgref "$BUNDLED_IMGREF" \
     --target-imgref "$TARGET_IMGREF"  \
-    --filesystem    xfs               \
+    --filesystem    btrfs             \
     --skip-fetch-check                \
     "$TARGET"
 

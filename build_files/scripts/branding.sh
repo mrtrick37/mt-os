@@ -79,6 +79,21 @@ SUPPORT_URL="https://github.com/mrtrick37/kyth/discussions"
 BUG_REPORT_URL="https://github.com/mrtrick37/kyth/issues"
 EOF
 
+# ── Topgrade config for all new users ────────────────────────────────────────
+# Disable rpm-ostree step: on a bootc system rpm-ostree upgrade pulls from the
+# upstream Kinoite ostree remote, not the Kyth container registry.
+# Replace it with a bootc upgrade custom step so topgrade does the right thing.
+mkdir -p /etc/skel/.config
+cat > /etc/skel/.config/topgrade.toml <<'TOPGRADEEOF'
+[misc]
+# rpm-ostree upgrade pulls from the base Kinoite ostree repo, not Kyth.
+# System updates go through bootc instead (see [commands] below).
+disable = ["rpm_ostree"]
+
+[commands]
+"Kyth system update" = "sudo bootc upgrade"
+TOPGRADEEOF
+
 # ── Default KDE theme for all new users via /etc/skel ─────────────────────────
 mkdir -p /etc/skel/.config
 cat > /etc/skel/.config/kdeglobals <<'KDEEOF'
@@ -277,6 +292,8 @@ install -m 0755 /ctx/kyth-local-bin-migrate /usr/bin/kyth-local-bin-migrate
 install -m 0644 /ctx/kyth-duperemove.service /usr/lib/systemd/system/kyth-duperemove.service
 install -m 0644 /ctx/kyth-duperemove.timer /usr/lib/systemd/system/kyth-duperemove.timer
 install -m 0644 /ctx/kyth-local-bin-migrate.service /usr/lib/systemd/system/kyth-local-bin-migrate.service
+install -m 0755 /ctx/kyth-topgrade-migrate        /usr/bin/kyth-topgrade-migrate
+install -m 0644 /ctx/kyth-topgrade-migrate.service /usr/lib/systemd/system/kyth-topgrade-migrate.service
 install -m 0755 /ctx/kyth-ge-proton-update /usr/bin/kyth-ge-proton-update
 install -m 0644 /ctx/kyth-ge-proton-update.service /usr/lib/systemd/system/kyth-ge-proton-update.service
 install -m 0644 /ctx/kyth-ge-proton-update.timer /usr/lib/systemd/system/kyth-ge-proton-update.timer
@@ -294,6 +311,14 @@ X-KDE-autostart-after=panel
 Hidden=false
 NoDisplay=true
 WELCOMEEOF
+
+# ── Bootc kernel arguments ────────────────────────────────────────────────────
+# Ship quiet + splash so Plymouth shows on the installed system.
+# bootc reads kargs.d entries and adds them to the BLS boot entry at install time.
+mkdir -p /usr/lib/bootc/kargs.d
+cat > /usr/lib/bootc/kargs.d/10-kyth.toml <<'KARGSEOF'
+kargs = ["quiet", "splash"]
+KARGSEOF
 
 # ── Plymouth boot splash ───────────────────────────────────────────────────────
 # Install the Kyth Plymouth theme and rebuild the initramfs so the splash is
@@ -333,6 +358,7 @@ echo "Initramfs rebuilt with Plymouth (theme: kyth)"
 mkdir -p /usr/share/ublue-os/just
 cp /ctx/just/kyth.just /usr/share/ublue-os/just/75-kyth.just
 systemctl enable kyth-local-bin-migrate.service 2>/dev/null || true
+systemctl enable kyth-topgrade-migrate.service 2>/dev/null || true
 systemctl enable kyth-duperemove.timer 2>/dev/null || true
 systemctl enable kyth-ge-proton-update.timer 2>/dev/null || true
 systemctl enable kyth-flathub-setup.service 2>/dev/null || true

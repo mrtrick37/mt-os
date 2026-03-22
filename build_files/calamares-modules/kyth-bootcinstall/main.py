@@ -24,6 +24,7 @@
 # (which chroot into rootMountPoint to create the user account and write the
 # hostname), then `kyth-umount` cleans up the mounts.
 
+import configparser
 import math
 import os
 import re
@@ -34,15 +35,29 @@ import time
 
 import libcalamares
 
-# Source image: bundled inside the live squashfs at boot time.
-# At live boot this path is read-only inside the squashfs overlay.
-# bootc reads it as an OCI directory without requiring internet access.
-BUNDLED_IMGREF = "oci:/usr/share/kyth/image"
+# ── Source image resolution ────────────────────────────────────────────────────
+# Offline ISO:  /usr/share/kyth/image is a bundled OCI directory — no internet.
+# Netinstall ISO: /usr/share/kyth/source-imgref holds the registry URL to pull.
+# Fallback: pull from the default registry ref (should rarely be needed).
+_BUNDLED_OCI_DIR  = "/usr/share/kyth/image"
+_SOURCE_IMGREF_FILE = "/usr/share/kyth/source-imgref"
+
+if os.path.isdir(_BUNDLED_OCI_DIR):
+    _OFFLINE = True
+    SOURCE_IMGREF = f"oci:{_BUNDLED_OCI_DIR}"
+else:
+    _OFFLINE = False
+    _default_src = "docker://ghcr.io/mrtrick37/kyth:latest"
+    try:
+        _default_src = open(_SOURCE_IMGREF_FILE).read().strip() or _default_src
+    except OSError:
+        pass
+    SOURCE_IMGREF = os.environ.get("KYTH_SOURCE_IMGREF", _default_src)
 
 # Target image: the registry ref written into the installed OS so that
 # `bootc upgrade` knows where to pull future updates from.
 # Override with KYTH_TARGET_IMGREF env var to test forks or dev images.
-TARGET_IMGREF = os.environ.get("KYTH_TARGET_IMGREF", "ghcr.io/mrtrick37/kyth:latest")
+TARGET_IMGREF = os.environ.get("KYTH_TARGET_IMGREF", "docker://ghcr.io/mrtrick37/kyth:latest")
 
 # Partition type GUIDs that bootc uses for the root partition.
 # bootc creates "Linux root (x86-64)" (4f68...) on modern installs;
@@ -141,8 +156,8 @@ def _find_root_partition(disk):
             root_part = f"/dev/{name}"
             break
 
-        # Fallback: largest xfs partition is the root (bootc always formats it xfs)
-        if fstype == "xfs" and not root_part:
+        # Fallback: btrfs partition is the root (bootc formats it btrfs)
+        if fstype == "btrfs" and not root_part:
             root_part = f"/dev/{name}"
 
     _log(f"root partition: {root_part!r}")
@@ -185,6 +200,73 @@ def _find_deployment(mount_root):
         return None, None
 
     return deploy_dir, var_dir
+
+
+# ── Post-install live config cleanup ─────────────────────────────────────────
+
+def _undo_live_config(deploy_dir):
+    """
+    Undo live-session-specific configuration in the installed deployment.
+
+    The live image ships with SDDM disabled, multi-user.target as default,
+    and getty@tty1 autologin for liveuser.  After bootc installs the image
+    to disk those settings persist verbatim.  This function rewrites the
+    deployed /etc so the installed system boots to SDDM with only the
+    newly created user visible.
+    """
+    _log("undoing live-session configuration in deployment")
+
+    # 1. Remove getty autologin drop-in.
+    getty_drop_in = os.path.join(
+        deploy_dir, "etc/systemd/system/getty@tty1.service.d/autologin.conf"
+    )
+    try:
+        os.remove(getty_drop_in)
+        _log("removed getty@tty1 autologin drop-in")
+    except FileNotFoundError:
+        _log("getty autologin drop-in not found (already absent)")
+
+    # 2. Set graphical.target as the default.
+    default_target = os.path.join(deploy_dir, "etc/systemd/system/default.target")
+    try:
+        os.remove(default_target)
+    except FileNotFoundError:
+        pass
+    os.symlink("/usr/lib/systemd/system/graphical.target", default_target)
+    _log("default.target → graphical.target")
+
+    # 3. Enable SDDM by creating the wants symlink (systemctl disable removed it).
+    wants_dir = os.path.join(deploy_dir, "etc/systemd/system/graphical.target.wants")
+    os.makedirs(wants_dir, exist_ok=True)
+    sddm_link = os.path.join(wants_dir, "sddm.service")
+    if not os.path.lexists(sddm_link):
+        os.symlink("/usr/lib/systemd/system/sddm.service", sddm_link)
+        _log("enabled sddm.service")
+
+    # 4. Update /etc/sddm.conf: clear autologin user, hide liveuser.
+    sddm_conf_path = os.path.join(deploy_dir, "etc/sddm.conf")
+    if os.path.exists(sddm_conf_path):
+        cfg = configparser.RawConfigParser()
+        cfg.optionxform = str  # preserve key case (SDDM is case-sensitive)
+        cfg.read(sddm_conf_path)
+
+        if cfg.has_section("Autologin"):
+            cfg.set("Autologin", "User", "")
+            cfg.set("Autologin", "Relogin", "false")
+
+        if not cfg.has_section("Users"):
+            cfg.add_section("Users")
+        existing = cfg.get("Users", "HideUsers", fallback="")
+        hidden = [u.strip() for u in existing.split(",") if u.strip()]
+        if "liveuser" not in hidden:
+            hidden.append("liveuser")
+        cfg.set("Users", "HideUsers", ",".join(hidden))
+
+        with open(sddm_conf_path, "w") as f:
+            cfg.write(f)
+        _log("sddm.conf: cleared autologin, added liveuser to HideUsers")
+    else:
+        _log("sddm.conf not found — skipping SDDM config update")
 
 
 # ── Main job ──────────────────────────────────────────────────────────────────
@@ -245,15 +327,17 @@ def run():
         except (subprocess.CalledProcessError, FileNotFoundError) as e:
             _log(f"warning: {cmd[0]} failed (non-fatal): {e}")  # bootc will fail clearly if disk is unusable
 
-    # Pre-flight: confirm the bundled OCI image directory exists.
-    imgref_path = BUNDLED_IMGREF.removeprefix("oci:")
-    if not os.path.isdir(imgref_path):
-        return (
-            "Installation error",
-            f"Bundled OS image not found at {imgref_path}.\n"
-            "The live ISO may be incomplete.",
-        )
-    _log(f"source image confirmed at {imgref_path}")
+    # Pre-flight: confirm source image is available.
+    if _OFFLINE:
+        if not os.path.isdir(_BUNDLED_OCI_DIR):
+            return (
+                "Installation error",
+                f"Bundled OS image not found at {_BUNDLED_OCI_DIR}.\n"
+                "The live ISO may be incomplete.",
+            )
+        _log(f"offline mode: source image at {_BUNDLED_OCI_DIR}")
+    else:
+        _log(f"network mode: will pull {SOURCE_IMGREF}")
 
     _log(f"running: bootc install to-disk {disk}")
     libcalamares.job.setprogress(0.03)
@@ -270,19 +354,30 @@ def run():
     _stop_event = threading.Event()
 
     # Labels shown in the installer UI, keyed by fraction of bootc progress (0→1).
-    BOOTC_PHASE_LABELS = [
-        (0.00, "Starting OS image installation…"),
-        (0.05, "Partitioning and formatting disk…"),
-        (0.12, "Extracting OS image — this takes a few minutes…"),
-        (0.50, "Writing filesystem layers…"),
-        (0.72, "Committing ostree deployment…"),
-        (0.84, "Installing bootloader…"),
-        (0.95, "Finalizing image write…"),
-    ]
+    if _OFFLINE:
+        BOOTC_PHASE_LABELS = [
+            (0.00, "Starting OS image installation…"),
+            (0.05, "Partitioning and formatting disk…"),
+            (0.12, "Extracting OS image — this takes a few minutes…"),
+            (0.50, "Writing filesystem layers…"),
+            (0.72, "Committing ostree deployment…"),
+            (0.84, "Installing bootloader…"),
+            (0.95, "Finalizing image write…"),
+        ]
+        HALF_TIME = 120   # offline install ~4 min typical
+    else:
+        BOOTC_PHASE_LABELS = [
+            (0.00, "Connecting to registry…"),
+            (0.05, "Downloading OS image — this may take 10-20 minutes…"),
+            (0.60, "Writing filesystem layers…"),
+            (0.78, "Committing ostree deployment…"),
+            (0.88, "Installing bootloader…"),
+            (0.95, "Finalizing…"),
+        ]
+        HALF_TIME = 360   # network install ~12 min typical on average connection
 
     def _progress_thread():
         TARGET    = 0.88   # leave 0.88→1.0 for mount/chroot steps
-        HALF_TIME = 120    # seconds to reach 50% of TARGET (typical install ~4 min)
         start     = time.monotonic()
         last_label = ""
         while not _stop_event.is_set():
@@ -307,15 +402,22 @@ def run():
 
     try:
         with open(log_path, "w") as log_fh:
+            bootc_cmd = [
+                # Run bootc at low I/O priority (best-effort class 7) and low
+                # CPU nice so the live session stays responsive during the pull.
+                "ionice", "-c", "2", "-n", "7",
+                "nice", "-n", "10",
+                "bootc", "install", "to-disk",
+                "--source-imgref", SOURCE_IMGREF,
+                "--target-imgref", TARGET_IMGREF,
+                "--filesystem", "btrfs",
+            ]
+            if _OFFLINE:
+                bootc_cmd.append("--skip-fetch-check")
+            bootc_cmd.append(disk)
+
             result = subprocess.run(
-                [
-                    "bootc", "install", "to-disk",
-                    "--source-imgref", BUNDLED_IMGREF,
-                    "--target-imgref", TARGET_IMGREF,
-                    "--filesystem", "xfs",
-                    "--skip-fetch-check",
-                    disk,
-                ],
+                bootc_cmd,
                 check=True,
                 stdout=log_fh,
                 stderr=subprocess.STDOUT,
@@ -375,6 +477,9 @@ def run():
 
     _log(f"deployment: {deploy_dir}")
     _log(f"var dir:    {var_dir}")
+
+    # ── 5.5. Undo live-session configuration ─────────────────────────────────
+    _undo_live_config(deploy_dir)
 
     # ── 6. Bind-mount pseudo-filesystems into the deployment ─────────────────
     # Required for the Calamares users exec jobs (CreateUserJob, SetPasswordJob,

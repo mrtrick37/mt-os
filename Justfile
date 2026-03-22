@@ -435,6 +435,24 @@ rebuild-live-iso source_tag="latest":
     set -euo pipefail
     SOURCE_TAG={{ source_tag }} REBUILD_IMAGE=1 bash build_files/build-live-iso.sh
 
+# Build a network install ISO — live desktop boots from the squashfs but the
+# OS is pulled from the registry at install time (~3-4 GB smaller than the offline ISO).
+# Reuses the kyth-live:build container cache from build-live-iso if already built.
+# Pass source_tag to target a different branch: just build-netinstall-iso testing
+# Override the pull URL:  SOURCE_IMGREF=ghcr.io/myfork/kyth:main just build-netinstall-iso
+[group('Build Virtual Machine Image')]
+build-netinstall-iso source_tag="latest":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    SOURCE_TAG={{ source_tag }} bash build_files/build-netinstall-iso.sh
+
+# Force a full rebuild of the network install ISO.
+[group('Build Virtual Machine Image')]
+rebuild-netinstall-iso source_tag="latest":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    SOURCE_TAG={{ source_tag }} REBUILD_IMAGE=1 bash build_files/build-netinstall-iso.sh
+
 # Boot the live desktop ISO in a VM (BIOS, web UI at http://localhost:PORT)
 # Builds the ISO first if it does not exist. Pass source_tag to run a testing ISO.
 [group('Run Virtual Machine')]

@@ -8,18 +8,22 @@ ARG BASE_IMAGE=localhost/kyth:latest
 FROM ${BASE_IMAGE}
 
 # ── All package installs in one layer ────────────────────────────────────────
-# dracut-live:          dmsquash-live module for squashfs live boot
-# syslinux:             isolinux.bin for BIOS El Torito boot
-# grub2-efi-x64:        grubx64.efi pre-built EFI binary
+# dracut-live:           dmsquash-live module for squashfs live boot
+# syslinux:              isolinux.bin for BIOS El Torito boot
+# grub2-efi-x64:         grubx64.efi pre-built EFI binary
 # grub2-efi-x64-modules: .mod files grub2-mkimage needs to build BOOTX64.EFI
-# grub2-pc:             i386-pc GRUB modules for BIOS GRUB2
-# gparted:              disk utility available on live desktop
+# grub2-pc:              i386-pc GRUB modules for BIOS GRUB2
+# gparted:               disk utility available on live desktop
 # plymouth-plugin-script: provides /usr/lib64/plymouth/script.so for script themes
-# librsvg2-tools:       rsvg-convert used to render kyth-logo.svg → PNG for Plymouth
-# calamares:            pulls kpmcore (partition module) as a dependency
+# librsvg2-tools:        rsvg-convert used to render kyth-logo.svg → PNG for Plymouth
+# calamares:             pulls kpmcore (partition module) as a dependency
+# gdisk:                 sgdisk used by kyth-bootcinstall to zap partition tables
+# Note: podman removed (unused — bootc reads OCI dir directly)
+# Note: xorg-x11-drv-synaptics removed (superseded by libinput, already present)
+# Note: xorg-x11-drv-wacom removed (niche peripheral, not a live-session essential)
 RUN dnf5 install -y \
     dracut-live syslinux grub2-efi-x64 grub2-efi-x64-modules grub2-pc gparted \
-    plymouth-plugin-script librsvg2-tools podman gdisk \
+    plymouth-plugin-script librsvg2-tools gdisk \
     calamares \
     plasma-workspace \
     plasma-desktop \
@@ -28,14 +32,12 @@ RUN dnf5 install -y \
     xorg-x11-xinit \
     xorg-x11-drv-evdev \
     xorg-x11-drv-libinput \
-    xorg-x11-drv-synaptics \
     xorg-x11-drv-vmware \
     xorg-x11-drv-qxl \
     xorg-x11-drv-intel \
     xorg-x11-drv-nouveau \
     xorg-x11-drv-ati \
     xorg-x11-drv-amdgpu \
-    xorg-x11-drv-wacom \
     plasma-workspace-x11 \
     plasma-workspace-wayland \
     kde-settings-pulseaudio \
@@ -63,68 +65,66 @@ RUN systemctl disable sddm 2>/dev/null || true \
     && useradd -c "Live User" -G autologin liveuser \
     && passwd -d liveuser \
     && printf '%s\n' \
-        'Defaults:liveuser env_keep += "DISPLAY XAUTHORITY WAYLAND_DISPLAY XDG_RUNTIME_DIR DBUS_SESSION_BUS_ADDRESS"' \
+        'Defaults:liveuser env_keep += "DISPLAY XAUTHORITY WAYLAND_DISPLAY XDG_RUNTIME_DIR DBUS_SESSION_BUS_ADDRESS XDG_SESSION_TYPE"' \
         'liveuser ALL=(root) NOPASSWD: SETENV: /usr/bin/kyth-calamares-root, /usr/bin/kyth-manual-install, /usr/bin/systemctl reboot' \
         > /etc/sudoers.d/liveuser \
     && chmod 440 /etc/sudoers.d/liveuser \
     && mkdir -p /etc/systemd/system/getty@tty1.service.d \
-    && printf '[Service]\nExecStart=\nExecStart=-/sbin/agetty --autologin liveuser --noclear %%I $TERM\n' \
+    && printf '[Service]\nExecStart=\nExecStart=-/sbin/agetty --autologin liveuser --noclear %%I linux\n' \
         > /etc/systemd/system/getty@tty1.service.d/autologin.conf \
     && systemctl mask kyth-sddm-setup.service 2>/dev/null || true
 
 # ── SDDM: config for the post-install system (not used in live session) ───────
 # X11 is used because kwin_wayland requires EGL/virgl and fails in plain QEMU.
 #
-# Session name detection: Plasma 6 on Fedora uses plasmax11.desktop; earlier
-# releases used plasma.desktop or plasma-x11.desktop. Detect at build time so
-# the Session= key matches an actual file — a mismatch silently breaks autologin.
-RUN if [ -f /usr/share/xsessions/plasmax11.desktop ]; then \
-        session="plasmax11"; \
-    elif [ -f /usr/share/xsessions/plasma.desktop ]; then \
-        session="plasma"; \
-    elif [ -f /usr/share/xsessions/plasma-x11.desktop ]; then \
-        session="plasma-x11"; \
-    else \
-        session=$(ls /usr/share/xsessions/ 2>/dev/null | grep -i plasma | head -1 | sed 's/\.desktop$//'); \
-        session=${session:-plasmax11}; \
-    fi; \
-    echo "==> SDDM autologin session: ${session}"; \
-    rm -rf /etc/sddm.conf.d /usr/lib/sddm/sddm.conf.d; \
-    mkdir -p /etc/sddm.conf.d; \
-    cat > /etc/sddm.conf <<SDDMEOF
-[General]
-DisplayServer=x11
-
-[X11]
-SessionDir=/usr/share/xsessions
-ServerPath=/usr/bin/Xorg
-MinimumVT=1
-
-[Wayland]
-SessionDir=
-
-[Autologin]
-User=liveuser
-Session=${session}
-Relogin=true
-
-[Theme]
-Current=breeze
-
-[Users]
-HideUsers=kyth
-SDDMEOF
-
-# ── Liveuser home: Breeze Dark + "Install Kyth" desktop shortcut ─────────────
-# Disable Steam autostart — it crashes in the live tmpfs environment.
-RUN mkdir -p /home/liveuser/Desktop /home/liveuser/.config \
+# Boot sequence for the live session:
+#   1. getty@tty1 autologs in as liveuser (no password prompt)
+#   2. bash reads .bash_profile → execs "startx -- :0 vt1 -nolisten tcp"
+#      "exec" replaces the shell so the X session IS the login session.
+#      If KDE exits cleanly → back to tty1 prompt.
+#      If X crashes → tty1 prompt + tty2-6 still available.
+#   3. startx runs .xinitrc which:
+#      a. Sets XDG_SESSION_TYPE=x11 (pam_systemd sets it to "tty" for getty
+#         logins; startplasma-x11 checks this and must see "x11" or "unset")
+#      b. Execs startplasma-x11
+#   4. startplasma-x11 sources ~/.config/plasma-workspace/env/*.sh and imports
+#      vars into the systemd --user session so kwin/plasmashell see them even
+#      when started as systemd user services.
+#
+# Software rendering — belt and suspenders:
+#   /etc/environment (set below):  LIBGL_ALWAYS_SOFTWARE + GALLIUM_DRIVER
+#     → picked up by pam_env on login; all processes inherit these including
+#       systemd user services and anything not started by startplasma-x11.
+#   plasma-workspace/env/live.sh:  QT_QUICK_BACKEND=software
+#     → imported into systemd --user by startplasma-x11 startup sequence.
+#   kwinrc Enabled=false           → kwin never touches OpenGL/EGL at all.
+#
+# Disabled autostarts: steam (crashes on live tmpfs), kyth-welcome,
+#   kyth-set-resolution (not meaningful in a live session).
+RUN mkdir -p \
+        /home/liveuser/Desktop \
         /home/liveuser/.config/autostart \
+        /home/liveuser/.config/plasma-workspace/env \
+    && printf '[ "$(tty)" = "/dev/tty1" ] && [ -z "$DISPLAY" ] && exec startx -- :0 vt1 -nolisten tcp\n' \
+        > /home/liveuser/.bash_profile \
+    && printf '#!/bin/bash\nexport XDG_SESSION_TYPE=x11\nexec startplasma-x11\n' \
+        > /home/liveuser/.xinitrc \
+    && chmod +x /home/liveuser/.xinitrc \
     && printf '[Desktop Entry]\nType=Application\nName=Steam\nHidden=true\n' \
         > /home/liveuser/.config/autostart/steam.desktop \
+    && printf '[Desktop Entry]\nType=Application\nName=Kyth Welcome\nHidden=true\n' \
+        > /home/liveuser/.config/autostart/kyth-welcome.desktop \
+    && printf '[Desktop Entry]\nType=Application\nName=Kyth Set Resolution\nHidden=true\n' \
+        > /home/liveuser/.config/autostart/kyth-set-resolution.desktop \
+    && printf '[Compositing]\nEnabled=false\nOpenGLIsUnsafe=true\n' \
+        > /home/liveuser/.config/kwinrc \
     && printf '[General]\nColorScheme=BreezeDark\n\n[KDE]\nLookAndFeelPackage=org.kde.breezedark.desktop\n' \
         > /home/liveuser/.config/kdeglobals \
     && printf '[Theme]\nname=breeze-dark\n' \
         > /home/liveuser/.config/plasmarc \
+    && printf 'export QT_QUICK_BACKEND=software\n' \
+        > /home/liveuser/.config/plasma-workspace/env/live.sh \
+    && chmod +x /home/liveuser/.config/plasma-workspace/env/live.sh \
     && printf '[Desktop Entry]\nName=Install Kyth\nComment=Install Kyth to this computer\nExec=/usr/bin/kyth-launch-calamares\nIcon=kyth\nTerminal=false\nType=Application\nCategories=System;\n' \
         > /home/liveuser/Desktop/install-kyth.desktop \
     && printf '[Desktop Entry]\nType=Application\nName=Kyth Wallpaper\nExec=plasma-apply-wallpaperimage /usr/share/wallpapers/kyth/contents/images/kyth-wallpaper.png\nX-KDE-autostart-after=panel\n' \
@@ -132,11 +132,7 @@ RUN mkdir -p /home/liveuser/Desktop /home/liveuser/.config \
     && cp /etc/skel/.config/autostart/kyth-set-kickoff-icon.desktop \
         /home/liveuser/.config/autostart/kyth-set-kickoff-icon.desktop \
     && chmod +x /home/liveuser/Desktop/install-kyth.desktop \
-    && printf 'exec /usr/bin/startplasma-x11\n' > /home/liveuser/.xinitrc \
-    && chmod +x /home/liveuser/.xinitrc \
-    && chown -R liveuser:liveuser /home/liveuser/ \
-    && printf '\nif [ -z "$DISPLAY" ] && [ "$XDG_VTNR" = "1" ]; then\n  exec startx\nfi\n' > /home/liveuser/.bash_profile \
-    && chown liveuser:liveuser /home/liveuser/.bash_profile
+    && chown -R liveuser:liveuser /home/liveuser/
 
 # ── Copy all assets before the post-COPY setup RUN ───────────────────────────
 COPY build_files/wallpaper/kyth-wallpaper.svg \
@@ -159,7 +155,20 @@ COPY build_files/plymouth/kyth.plymouth /usr/share/plymouth/themes/kyth/kyth.ply
 COPY build_files/plymouth/kyth.script   /usr/share/plymouth/themes/kyth/kyth.script
 
 # ── Post-COPY setup: wallpaper metadata, icons, launcher chmod, OS branding ──
-# Combines all post-COPY fixups into one layer to reduce image depth.
+# /etc/environment additions (appended, never replace existing vars):
+#   LIBGL_ALWAYS_SOFTWARE=1  — Mesa always uses software renderer (softpipe).
+#   GALLIUM_DRIVER=softpipe  — Use softpipe over llvmpipe (no LLVM JIT hang).
+#   QT_QUICK_BACKEND=software — Qt Quick uses CPU renderer in every process,
+#                               including systemd user services that don't go
+#                               through plasma-workspace/env scripts.
+# These are loaded by pam_env from the very first login, so every process in
+# the live session sees them — Xorg clients, systemd --user services, Calamares.
+#
+# xorg.conf.d/10-live-modesetting.conf: force the modesetting DDX for all
+# hardware.  Hardware-specific DDX drivers (qxl, amdgpu, intel, nouveau) can
+# crash on probing in QEMU/Boxes; modesetting uses the generic DRM KMS interface
+# and works with any DRM device.  AccelMethod=none disables glamour (GL-based
+# acceleration) so Xorg uses pixman (CPU) for all rendering — no EGL needed.
 RUN mkdir -p /usr/share/wallpapers/kyth/contents/images \
     && printf '{"KPlugin":{"Authors":[{"Name":"Kyth"}],"Id":"kyth","Name":"Kyth","License":"CC-BY-SA-4.0"},"KPackageStructure":"Wallpaper/Images"}\n' \
         > /usr/share/wallpapers/kyth/metadata.json \
@@ -172,6 +181,10 @@ RUN mkdir -p /usr/share/wallpapers/kyth/contents/images \
     && gtk-update-icon-cache -f /usr/share/icons/breeze-dark/ 2>/dev/null || true \
     && chmod +x /usr/bin/kyth-launch-calamares /usr/bin/kyth-calamares-root /usr/bin/kyth-manual-install \
     && sed -i 's/^PRETTY_NAME=.*/PRETTY_NAME="Kyth 43 Live"/' /etc/os-release \
+    && printf 'LIBGL_ALWAYS_SOFTWARE=1\nGALLIUM_DRIVER=softpipe\nQT_QUICK_BACKEND=software\n' >> /etc/environment \
+    && mkdir -p /etc/X11/xorg.conf.d \
+    && printf 'Section "Device"\n    Identifier "Live"\n    Driver "modesetting"\n    Option "AccelMethod" "none"\nEndSection\n' \
+        > /etc/X11/xorg.conf.d/10-live-modesetting.conf \
     && BREEZE_DARK_DEFAULTS="/usr/share/plasma/look-and-feel/org.kde.breezedark.desktop/contents/defaults" \
     && if [ -f "$BREEZE_DARK_DEFAULTS" ]; then \
            sed -i 's/^Image=.*/Image=kyth/' "$BREEZE_DARK_DEFAULTS"; \
@@ -199,26 +212,35 @@ RUN KVER=$(ls /usr/lib/modules/ | grep cachyos | head -1) \
     && plymouth-set-default-theme kyth \
     && TMPDIR=/var/tmp dracut \
         --no-hostonly \
-        --add "dmsquash-live" \
+        --add "dmsquash-live plymouth" \
         --kver "$KVER" \
         --force \
         "/usr/lib/modules/$KVER/initramfs-live" \
         2> >(grep -Ev 'xattr|fail to copy' >&2) \
     && echo "Live initramfs built for $KVER (Plymouth: kyth)"
 
-# ── Finalize: machine-id, mask services, locale / timezone ───────────────────
+# ── Finalize: machine-id, mask services, zram swap, locale / timezone ────────
 # machine-id must be "uninitialized" so systemd generates a volatile one.
 # Mask ostree/bootc services that require a real ostree deployment.
+# zram swap: the netinstall pulls a full OS image from the registry while the
+# live session runs in RAM.  OCI layer decompression and container storage
+# operations can exhaust the VM's physical RAM and cause an OOM freeze.
+# A zram device (up to 4 GiB, zstd) acts as compressed swap so the system
+# stays responsive instead of locking up during the download.
 RUN echo "uninitialized" > /etc/machine-id \
     && systemctl mask \
         ostree-remount.service \
         ostree-prepare-root.service \
+        rpm-ostree.service \
         rpm-ostree-countme.service \
         rpm-ostree-countme.timer \
         bootc-fetch-apply-updates.service \
         bootc-fetch-apply-updates.timer \
         systemd-firstboot.service \
+        scx.service \
     || true \
+    && printf '[zram0]\nzram-size = min(ram, 4096)\ncompression-algorithm = zstd\n' \
+        > /etc/systemd/zram-generator.conf \
     && echo "LANG=en_US.UTF-8" > /etc/locale.conf \
     && ln -sf /usr/share/zoneinfo/UTC /etc/localtime \
     && echo "KEYMAP=us" > /etc/vconsole.conf

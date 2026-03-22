@@ -1,0 +1,11 @@
+[Unit]
+Description=Kyth migration: configure topgrade to use bootc instead of rpm-ostree
+After=local-fs.target
+ConditionPathExists=!/var/lib/kyth/migrations/topgrade-v1.done
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/kyth-topgrade-migrate
+
+[Install]
+WantedBy=multi-user.target
