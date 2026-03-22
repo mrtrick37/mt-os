@@ -56,19 +56,11 @@ RUN dnf5 install -y \
     breeze-cursor-theme \
     --skip-broken && dnf5 clean all
 
-# ── System setup: live user, getty autologin on tty1 ─────────────────────────
-# Uses multi-user.target + getty autologin instead of SDDM + graphical.target.
-#
-# Why not SDDM for the live session:
-#   SDDM → Xorg start-up is fragile in a squashfs live environment. When Xorg
-#   crashes (hardware DDX, driver probe failures, VT race) SDDM fails and
-#   systemd falls back to a console with no clear recovery path.  With getty
-#   autologin, the shell is up unconditionally; X is started from .bash_profile
-#   and any crash lands liveuser back at a tty1 prompt with tty2-6 available.
-#
-# SDDM is still installed — the base kyth image enables it for the installed
-# system, and kyth-bootcinstall enables it again after 'bootc install to-disk'.
-RUN systemctl set-default multi-user.target \
+# ── System setup: live user, getty autologin, mask setup service ─────────────
+# SDDM autologin remains unreliable in some live/QEMU paths.
+# Use tty1 autologin + startx for deterministic live desktop startup.
+RUN systemctl disable sddm 2>/dev/null || true \
+    && systemctl set-default multi-user.target \
     && groupadd -r autologin \
     && useradd -c "Live User" -G autologin liveuser \
     && passwd -d liveuser \
@@ -82,7 +74,8 @@ RUN systemctl set-default multi-user.target \
         > /etc/systemd/system/getty@tty1.service.d/autologin.conf \
     && systemctl mask kyth-sddm-setup.service 2>/dev/null || true
 
-# ── Liveuser home: auto-start X, KDE software rendering, Install Kyth icon ───
+# ── SDDM: config for the post-install system (not used in live session) ───────
+# X11 is used because kwin_wayland requires EGL/virgl and fails in plain QEMU.
 #
 # Boot sequence for the live session:
 #   1. getty@tty1 autologs in as liveuser (no password prompt)
