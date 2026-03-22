@@ -24,6 +24,7 @@
 # (which chroot into rootMountPoint to create the user account and write the
 # hostname), then `kyth-umount` cleans up the mounts.
 
+import configparser
 import math
 import os
 import re
@@ -141,8 +142,8 @@ def _find_root_partition(disk):
             root_part = f"/dev/{name}"
             break
 
-        # Fallback: largest xfs partition is the root (bootc always formats it xfs)
-        if fstype == "xfs" and not root_part:
+        # Fallback: btrfs partition is the root (bootc formats it btrfs)
+        if fstype == "btrfs" and not root_part:
             root_part = f"/dev/{name}"
 
     _log(f"root partition: {root_part!r}")
@@ -185,6 +186,73 @@ def _find_deployment(mount_root):
         return None, None
 
     return deploy_dir, var_dir
+
+
+# ── Post-install live config cleanup ─────────────────────────────────────────
+
+def _undo_live_config(deploy_dir):
+    """
+    Undo live-session-specific configuration in the installed deployment.
+
+    The live image ships with SDDM disabled, multi-user.target as default,
+    and getty@tty1 autologin for liveuser.  After bootc installs the image
+    to disk those settings persist verbatim.  This function rewrites the
+    deployed /etc so the installed system boots to SDDM with only the
+    newly created user visible.
+    """
+    _log("undoing live-session configuration in deployment")
+
+    # 1. Remove getty autologin drop-in.
+    getty_drop_in = os.path.join(
+        deploy_dir, "etc/systemd/system/getty@tty1.service.d/autologin.conf"
+    )
+    try:
+        os.remove(getty_drop_in)
+        _log("removed getty@tty1 autologin drop-in")
+    except FileNotFoundError:
+        _log("getty autologin drop-in not found (already absent)")
+
+    # 2. Set graphical.target as the default.
+    default_target = os.path.join(deploy_dir, "etc/systemd/system/default.target")
+    try:
+        os.remove(default_target)
+    except FileNotFoundError:
+        pass
+    os.symlink("/usr/lib/systemd/system/graphical.target", default_target)
+    _log("default.target → graphical.target")
+
+    # 3. Enable SDDM by creating the wants symlink (systemctl disable removed it).
+    wants_dir = os.path.join(deploy_dir, "etc/systemd/system/graphical.target.wants")
+    os.makedirs(wants_dir, exist_ok=True)
+    sddm_link = os.path.join(wants_dir, "sddm.service")
+    if not os.path.lexists(sddm_link):
+        os.symlink("/usr/lib/systemd/system/sddm.service", sddm_link)
+        _log("enabled sddm.service")
+
+    # 4. Update /etc/sddm.conf: clear autologin user, hide liveuser.
+    sddm_conf_path = os.path.join(deploy_dir, "etc/sddm.conf")
+    if os.path.exists(sddm_conf_path):
+        cfg = configparser.RawConfigParser()
+        cfg.optionxform = str  # preserve key case (SDDM is case-sensitive)
+        cfg.read(sddm_conf_path)
+
+        if cfg.has_section("Autologin"):
+            cfg.set("Autologin", "User", "")
+            cfg.set("Autologin", "Relogin", "false")
+
+        if not cfg.has_section("Users"):
+            cfg.add_section("Users")
+        existing = cfg.get("Users", "HideUsers", fallback="")
+        hidden = [u.strip() for u in existing.split(",") if u.strip()]
+        if "liveuser" not in hidden:
+            hidden.append("liveuser")
+        cfg.set("Users", "HideUsers", ",".join(hidden))
+
+        with open(sddm_conf_path, "w") as f:
+            cfg.write(f)
+        _log("sddm.conf: cleared autologin, added liveuser to HideUsers")
+    else:
+        _log("sddm.conf not found — skipping SDDM config update")
 
 
 # ── Main job ──────────────────────────────────────────────────────────────────
@@ -312,7 +380,7 @@ def run():
                     "bootc", "install", "to-disk",
                     "--source-imgref", BUNDLED_IMGREF,
                     "--target-imgref", TARGET_IMGREF,
-                    "--filesystem", "xfs",
+                    "--filesystem", "btrfs",
                     "--skip-fetch-check",
                     disk,
                 ],
@@ -375,6 +443,9 @@ def run():
 
     _log(f"deployment: {deploy_dir}")
     _log(f"var dir:    {var_dir}")
+
+    # ── 5.5. Undo live-session configuration ─────────────────────────────────
+    _undo_live_config(deploy_dir)
 
     # ── 6. Bind-mount pseudo-filesystems into the deployment ─────────────────
     # Required for the Calamares users exec jobs (CreateUserJob, SetPasswordJob,

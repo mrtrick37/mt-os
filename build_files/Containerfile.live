@@ -8,18 +8,22 @@ ARG BASE_IMAGE=localhost/kyth:latest
 FROM ${BASE_IMAGE}
 
 # ── All package installs in one layer ────────────────────────────────────────
-# dracut-live:          dmsquash-live module for squashfs live boot
-# syslinux:             isolinux.bin for BIOS El Torito boot
-# grub2-efi-x64:        grubx64.efi pre-built EFI binary
+# dracut-live:           dmsquash-live module for squashfs live boot
+# syslinux:              isolinux.bin for BIOS El Torito boot
+# grub2-efi-x64:         grubx64.efi pre-built EFI binary
 # grub2-efi-x64-modules: .mod files grub2-mkimage needs to build BOOTX64.EFI
-# grub2-pc:             i386-pc GRUB modules for BIOS GRUB2
-# gparted:              disk utility available on live desktop
+# grub2-pc:              i386-pc GRUB modules for BIOS GRUB2
+# gparted:               disk utility available on live desktop
 # plymouth-plugin-script: provides /usr/lib64/plymouth/script.so for script themes
-# librsvg2-tools:       rsvg-convert used to render kyth-logo.svg → PNG for Plymouth
-# calamares:            pulls kpmcore (partition module) as a dependency
+# librsvg2-tools:        rsvg-convert used to render kyth-logo.svg → PNG for Plymouth
+# calamares:             pulls kpmcore (partition module) as a dependency
+# gdisk:                 sgdisk used by kyth-bootcinstall to zap partition tables
+# Note: podman removed (unused — bootc reads OCI dir directly)
+# Note: xorg-x11-drv-synaptics removed (superseded by libinput, already present)
+# Note: xorg-x11-drv-wacom removed (niche peripheral, not a live-session essential)
 RUN dnf5 install -y \
     dracut-live syslinux grub2-efi-x64 grub2-efi-x64-modules grub2-pc gparted \
-    plymouth-plugin-script librsvg2-tools podman gdisk \
+    plymouth-plugin-script librsvg2-tools gdisk \
     calamares \
     plasma-workspace \
     plasma-desktop \
@@ -28,14 +32,12 @@ RUN dnf5 install -y \
     xorg-x11-xinit \
     xorg-x11-drv-evdev \
     xorg-x11-drv-libinput \
-    xorg-x11-drv-synaptics \
     xorg-x11-drv-vmware \
     xorg-x11-drv-qxl \
     xorg-x11-drv-intel \
     xorg-x11-drv-nouveau \
     xorg-x11-drv-ati \
     xorg-x11-drv-amdgpu \
-    xorg-x11-drv-wacom \
     plasma-workspace-x11 \
     plasma-workspace-wayland \
     kde-settings-pulseaudio \
@@ -58,8 +60,9 @@ RUN dnf5 install -y \
 # SDDM autologin is unreliable in QEMU/live environments (X11 VT handoff races
 # with Plymouth; autologin config is fragile across Plasma versions).
 # Instead: getty on tty1 autologins liveuser → .bash_profile → exec startx →
-# .xinitrc → startplasma-x11.  SDDM stays installed for the post-install system
-# but is not started in the live session.
+# .xinitrc → plymouth quit --wait → startplasma-x11.
+# plymouth quit --wait dismisses the boot splash cleanly once X is up.
+# SDDM stays installed for the post-install system but is not started in the live session.
 RUN systemctl disable sddm 2>/dev/null || true \
     && systemctl set-default multi-user.target \
     && groupadd -r autologin \
@@ -138,10 +141,10 @@ RUN mkdir -p /home/liveuser/Desktop /home/liveuser/.config \
     && cp /etc/skel/.config/autostart/kyth-set-kickoff-icon.desktop \
         /home/liveuser/.config/autostart/kyth-set-kickoff-icon.desktop \
     && chmod +x /home/liveuser/Desktop/install-kyth.desktop \
-    && printf 'exec /usr/bin/startplasma-x11\n' > /home/liveuser/.xinitrc \
+    && printf 'plymouth quit --wait 2>/dev/null || true\nexec /usr/bin/startplasma-x11\n' > /home/liveuser/.xinitrc \
     && chmod +x /home/liveuser/.xinitrc \
     && chown -R liveuser:liveuser /home/liveuser/ \
-    && printf '\nif [ -z "$DISPLAY" ] && [ "$XDG_VTNR" = "1" ]; then\n  exec startx\nfi\n' > /home/liveuser/.bash_profile \
+    && printf '\nif [ -z "$DISPLAY" ] && { [ "$XDG_VTNR" = "1" ] || [ "$(tty)" = "/dev/tty1" ]; }; then\n  exec startx\nfi\n' > /home/liveuser/.bash_profile \
     && chown liveuser:liveuser /home/liveuser/.bash_profile
 
 # ── Copy all assets before the post-COPY setup RUN ───────────────────────────

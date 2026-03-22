@@ -295,6 +295,14 @@ Hidden=false
 NoDisplay=true
 WELCOMEEOF
 
+# ── Bootc kernel arguments ────────────────────────────────────────────────────
+# Ship quiet + splash so Plymouth shows on the installed system.
+# bootc reads kargs.d entries and adds them to the BLS boot entry at install time.
+mkdir -p /usr/lib/bootc/kargs.d
+cat > /usr/lib/bootc/kargs.d/10-kyth.toml <<'KARGSEOF'
+kargs = ["quiet", "splash"]
+KARGSEOF
+
 # ── Plymouth boot splash ───────────────────────────────────────────────────────
 # Install the Kyth Plymouth theme and rebuild the initramfs so the splash is
 # included.  librsvg2-tools provides rsvg-convert to render the logo SVG → PNG.
