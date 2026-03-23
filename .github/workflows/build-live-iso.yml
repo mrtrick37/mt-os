@@ -62,6 +62,18 @@ jobs:
             .
           echo "image-ref=${IMAGE}" >> $GITHUB_OUTPUT
 
+      - name: Flatten live container to a single layer
+        # The live image inherits 100+ layers from the kyth base image.
+        # docker pull in Job 2 hits Docker's 128-layer overlay2 limit before
+        # it can even finish pulling. crane flatten squashes all layers into one
+        # and pushes the result back to the same tag, so Job 2 can pull cleanly.
+        run: |
+          curl -sSfL "https://github.com/google/go-containerregistry/releases/download/v0.20.6/go-containerregistry_Linux_x86_64.tar.gz" \
+            | tar -xz -C /usr/local/bin crane
+          IMAGE="ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:live-build"
+          crane auth login ghcr.io -u "${{ github.actor }}" -p "${{ secrets.GITHUB_TOKEN }}"
+          crane flatten "${IMAGE}"
+
   # ── Job 2: Pull the container, export rootfs, build squashfs + ISO ───────────
   # Fresh runner — Docker image is pulled then immediately removed after export
   # so overlay2 storage doesn't overlap with the large squashfs + ISO on disk.
@@ -99,23 +111,12 @@ jobs:
 
       - name: Pull pre-built live container and base image
         # kyth-live:build  → used by build-live-iso.sh (skips the Docker build step)
-        # localhost/kyth:latest → used by build-live-iso.sh for OCI bundling:
-        #   skopeo copy docker-daemon:localhost/kyth:latest oci:rootfs/usr/share/kyth/image
-        #
-        # IMPORTANT: pull localhost/kyth:latest FIRST so that kyth-live:build
-        # (created via docker import below) ends up with the newest timestamp.
-        # build-live-iso.sh compares timestamps to decide if a rebuild is needed;
-        # if localhost/kyth:latest is newer than kyth-live:build the script
-        # triggers a full container rebuild inside the runner, exhausting disk/CPU.
+        # localhost/kyth:latest is NOT pulled into Docker here — it has 100+ layers
+        # and hits Docker's 128-layer overlay2 limit. Instead, SKOPEO_BASE is set
+        # below so build-live-iso.sh copies the OCI bundle directly from GHCR via
+        # skopeo (which has no layer limit), bypassing the Docker daemon entirely.
         run: |
           echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
-
-          # Pull the base image and tag it as localhost/kyth:<source_tag>
-          # so build-live-iso.sh finds it under LOCAL_BASE=localhost/kyth:${SOURCE_TAG}.
-          SOURCE_TAG="${{ inputs.source_tag || 'latest' }}"
-          BASE_IMAGE="ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:${SOURCE_TAG}"
-          docker pull "${BASE_IMAGE}"
-          docker tag  "${BASE_IMAGE}" "localhost/kyth:${SOURCE_TAG}"
 
           # Pull the live container and flatten it into a single layer.
           # kyth:latest has 100+ layers; Containerfile.live adds more, so the
@@ -155,6 +156,7 @@ jobs:
         # the ~10 GB overlay2 footprint before squashfs runs.
         env:
           SKIP_REBUILD: "1"
+          SKOPEO_BASE: "docker://ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:${{ inputs.source_tag || 'latest' }}"
         run: |
           SOURCE_TAG="${{ inputs.source_tag || 'latest' }}"
           if [[ "${SOURCE_TAG}" == "latest" ]]; then

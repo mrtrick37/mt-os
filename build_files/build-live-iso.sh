@@ -202,9 +202,13 @@ sudo chmod 644 "${ISO_DIR}/images/pxeboot/"*
 # /usr/share/kyth/image — mksquashfs picks it up automatically in step 4.
 echo "==> Bundling OCI image into rootfs (this may take a while)"
 sudo mkdir -p "${ROOTFS}/usr/share/kyth"
+# SKOPEO_BASE may be set to docker://ghcr.io/... in CI to avoid pulling the
+# base image into Docker (which hits the 128-layer overlay2 limit).
+# Locally it falls back to the docker daemon image.
+SKOPEO_SRC="${SKOPEO_BASE:-docker-daemon:${LOCAL_BASE}}"
 sudo skopeo copy \
     --insecure-policy \
-    "docker-daemon:${LOCAL_BASE}" \
+    "${SKOPEO_SRC}" \
     "oci:${ROOTFS}/usr/share/kyth/image"
 echo "==> OCI image bundled at /usr/share/kyth/image"
 
