@@ -226,6 +226,15 @@ def _undo_live_config(deploy_dir):
     except FileNotFoundError:
         _log("getty autologin drop-in not found (already absent)")
 
+    # 1b. Remove live-session I/O scheduler override — installed system should
+    #     use the base 60-ioschedulers.rules which handles each disk type correctly.
+    live_io_rule = os.path.join(deploy_dir, "etc/udev/rules.d/61-live-ioschedulers.rules")
+    try:
+        os.remove(live_io_rule)
+        _log("removed 61-live-ioschedulers.rules from installed system")
+    except FileNotFoundError:
+        pass
+
     # 2. Set graphical.target as the default.
     default_target = os.path.join(deploy_dir, "etc/systemd/system/default.target")
     try:
@@ -317,8 +326,13 @@ def run():
     _write_status(0.0, "Wiping existing partition table…")
     _log(f"zapping partition table on {disk}")
     for cmd in (
+        # blkdiscard -f: send TRIM to the whole disk — on thin-provisioned qcow2
+        # this is instant and zeros every sector, destroying ALL filesystem
+        # signatures (including those inside existing partitions that wipefs and
+        # sgdisk would miss).  Fails silently on disks that don't support TRIM.
+        ["blkdiscard", "-f", disk],
         ["sgdisk", "--zap-all", disk],   # destroy GPT + MBR partition tables
-        ["wipefs", "-a", disk],           # remove any remaining filesystem signatures
+        ["wipefs", "-a", "--force", disk],  # remove any remaining disk-level signatures
         ["partprobe", disk],              # tell the kernel to reread the (now empty) table
         ["udevadm", "settle"],            # wait for udev to finish processing events
     ):
@@ -326,6 +340,57 @@ def run():
             subprocess.run(cmd, check=True, capture_output=True)
         except (subprocess.CalledProcessError, FileNotFoundError) as e:
             _log(f"warning: {cmd[0]} failed (non-fatal): {e}")  # bootc will fail clearly if disk is unusable
+
+    # Ensure zram swap is active before the heavy install operation.
+    # In a live squashfs session, systemd-zram-generator may not have fired
+    # (generators run at early boot and can be missed in live environments).
+    # OCI layer extraction buffers large chunks in memory; without swap the
+    # system OOM-kills critical processes and freezes completely.
+    _log("ensuring zram swap is active")
+    subprocess.run(["modprobe", "zram"], capture_output=True)
+    subprocess.run(
+        ["systemctl", "start", "systemd-zram-setup@zram0.service"],
+        capture_output=True, timeout=10,
+    )
+
+    # Log memory state so the Calamares log shows what we're working with.
+    try:
+        with open("/proc/meminfo") as _mf:
+            for _line in _mf:
+                if any(k in _line for k in ("MemTotal", "MemAvailable", "SwapTotal", "SwapFree")):
+                    _log(f"mem: {_line.strip()}")
+    except OSError:
+        pass
+
+    # Drop page cache to give bootc maximum RAM headroom.
+    # Layer decompression is read-once; the page cache won't help bootc but
+    # will compete with its extraction buffers.
+    _log("dropping page cache before install")
+    try:
+        subprocess.run(["sync"], capture_output=True)
+        with open("/proc/sys/vm/drop_caches", "w") as _dcf:
+            _dcf.write("3\n")
+    except OSError as e:
+        _log(f"warning: could not drop page cache: {e}")
+
+    # Set I/O scheduler on target disk before the install.
+    # Read available schedulers and pick the best one — the available set
+    # differs between VirtIO, IDE, and SCSI virtual disks.
+    disk_name = os.path.basename(disk)
+    sched_path = f"/sys/block/{disk_name}/queue/scheduler"
+    if os.path.exists(sched_path):
+        try:
+            with open(sched_path) as _sf:
+                available_raw = _sf.read()
+            _log(f"available schedulers for {disk_name}: {available_raw.strip()}")
+            for sched in ["mq-deadline", "deadline", "none"]:
+                if sched in available_raw:
+                    with open(sched_path, "w") as _sf:
+                        _sf.write(sched + "\n")
+                    _log(f"set I/O scheduler to {sched} on {disk_name}")
+                    break
+        except OSError as e:
+            _log(f"warning: could not set scheduler on {disk_name}: {e}")
 
     # Pre-flight: confirm source image is available.
     if _OFFLINE:

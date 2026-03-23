@@ -24,6 +24,7 @@ FROM ${BASE_IMAGE}
 RUN dnf5 install -y \
     dracut-live syslinux grub2-efi-x64 grub2-efi-x64-modules grub2-pc gparted \
     plymouth-plugin-script librsvg2-tools gdisk \
+    zram-generator \
     calamares \
     plasma-workspace \
     plasma-desktop \
@@ -225,6 +226,19 @@ RUN KVER=$(ls /usr/lib/modules/ | grep cachyos | head -1) \
         "/usr/lib/modules/$KVER/initramfs-live" \
         2> >(grep -Ev 'xattr|fail to copy' >&2) \
     && echo "Live initramfs built for $KVER (Plymouth: kyth)"
+
+# ── Live-session I/O scheduler override ──────────────────────────────────────
+# During install, bootc reads from a squashfs loop device and writes btrfs to
+# the target disk simultaneously.  BFQ can deadlock under this workload on the
+# CachyOS kernel when the block device type is unmatched (e.g. VirtIO vd*).
+# Force mq-deadline on all block types seen in QEMU/KVM live sessions.
+RUN mkdir -p /etc/udev/rules.d \
+    && cat > /etc/udev/rules.d/61-live-ioschedulers.rules <<'LIVEIOEOF'
+# Live session: override to mq-deadline for all virtual disk types
+ACTION=="add|change", KERNEL=="vd[a-z]*",   ATTR{queue/scheduler}="mq-deadline"
+ACTION=="add|change", KERNEL=="sd[a-z]*",   ATTR{queue/scheduler}="mq-deadline"
+ACTION=="add|change", KERNEL=="loop[0-9]*", ATTR{queue/scheduler}="mq-deadline"
+LIVEIOEOF
 
 # ── Finalize: machine-id, mask services, zram swap, locale / timezone ────────
 # machine-id must be "uninitialized" so systemd generates a volatile one.

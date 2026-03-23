@@ -104,10 +104,12 @@ mkdir -p /etc/udev/rules.d
 cat > /etc/udev/rules.d/60-ioschedulers.rules <<'IOEOF'
 # NVMe: bypass scheduler entirely
 ACTION=="add|change", KERNEL=="nvme[0-9]*", ATTR{queue/scheduler}="none"
-# SATA/NVMe-HDD SSDs (non-rotational, non-nvme): deadline with low latency
+# SATA SSDs (non-rotational): deadline with low latency
 ACTION=="add|change", KERNEL=="sd[a-z]*", ATTR{queue/rotational}=="0", ATTR{queue/scheduler}="mq-deadline"
 # HDDs: BFQ to avoid seek storms
 ACTION=="add|change", KERNEL=="sd[a-z]*", ATTR{queue/rotational}=="1", ATTR{queue/scheduler}="bfq"
+# VirtIO block (QEMU/KVM VMs): mq-deadline — BFQ can stall under heavy sequential I/O
+ACTION=="add|change", KERNEL=="vd[a-z]*", ATTR{queue/scheduler}="mq-deadline"
 IOEOF
 
 # ── PipeWire low-latency audio ─────────────────────────────────────────────────
