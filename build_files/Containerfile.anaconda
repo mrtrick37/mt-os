@@ -34,6 +34,7 @@ RUN dnf5 install -y \
     anaconda-webui \
     libblockdev-btrfs \
     firefox \
+    cockpit-desktop \
     yad \
     plasma-workspace \
     plasma-desktop \
@@ -84,7 +85,7 @@ RUN groupadd -r autologin 2>/dev/null || true \
     && passwd -d liveuser \
     && printf '%s\n' \
         'Defaults:liveuser env_keep += "DISPLAY XAUTHORITY WAYLAND_DISPLAY DBUS_SESSION_BUS_ADDRESS XDG_RUNTIME_DIR XDG_SESSION_TYPE"' \
-        'liveuser ALL=(root) NOPASSWD: SETENV: /usr/sbin/liveinst' \
+        'liveuser ALL=(root) NOPASSWD: SETENV: /usr/sbin/liveinst, /usr/bin/liveinst, /bin/liveinst' \
         > /etc/sudoers.d/liveuser \
     && chmod 440 /etc/sudoers.d/liveuser \
     && mkdir -p /etc/sddm.conf.d \
@@ -149,9 +150,10 @@ COPY build_files/wallpaper/kyth-wallpaper.svg \
      /usr/share/wallpapers/kyth/contents/images/1920x1080.svg
 COPY build_files/calamares/branding/kyth/kyth-logo.svg \
      /usr/share/icons/hicolor/scalable/apps/kyth.svg
-COPY build_files/anaconda/kyth-launch-anaconda  /usr/bin/kyth-launch-anaconda
-COPY build_files/anaconda/kyth.ks               /etc/anaconda/kyth.ks
-COPY build_files/anaconda/kyth-testing.ks       /etc/anaconda/kyth-testing.ks
+COPY build_files/anaconda/kyth-launch-anaconda    /usr/bin/kyth-launch-anaconda
+COPY build_files/anaconda/kyth-systemctl-wrapper  /usr/bin/kyth-systemctl-wrapper
+COPY build_files/anaconda/kyth.ks                 /etc/anaconda/kyth.ks
+COPY build_files/anaconda/kyth-testing.ks         /etc/anaconda/kyth-testing.ks
 COPY build_files/plymouth/kyth.plymouth /usr/share/plymouth/themes/kyth/kyth.plymouth
 COPY build_files/plymouth/kyth.script   /usr/share/plymouth/themes/kyth/kyth.script
 
@@ -170,7 +172,9 @@ RUN if [ "${SOURCE_TAG}" = "testing" ]; then \
     fi \
     && cp /etc/anaconda/ks.cfg /usr/share/anaconda/interactive-defaults.ks \
     && rm -f /etc/anaconda/kyth.ks /etc/anaconda/kyth-testing.ks \
-    && chmod +x /usr/bin/kyth-launch-anaconda \
+    && chmod +x /usr/bin/kyth-launch-anaconda /usr/bin/kyth-systemctl-wrapper \
+    && mv /usr/bin/systemctl /usr/bin/systemctl.real \
+    && ln -sf /usr/bin/kyth-systemctl-wrapper /usr/bin/systemctl \
     && mkdir -p /usr/share/wallpapers/kyth/contents/images \
     && printf '{"KPlugin":{"Authors":[{"Name":"Kyth"}],"Id":"kyth","Name":"Kyth","License":"CC-BY-SA-4.0"},"KPackageStructure":"Wallpaper/Images"}\n' \
         > /usr/share/wallpapers/kyth/metadata.json \

@@ -1,36 +1,87 @@
 #!/usr/bin/bash
-# kyth-launch-anaconda — launch Anaconda from the live desktop.
+# kyth-launch-anaconda — launch Anaconda WebUI from the live KDE desktop.
 #
-# Bazzite-style flow: launch liveinst directly from the live user session.
-# This keeps Anaconda in its expected live-media entrypoint.
-set -euo pipefail
+# Problem with the old approach: liveinst starts cockpit-ws but never opens
+# a browser window — cockpit-desktop is what handles that, and even when
+# present it runs as root which fails on an X11 session owned by liveuser.
+#
+# Fix: start liveinst in background, wait for cockpit-ws to bind :9090, then
+# explicitly open the browser as liveuser via cockpit-desktop (or firefox).
+# Firefox runs as the desktop user with full X11 access — no --no-sandbox hack.
 
-LOG_FILE="/tmp/kyth-launch-anaconda.log"
+LOG="${XDG_RUNTIME_DIR:-/tmp}/kyth-anaconda.log"
+COCKPIT_URL="http://localhost:9090"
 
-run_liveinst() {
-    sudo -n \
-        DISPLAY="${DISPLAY:-}" \
-        XAUTHORITY="${XAUTHORITY:-}" \
-        WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-}" \
-        DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-}" \
-        XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-}" \
-        XDG_SESSION_TYPE="${XDG_SESSION_TYPE:-}" \
-        /usr/sbin/liveinst "$@"
+_die() {
+    echo "$(date '+%T'): ERROR: $*" | tee -a "${LOG}"
+    if command -v yad >/dev/null 2>&1; then
+        yad --error --title="Kyth Installer" \
+            --text="$*\n\nFull log: ${LOG}" \
+            --width=500 2>/dev/null || true
+    fi
+    exit 1
 }
 
-if command -v liveinst >/dev/null 2>&1; then
-    if run_liveinst "$@" >>"${LOG_FILE}" 2>&1; then
-        exit 0
+# ── Locate liveinst ───────────────────────────────────────────────────────────
+LIVEINST_BIN=""
+for _p in /usr/sbin/liveinst /usr/bin/liveinst; do
+    if [[ -x "${_p}" ]]; then
+        LIVEINST_BIN="${_p}"
+        break
     fi
-elif [ -x /usr/sbin/liveinst ]; then
-    if run_liveinst "$@" >>"${LOG_FILE}" 2>&1; then
-        exit 0
-    fi
+done
+[[ -n "${LIVEINST_BIN}" ]] || _die "liveinst not found — is anaconda-live installed?"
+
+# ── Start Anaconda as root in the background ──────────────────────────────────
+echo "$(date '+%T'): Starting liveinst (${LIVEINST_BIN})..." | tee -a "${LOG}"
+
+sudo -n \
+    DISPLAY="${DISPLAY:-}" \
+    XAUTHORITY="${XAUTHORITY:-}" \
+    WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-}" \
+    DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-}" \
+    XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-}" \
+    XDG_SESSION_TYPE="${XDG_SESSION_TYPE:-x11}" \
+    "${LIVEINST_BIN}" >>"${LOG}" 2>&1 &
+LIVEINST_PID=$!
+
+# Bail fast if liveinst dies immediately (missing dep, permission error, etc.)
+sleep 2
+if ! kill -0 "${LIVEINST_PID}" 2>/dev/null; then
+    _die "liveinst exited immediately — check ${LOG}"
 fi
 
-ERR_MSG="Installer failed to start. See ${LOG_FILE}"
-echo "${ERR_MSG}" >&2
-if command -v yad >/dev/null 2>&1; then
-    yad --error --title="Kyth Installer" --text="${ERR_MSG}" 2>/dev/null || true
+# ── Wait for cockpit-ws to bind :9090 (up to 45s) ────────────────────────────
+echo "$(date '+%T'): Waiting for cockpit-ws on :9090..." | tee -a "${LOG}"
+_ready=0
+for _i in $(seq 1 45); do
+    if ss -tlnp 2>/dev/null | grep -q ':9090'; then
+        _ready=1
+        break
+    fi
+    sleep 1
+done
+
+if [[ "${_ready}" == "0" ]]; then
+    kill "${LIVEINST_PID}" 2>/dev/null || true
+    _die "Anaconda WebUI did not come up within 45s — check ${LOG}"
 fi
-exit 1
+
+echo "$(date '+%T'): cockpit-ws ready — opening browser" | tee -a "${LOG}"
+
+# ── Open the WebUI in the browser as liveuser ─────────────────────────────────
+# cockpit-desktop handles certs, kiosk mode, and Firefox flags correctly.
+# Falls back to plain firefox if cockpit-desktop is unavailable.
+if command -v cockpit-desktop >/dev/null 2>&1; then
+    DISPLAY="${DISPLAY:-}" XAUTHORITY="${XAUTHORITY:-}" \
+        cockpit-desktop "${COCKPIT_URL}" >>"${LOG}" 2>&1 &
+elif command -v firefox >/dev/null 2>&1; then
+    DISPLAY="${DISPLAY:-}" XAUTHORITY="${XAUTHORITY:-}" \
+        firefox --new-window "${COCKPIT_URL}" >>"${LOG}" 2>&1 &
+else
+    _die "No browser available (firefox or cockpit-desktop required)."
+fi
+
+# ── Wait for Anaconda to finish (install complete or cancelled) ───────────────
+wait "${LIVEINST_PID}" 2>/dev/null || true
+echo "$(date '+%T'): Anaconda exited." | tee -a "${LOG}"
