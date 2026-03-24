@@ -57,12 +57,20 @@ RUN dnf5 install -y \
     breeze-cursor-theme \
     --skip-broken && dnf5 clean all
 
-# ── System setup: live user, getty autologin, mask setup service ─────────────
-# SDDM autologin remains unreliable in some live/QEMU paths.
-# Use tty1 autologin + startx for deterministic live desktop startup.
-RUN systemctl disable sddm 2>/dev/null || true \
-    && systemctl set-default multi-user.target \
-    && groupadd -r autologin \
+# ── System setup: live user, autologin, mask setup service ───────────────────
+# Autologin strategy — two independent layers so one backs up the other:
+#
+#   Layer 1 — SDDM graphical autologin (primary):
+#     SDDM reads /etc/sddm.conf.d/autologin.conf and starts the plasmax11
+#     session directly.  The sddm.service drop-in injects software-rendering
+#     env vars so the SDDM greeter itself doesn't crash in QEMU (it renders
+#     its own QML UI with the same Mesa stack).
+#
+#   Layer 2 — getty tty1 autologin (fallback):
+#     If SDDM fails for any reason, VT1's getty fires and autologs in as
+#     liveuser.  .bash_profile then execs startx so the user still reaches
+#     the desktop without any manual typing.
+RUN groupadd -r autologin 2>/dev/null || true \
     && useradd -c "Live User" -G autologin liveuser \
     && passwd -d liveuser \
     && printf '%s\n' \
@@ -70,38 +78,41 @@ RUN systemctl disable sddm 2>/dev/null || true \
         'liveuser ALL=(root) NOPASSWD: SETENV: /usr/bin/kyth-calamares-root, /usr/bin/kyth-manual-install, /usr/bin/systemctl reboot' \
         > /etc/sudoers.d/liveuser \
     && chmod 440 /etc/sudoers.d/liveuser \
+    && mkdir -p /etc/sddm.conf.d \
+    && printf '[Autologin]\nUser=liveuser\nSession=plasmax11\nRelogin=false\n' \
+        > /etc/sddm.conf.d/autologin.conf \
+    && mkdir -p /etc/systemd/system/sddm.service.d \
+    && printf '[Service]\nEnvironment="LIBGL_ALWAYS_SOFTWARE=1"\nEnvironment="GALLIUM_DRIVER=softpipe"\nEnvironment="QT_QUICK_BACKEND=software"\n' \
+        > /etc/systemd/system/sddm.service.d/live-rendering.conf \
     && mkdir -p /etc/systemd/system/getty@tty1.service.d \
     && printf '[Service]\nExecStart=\nExecStart=-/sbin/agetty --autologin liveuser --noclear %%I linux\n' \
         > /etc/systemd/system/getty@tty1.service.d/autologin.conf \
-    && systemctl mask kyth-sddm-setup.service 2>/dev/null || true
+    && ln -sf /usr/lib/systemd/system/graphical.target \
+              /etc/systemd/system/default.target \
+    && mkdir -p /etc/systemd/system/multi-user.target.wants \
+    && ln -sf /usr/lib/systemd/system/sddm.service \
+              /etc/systemd/system/multi-user.target.wants/sddm.service \
+    && mkdir -p /etc/systemd/system/kyth-sddm-setup.service.d \
+    && ln -sf /dev/null /etc/systemd/system/kyth-sddm-setup.service
 
-# ── SDDM: config for the post-install system (not used in live session) ───────
-# X11 is used because kwin_wayland requires EGL/virgl and fails in plain QEMU.
+# ── Live user home: KDE config, autostarts, desktop shortcuts ────────────────
+# Boot sequence (primary — SDDM):
+#   1. SDDM reads /etc/sddm.conf.d/autologin.conf → autologs in as liveuser
+#      using the plasmax11 session — no login prompt shown.
+#   2. SDDM starts Xorg (modesetting, AccelMethod=none) and runs startplasma-x11.
+# Boot sequence (fallback — getty):
+#   1. If SDDM fails, getty@tty1 autologs in as liveuser (no typing required).
+#   2. bash reads .bash_profile → execs startx which runs .xinitrc → KDE.
 #
-# Boot sequence for the live session:
-#   1. getty@tty1 autologs in as liveuser (no password prompt)
-#   2. bash reads .bash_profile → execs "startx -- :0 vt1 -nolisten tcp"
-#      "exec" replaces the shell so the X session IS the login session.
-#      If KDE exits cleanly → back to tty1 prompt.
-#      If X crashes → tty1 prompt + tty2-6 still available.
-#   3. startx runs .xinitrc which:
-#      a. Sets XDG_SESSION_TYPE=x11 (pam_systemd sets it to "tty" for getty
-#         logins; startplasma-x11 checks this and must see "x11" or "unset")
-#      b. Execs startplasma-x11
-#   4. startplasma-x11 sources ~/.config/plasma-workspace/env/*.sh and imports
-#      vars into the systemd --user session so kwin/plasmashell see them even
-#      when started as systemd user services.
+# Software rendering:
+#   /etc/environment: LIBGL_ALWAYS_SOFTWARE + GALLIUM_DRIVER + QT_QUICK_BACKEND
+#     → loaded by pam_env; all session processes inherit these.
+#   sddm.service drop-in: same vars for the SDDM greeter process itself.
+#   kwinrc Enabled=false  → kwin never touches OpenGL/EGL.
 #
-# Software rendering — belt and suspenders:
-#   /etc/environment (set below):  LIBGL_ALWAYS_SOFTWARE + GALLIUM_DRIVER
-#     → picked up by pam_env on login; all processes inherit these including
-#       systemd user services and anything not started by startplasma-x11.
-#   plasma-workspace/env/live.sh:  QT_QUICK_BACKEND=software
-#     → imported into systemd --user by startplasma-x11 startup sequence.
-#   kwinrc Enabled=false           → kwin never touches OpenGL/EGL at all.
-#
-# Disabled autostarts: steam (crashes on live tmpfs), kyth-welcome,
-#   kyth-set-resolution (not meaningful in a live session).
+# Disabled autostarts: steam (crashes on live tmpfs), kyth-welcome.
+# kyth-set-resolution runs normally — kscreen-doctor sets each output to its
+# preferred mode on first login, which handles QEMU/VM dynamic resolution.
 RUN mkdir -p \
         /home/liveuser/Desktop \
         /home/liveuser/.config/autostart \
@@ -115,8 +126,6 @@ RUN mkdir -p \
         > /home/liveuser/.config/autostart/steam.desktop \
     && printf '[Desktop Entry]\nType=Application\nName=Kyth Welcome\nHidden=true\n' \
         > /home/liveuser/.config/autostart/kyth-welcome.desktop \
-    && printf '[Desktop Entry]\nType=Application\nName=Kyth Set Resolution\nHidden=true\n' \
-        > /home/liveuser/.config/autostart/kyth-set-resolution.desktop \
     && printf '[Compositing]\nEnabled=false\nOpenGLIsUnsafe=true\n' \
         > /home/liveuser/.config/kwinrc \
     && printf '[General]\nColorScheme=BreezeDark\n\n[KDE]\nLookAndFeelPackage=org.kde.breezedark.desktop\n' \
@@ -227,10 +236,14 @@ RUN KVER=$(ls /usr/lib/modules/ | grep cachyos | head -1) \
 # Force mq-deadline on all block types seen in QEMU/KVM live sessions.
 RUN mkdir -p /etc/udev/rules.d \
     && cat > /etc/udev/rules.d/61-live-ioschedulers.rules <<'LIVEIOEOF'
-# Live session: override to mq-deadline for all virtual disk types
-ACTION=="add|change", KERNEL=="vd[a-z]*",   ATTR{queue/scheduler}="mq-deadline"
-ACTION=="add|change", KERNEL=="sd[a-z]*",   ATTR{queue/scheduler}="mq-deadline"
-ACTION=="add|change", KERNEL=="loop[0-9]*", ATTR{queue/scheduler}="mq-deadline"
+# Live session: force mq-deadline on all block device types.
+# bootc reads from squashfs (loop device) and writes btrfs to the target disk
+# simultaneously.  BFQ can deadlock under this mixed read/write workload on the
+# CachyOS kernel, freezing the entire I/O stack (VTs included).
+ACTION=="add|change", KERNEL=="vd[a-z]*",      ATTR{queue/scheduler}="mq-deadline"
+ACTION=="add|change", KERNEL=="sd[a-z]*",      ATTR{queue/scheduler}="mq-deadline"
+ACTION=="add|change", KERNEL=="nvme[0-9]*",    ATTR{queue/scheduler}="mq-deadline"
+ACTION=="add|change", KERNEL=="loop[0-9]*",    ATTR{queue/scheduler}="mq-deadline"
 LIVEIOEOF
 
 # ── Finalize: machine-id, mask services, zram swap, locale / timezone ────────
@@ -242,7 +255,7 @@ LIVEIOEOF
 # A zram device (up to 4 GiB, zstd) acts as compressed swap so the system
 # stays responsive instead of locking up during the download.
 RUN echo "uninitialized" > /etc/machine-id \
-    && systemctl mask \
+    && for unit in \
         ostree-remount.service \
         ostree-prepare-root.service \
         rpm-ostree.service \
@@ -252,7 +265,9 @@ RUN echo "uninitialized" > /etc/machine-id \
         bootc-fetch-apply-updates.timer \
         systemd-firstboot.service \
         scxd.service \
-    || true \
+        ananicy-cpp.service; do \
+        ln -sf /dev/null "/etc/systemd/system/${unit}"; \
+    done \
     && printf '[zram0]\nzram-size = min(ram, 4096)\ncompression-algorithm = zstd\n' \
         > /etc/systemd/zram-generator.conf \
     && echo "LANG=en_US.UTF-8" > /etc/locale.conf \

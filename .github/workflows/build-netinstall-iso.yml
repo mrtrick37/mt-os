@@ -58,6 +58,18 @@ jobs:
             .
           echo "image-ref=${IMAGE}" >> $GITHUB_OUTPUT
 
+      - name: Flatten live container to a single layer
+        # The live image inherits 100+ layers from the kyth base image.
+        # docker pull in Job 2 hits Docker's 128-layer overlay2 limit before
+        # it can even finish pulling. crane flatten squashes all layers into one
+        # and pushes the result back to the same tag, so Job 2 can pull cleanly.
+        run: |
+          curl -sSfL "https://github.com/google/go-containerregistry/releases/download/v0.20.6/go-containerregistry_Linux_x86_64.tar.gz" \
+            | tar -xz -C /usr/local/bin crane
+          IMAGE="ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:live-build"
+          crane auth login ghcr.io -u "${{ github.actor }}" -p "${{ secrets.GITHUB_TOKEN }}"
+          crane flatten "${IMAGE}"
+
   # ── Job 2: Export rootfs, build squashfs + ISO, upload ───────────────────────
   # No OCI bundle step — significantly less disk pressure than the offline ISO.
   build-iso:

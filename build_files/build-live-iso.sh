@@ -230,7 +230,7 @@ sudo mksquashfs "${ROOTFS}" "${ISO_DIR}/LiveOS/squashfs.img" \
 
 # ── 5a. GRUB config + dark theme (shared by EFI and BIOS GRUB2) ─────────────
 echo "==> Writing GRUB config and theme"
-LIVE_ARGS="root=live:CDLABEL=${VOLID} rd.live.image selinux=0 quiet splash"
+LIVE_ARGS="root=live:CDLABEL=${VOLID} rd.live.image selinux=0 quiet splash elevator=mq-deadline"
 
 # Write the theme file
 cat > "${ISO_DIR}/boot/grub2/themes/kyth/theme.txt" <<THEMEEOF
