@@ -25,6 +25,8 @@ ARG SOURCE_TAG=latest
 # anaconda-webui:           Anaconda WebUI frontend used by liveinst
 # libblockdev-btrfs:        Anaconda btrfs storage backend (bootc default filesystem)
 # firefox:                  browser required to display Anaconda WebUI (cockpit-based)
+# Note: cockpit-desktop is not a separate package on Fedora 43; the launcher
+#       opens Firefox explicitly as liveuser, which is equivalent.
 RUN dnf5 install -y \
     dracut-live syslinux grub2-efi-x64 grub2-efi-x64-modules grub2-pc gparted \
     plymouth-plugin-script librsvg2-tools gdisk \
@@ -34,7 +36,6 @@ RUN dnf5 install -y \
     anaconda-webui \
     libblockdev-btrfs \
     firefox \
-    cockpit-desktop \
     yad \
     plasma-workspace \
     plasma-desktop \
