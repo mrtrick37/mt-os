@@ -1,16 +1,19 @@
 #!/usr/bin/bash
 # kyth-launch-anaconda — launch Anaconda WebUI from the live KDE desktop.
 #
-# Problem with the old approach: liveinst starts cockpit-ws but never opens
-# a browser window — cockpit-desktop is what handles that, and even when
-# present it runs as root which fails on an X11 session owned by liveuser.
+# Architecture (replicates what cockpit-desktop does):
+#   1. Start cockpit-ws in local-session mode — no TLS, no login screen
+#   2. Start anaconda via liveinst (the installation backend)
+#   3. Open Firefox in kiosk mode directly to the anaconda WebUI page
 #
-# Fix: start liveinst in background, wait for cockpit-ws to bind :9090, then
-# explicitly open the browser as liveuser via cockpit-desktop (or firefox).
-# Firefox runs as the desktop user with full X11 access — no --no-sandbox hack.
+# cockpit-ws --local-session runs cockpit-bridge directly as the session,
+# bypassing PAM authentication entirely.  anaconda-webui (a cockpit plugin
+# installed at /usr/share/cockpit/anaconda-webui/) talks to the anaconda
+# backend over D-Bus through cockpit-bridge.
 
 LOG="${XDG_RUNTIME_DIR:-/tmp}/kyth-anaconda.log"
-COCKPIT_URL="http://localhost:9090"
+COCKPIT_PORT=9090
+COCKPIT_URL="http://localhost:${COCKPIT_PORT}/anaconda"
 
 _die() {
     echo "$(date '+%T'): ERROR: $*" | tee -a "${LOG}"
@@ -22,6 +25,12 @@ _die() {
     exit 1
 }
 
+_cleanup() {
+    [[ -n "${COCKPIT_PID:-}" ]] && kill "${COCKPIT_PID}" 2>/dev/null || true
+    [[ -n "${LIVEINST_PID:-}" ]] && kill "${LIVEINST_PID}" 2>/dev/null || true
+}
+trap _cleanup EXIT
+
 # ── Locate liveinst ───────────────────────────────────────────────────────────
 LIVEINST_BIN=""
 for _p in /usr/sbin/liveinst /usr/bin/liveinst; do
@@ -32,54 +41,66 @@ for _p in /usr/sbin/liveinst /usr/bin/liveinst; do
 done
 [[ -n "${LIVEINST_BIN}" ]] || _die "liveinst not found — is anaconda-live installed?"
 
-# ── Start Anaconda as root in the background ──────────────────────────────────
-echo "$(date '+%T'): Starting liveinst (${LIVEINST_BIN})..." | tee -a "${LOG}"
+# ── Stop any pre-existing cockpit instance ────────────────────────────────────
+# cockpit.socket starts cockpit-ws in server mode (requires login).
+# We need local-session mode instead, so make sure nothing is on our port.
+sudo -n systemctl stop cockpit.socket cockpit.service 2>/dev/null || true
 
-sudo -n \
-    DISPLAY="${DISPLAY:-}" \
-    XAUTHORITY="${XAUTHORITY:-}" \
-    WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-}" \
-    DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-}" \
-    XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-}" \
-    XDG_SESSION_TYPE="${XDG_SESSION_TYPE:-x11}" \
-    "${LIVEINST_BIN}" >>"${LOG}" 2>&1 &
-LIVEINST_PID=$!
+# ── Start cockpit-ws in local-session mode (no auth, no TLS) ──────────────────
+# This is what cockpit-desktop does under the hood.  --local-session forks
+# cockpit-bridge as a direct child, giving the browser full system access
+# without any PAM/login dialog.
+echo "$(date '+%T'): Starting cockpit-ws (local session, port ${COCKPIT_PORT})..." | tee -a "${LOG}"
+sudo -n cockpit-ws \
+    --no-tls \
+    --port "${COCKPIT_PORT}" \
+    --local-session=cockpit-bridge >>"${LOG}" 2>&1 &
+COCKPIT_PID=$!
 
-# Bail fast if liveinst dies immediately (missing dep, permission error, etc.)
-sleep 2
-if ! kill -0 "${LIVEINST_PID}" 2>/dev/null; then
-    _die "liveinst exited immediately — check ${LOG}"
-fi
-
-# ── Wait for cockpit-ws to bind :9090 (up to 45s) ────────────────────────────
-echo "$(date '+%T'): Waiting for cockpit-ws on :9090..." | tee -a "${LOG}"
+# Wait for cockpit-ws to bind (up to 15s)
 _ready=0
-for _i in $(seq 1 45); do
-    if ss -tlnp 2>/dev/null | grep -q ':9090'; then
+for _i in $(seq 1 15); do
+    if ! kill -0 "${COCKPIT_PID}" 2>/dev/null; then
+        _die "cockpit-ws exited unexpectedly — check ${LOG}"
+    fi
+    if ss -tlnp 2>/dev/null | grep -q ":${COCKPIT_PORT}"; then
         _ready=1
         break
     fi
     sleep 1
 done
+[[ "${_ready}" == "1" ]] || _die "cockpit-ws did not bind :${COCKPIT_PORT} within 15s — check ${LOG}"
+echo "$(date '+%T'): cockpit-ws ready on :${COCKPIT_PORT}" | tee -a "${LOG}"
 
-if [[ "${_ready}" == "0" ]]; then
-    kill "${LIVEINST_PID}" 2>/dev/null || true
-    _die "Anaconda WebUI did not come up within 45s — check ${LOG}"
+# ── Start Anaconda via liveinst ───────────────────────────────────────────────
+# liveinst starts anaconda which exposes its D-Bus interface on the system bus.
+# anaconda-webui (served by our cockpit-ws) communicates with it via
+# cockpit-bridge → D-Bus.
+#
+# Do NOT pass DBUS_SESSION_BUS_ADDRESS — anaconda runs as root and cannot
+# access liveuser's session bus (crashes in inhibit_screensaver).
+echo "$(date '+%T'): Starting liveinst (${LIVEINST_BIN})..." | tee -a "${LOG}"
+sudo -n \
+    DISPLAY="${DISPLAY:-}" \
+    XAUTHORITY="${XAUTHORITY:-}" \
+    WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-}" \
+    XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-}" \
+    XDG_SESSION_TYPE="${XDG_SESSION_TYPE:-x11}" \
+    "${LIVEINST_BIN}" >>"${LOG}" 2>&1 &
+LIVEINST_PID=$!
+
+# Brief pause to let anaconda initialise before the browser connects
+sleep 3
+if ! kill -0 "${LIVEINST_PID}" 2>/dev/null; then
+    _die "liveinst exited immediately — check ${LOG}"
 fi
 
-echo "$(date '+%T'): cockpit-ws ready — opening browser" | tee -a "${LOG}"
-
-# ── Open the WebUI in the browser as liveuser ─────────────────────────────────
-# cockpit-desktop handles certs, kiosk mode, and Firefox flags correctly.
-# Falls back to plain firefox if cockpit-desktop is unavailable.
-if command -v cockpit-desktop >/dev/null 2>&1; then
-    DISPLAY="${DISPLAY:-}" XAUTHORITY="${XAUTHORITY:-}" \
-        cockpit-desktop "${COCKPIT_URL}" >>"${LOG}" 2>&1 &
-elif command -v firefox >/dev/null 2>&1; then
-    DISPLAY="${DISPLAY:-}" XAUTHORITY="${XAUTHORITY:-}" \
-        firefox --new-window "${COCKPIT_URL}" >>"${LOG}" 2>&1 &
+# ── Open the WebUI in Firefox kiosk mode ──────────────────────────────────────
+echo "$(date '+%T'): Opening browser → ${COCKPIT_URL}" | tee -a "${LOG}"
+if command -v firefox >/dev/null 2>&1; then
+    firefox --kiosk "${COCKPIT_URL}" >>"${LOG}" 2>&1 &
 else
-    _die "No browser available (firefox or cockpit-desktop required)."
+    _die "Firefox not found — cannot display installer."
 fi
 
 # ── Wait for Anaconda to finish (install complete or cancelled) ───────────────

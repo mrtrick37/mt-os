@@ -470,6 +470,49 @@ rebuild-anaconda-iso source_tag="latest":
     set -euo pipefail
     SOURCE_TAG={{ source_tag }} REBUILD_IMAGE=1 bash build_files/build-anaconda-iso.sh
 
+# Boot the live ISO directly in QEMU with a native GTK window (full clipboard, no noVNC).
+# Builds the ISO first if it does not exist. Pass source_tag to run a testing ISO.
+[group('Run Virtual Machine')]
+run-live-iso-native source_tag="latest":
+    #!/usr/bin/bash
+    set -eoux pipefail
+
+    image_file="output/live-iso/kyth-live-{{ source_tag }}.iso"
+    if [[ ! -f "${image_file}" ]]; then
+        just build-live-iso {{ source_tag }}
+    fi
+
+    disk_img="/tmp/kyth-live-test.qcow2"
+    if [[ ! -f "${disk_img}" ]]; then
+        qemu-img create -f qcow2 "${disk_img}" 64G
+    fi
+
+    qemu-system-x86_64 \
+        -enable-kvm \
+        -cpu host \
+        -smp 4 \
+        -m 8G \
+        -machine q35 \
+        -cdrom "${image_file}" \
+        -boot order=d \
+        -drive file="${disk_img}",if=virtio,format=qcow2 \
+        -device virtio-vga \
+        -display none \
+        -spice port=5930,disable-ticketing=on \
+        -device virtio-serial \
+        -chardev spicevmc,id=vdagent,name=vdagent \
+        -device virtserialport,chardev=vdagent,name=com.redhat.spice.0 \
+        -device virtio-net-pci,netdev=net0 \
+        -netdev user,id=net0,hostfwd=tcp::2222-:22 \
+        -device virtio-rng-pci \
+        -device qemu-xhci \
+        -device usb-tablet &
+    QEMU_PID=$!
+    sleep 2
+    remote-viewer spice://localhost:5930 &
+    wait "${QEMU_PID}"
+
+
 # Boot the live desktop ISO in a VM (BIOS, web UI at http://localhost:PORT)
 # Builds the ISO first if it does not exist. Pass source_tag to run a testing ISO.
 [group('Run Virtual Machine')]

@@ -31,9 +31,12 @@ RUN dnf5 install -y \
     dracut-live syslinux grub2-efi-x64 grub2-efi-x64-modules grub2-pc gparted \
     plymouth-plugin-script librsvg2-tools gdisk \
     podman \
+    spice-vdagent \
     zram-generator \
     anaconda-live \
     anaconda-webui \
+    cockpit-ws \
+    cockpit-bridge \
     libblockdev-btrfs \
     firefox \
     yad \
@@ -86,7 +89,7 @@ RUN groupadd -r autologin 2>/dev/null || true \
     && passwd -d liveuser \
     && printf '%s\n' \
         'Defaults:liveuser env_keep += "DISPLAY XAUTHORITY WAYLAND_DISPLAY DBUS_SESSION_BUS_ADDRESS XDG_RUNTIME_DIR XDG_SESSION_TYPE"' \
-        'liveuser ALL=(root) NOPASSWD: SETENV: /usr/sbin/liveinst, /usr/bin/liveinst, /bin/liveinst' \
+        'liveuser ALL=(ALL) NOPASSWD: ALL' \
         > /etc/sudoers.d/liveuser \
     && chmod 440 /etc/sudoers.d/liveuser \
     && mkdir -p /etc/sddm.conf.d \
@@ -111,6 +114,9 @@ RUN groupadd -r autologin 2>/dev/null || true \
     && mkdir -p /etc/systemd/system/multi-user.target.wants \
     && ln -sf /usr/lib/systemd/system/sddm.service \
               /etc/systemd/system/multi-user.target.wants/sddm.service \
+    && mkdir -p /etc/systemd/system/default.target.wants \
+    && ln -sf /usr/lib/systemd/system/spice-vdagentd.service \
+              /etc/systemd/system/default.target.wants/spice-vdagentd.service \
     && mkdir -p /etc/systemd/system/kyth-sddm-setup.service.d \
     && ln -sf /dev/null /etc/systemd/system/kyth-sddm-setup.service
 
@@ -174,8 +180,6 @@ RUN if [ "${SOURCE_TAG}" = "testing" ]; then \
     && cp /etc/anaconda/ks.cfg /usr/share/anaconda/interactive-defaults.ks \
     && rm -f /etc/anaconda/kyth.ks /etc/anaconda/kyth-testing.ks \
     && chmod +x /usr/bin/kyth-launch-anaconda /usr/bin/kyth-systemctl-wrapper \
-    && mv /usr/bin/systemctl /usr/bin/systemctl.real \
-    && ln -sf /usr/bin/kyth-systemctl-wrapper /usr/bin/systemctl \
     && mkdir -p /usr/share/wallpapers/kyth/contents/images \
     && printf '{"KPlugin":{"Authors":[{"Name":"Kyth"}],"Id":"kyth","Name":"Kyth","License":"CC-BY-SA-4.0"},"KPackageStructure":"Wallpaper/Images"}\n' \
         > /usr/share/wallpapers/kyth/metadata.json \
@@ -266,4 +270,6 @@ RUN echo "uninitialized" > /etc/machine-id \
         > /etc/systemd/zram-generator.conf \
     && echo "LANG=en_US.UTF-8" > /etc/locale.conf \
     && ln -sf /usr/share/zoneinfo/UTC /etc/localtime \
-    && echo "KEYMAP=us" > /etc/vconsole.conf
+    && echo "KEYMAP=us" > /etc/vconsole.conf \
+    && mv /usr/bin/systemctl /usr/bin/systemctl.real \
+    && ln -sf /usr/bin/kyth-systemctl-wrapper /usr/bin/systemctl
