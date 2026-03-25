@@ -2,7 +2,7 @@
 # kyth-manual-install.sh — Manual installer for Kyth from a live ISO session.
 #
 # Use this when the graphical installer is unavailable (e.g. broken Wayland).
-# This is the CLI equivalent of the Calamares graphical installer: it calls
+# This is the CLI equivalent of the graphical install path: it calls
 # 'bootc install to-disk' directly on the host, using the OCI image that is
 # bundled inside the live ISO squashfs at /usr/share/kyth/image.
 # No network download, no podman, no container mount gymnastics.

@@ -93,6 +93,38 @@ clean-docker:
     echo ""
     docker system df
 
+# Reclaim space specifically for Anaconda ISO dev loops.
+# Removes stale kyth-anaconda images/tags, prunes build cache/volumes,
+# and deletes temporary VM disk and build directories.
+[group('Utility')]
+prune-anaconda-dev:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    echo "── Removing stale kyth-anaconda images ─────────────────────────────────"
+    docker images \
+        | awk 'NR>1 {print $1":"$2}' \
+        | grep '^kyth-anaconda:' \
+        | xargs -r docker rmi -f || true
+
+    echo ""
+    echo "── Pruning Docker cache/volumes ──────────────────────────────────────────"
+    docker builder prune -af || true
+    docker image prune -af || true
+    docker volume prune -f || true
+
+    echo ""
+    echo "── Removing stale VM/build temp artefacts ───────────────────────────────"
+    find /tmp -maxdepth 1 -type f \( -name 'kyth-anaconda-test.qcow2' -o -name 'kyth-live-test.qcow2' \) -delete || true
+    find /var/tmp -maxdepth 2 -type f \( -name 'kyth-anaconda-test.qcow2' -o -name 'kyth-live-test.qcow2' \) -delete || true
+    find /tmp -maxdepth 1 -type d -name 'kyth-vm-share-*' -exec rm -rf {} + || true
+    find /var/tmp -maxdepth 1 -type d \( -name 'kyth-anaconda.*' -o -name 'kyth-live.*' \) -exec rm -rf {} + || true
+
+    echo ""
+    echo "── Post-cleanup summary ───────────────────────────────────────────────────"
+    df -h /tmp /var || true
+    docker system df || true
+
 # Drop the kyth-live:build cache image so the next 'just build-live-iso' does a
 # full container rebuild from scratch.  Use this when the Containerfile.live has
 # changed in ways that Docker layer caching would miss (e.g. base image bumps).
@@ -470,6 +502,120 @@ rebuild-anaconda-iso source_tag="latest":
     set -euo pipefail
     SOURCE_TAG={{ source_tag }} REBUILD_IMAGE=1 bash build_files/build-anaconda-iso.sh
 
+# Boot the Anaconda live ISO in a VM (BIOS, web UI at http://localhost:PORT).
+# Uses the dedicated artifact name from build-anaconda-iso.sh:
+#   output/live-iso/kyth-live-anaconda-<tag>.iso
+[group('Run Virtual Machine')]
+run-anaconda-iso source_tag="latest":
+    #!/usr/bin/bash
+    set -eoux pipefail
+
+    image_file="output/live-iso/kyth-live-anaconda-{{ source_tag }}.iso"
+    if [[ ! -f "${image_file}" ]]; then
+        just build-anaconda-iso {{ source_tag }}
+    fi
+
+    port=8006
+    while grep -q ":${port}" <<< $(ss -tunalp); do
+        port=$(( port + 1 ))
+    done
+    echo "Using Port: ${port}"
+    echo "Connect to http://localhost:${port}"
+
+    (sleep 30 && xdg-open http://localhost:"$port") &
+    docker run \
+        --rm --privileged \
+        --pull missing \
+        --publish "127.0.0.1:${port}:8006" \
+        --env "CPU_CORES=4" \
+        --env "RAM_SIZE=8G" \
+        --env "DISK_SIZE=64G" \
+        --env "GPU=Y" \
+        --device=/dev/kvm \
+        --volume "${PWD}/${image_file}:/boot.iso" \
+        docker.io/qemux/qemu
+
+# Boot the Anaconda ISO directly in native QEMU (SPICE window, better clipboard).
+# Useful when noVNC copy/paste is awkward while collecting installer logs.
+[group('Run Virtual Machine')]
+run-anaconda-iso-native source_tag="latest":
+    #!/usr/bin/bash
+    set -eoux pipefail
+
+    image_file="output/live-iso/kyth-live-anaconda-{{ source_tag }}.iso"
+    if [[ ! -f "${image_file}" ]]; then
+        just build-anaconda-iso {{ source_tag }}
+    fi
+
+    disk_dir="/var/tmp/kyth-vm-disks-${USER}"
+    mkdir -p "${disk_dir}"
+    disk_img="${disk_dir}/kyth-anaconda-test.qcow2"
+
+    # Optional one-shot reset for a clean VM install target.
+    if [[ "${ANACONDA_VM_RESET:-0}" == "1" ]]; then
+        rm -f "${disk_img}"
+    fi
+
+    # Fail fast before booting when host free space is too low for install writes.
+    avail_bytes=$(df --output=avail -B1 "${disk_dir}" | tail -n 1 | tr -d '[:space:]')
+    min_bytes=$((30 * 1024 * 1024 * 1024))
+    if [[ "${avail_bytes}" -lt "${min_bytes}" ]]; then
+        echo "Insufficient free space for Anaconda VM disk writes on $(df --output=target "${disk_dir}" | tail -n 1)."
+        echo "Need >= 30 GiB free, found $((avail_bytes / 1024 / 1024 / 1024)) GiB."
+        echo "Run: just prune-anaconda-dev"
+        exit 1
+    fi
+
+    if [[ ! -f "${disk_img}" ]]; then
+        qemu-img create -f qcow2 -o preallocation=metadata,lazy_refcounts=on "${disk_img}" 64G
+    fi
+
+    # Host/guest shared folder for collecting logs from the VM.
+    # Use /var/tmp consistently to avoid tmpfs quota issues seen under /tmp.
+    share_dir="/var/tmp/kyth-vm-share-${USER}"
+    mkdir -p "${share_dir}"
+    serial_log="${share_dir}/qemu-serial.log"
+    qemu_log="${share_dir}/qemu-debug.log"
+    rm -f "${serial_log}" "${qemu_log}"
+    echo "Host shared folder: ${share_dir}"
+    echo "Serial log on host: ${serial_log}"
+    echo "QEMU debug log on host: ${qemu_log}"
+    echo "In VM, run: sudo mkdir -p /mnt/hostshare && sudo mount -t 9p -o trans=virtio,version=9p2000.L,cache=none hostshare /mnt/hostshare"
+
+    qemu-system-x86_64 \
+        -enable-kvm \
+        -cpu host \
+        -smp 4 \
+        -m 8G \
+        -machine q35 \
+        -no-reboot \
+        -no-shutdown \
+        -cdrom "${image_file}" \
+        -boot order=d \
+        -drive file="${disk_img}",if=virtio,format=qcow2 \
+        -device virtio-vga \
+        -display none \
+        -spice port=5931,disable-ticketing=on,disable-copy-paste=off,disable-agent-file-xfer=off \
+        -device virtio-serial \
+        -chardev spicevmc,id=vdagent,name=vdagent \
+        -device virtserialport,chardev=vdagent,name=com.redhat.spice.0 \
+        -device virtio-net-pci,netdev=net0 \
+        -netdev user,id=net0,hostfwd=tcp::2223-:22 \
+        -device virtio-rng-pci \
+        -device qemu-xhci \
+        -device usb-tablet \
+        -d guest_errors \
+        -serial "file:${serial_log}" \
+        -D "${qemu_log}" \
+        -virtfs local,path="${share_dir}",mount_tag=hostshare,security_model=mapped-xattr,id=hostshare \
+        &
+    QEMU_PID=$!
+    sleep 2
+    rv_cache="/var/tmp/kyth-remote-viewer-${USER}"
+    mkdir -p "${rv_cache}"
+    env XDG_CACHE_HOME="${rv_cache}" TMPDIR="/var/tmp" remote-viewer spice://localhost:5931 &
+    wait "${QEMU_PID}"
+
 # Boot the live ISO directly in QEMU with a native GTK window (full clipboard, no noVNC).
 # Builds the ISO first if it does not exist. Pass source_tag to run a testing ISO.
 [group('Run Virtual Machine')]
@@ -482,9 +628,25 @@ run-live-iso-native source_tag="latest":
         just build-live-iso {{ source_tag }}
     fi
 
-    disk_img="/tmp/kyth-live-test.qcow2"
+    disk_dir="/var/tmp/kyth-vm-disks-${USER}"
+    mkdir -p "${disk_dir}"
+    disk_img="${disk_dir}/kyth-live-test.qcow2"
+
+    if [[ "${LIVE_VM_RESET:-0}" == "1" ]]; then
+        rm -f "${disk_img}"
+    fi
+
+    avail_bytes=$(df --output=avail -B1 "${disk_dir}" | tail -n 1 | tr -d '[:space:]')
+    min_bytes=$((20 * 1024 * 1024 * 1024))
+    if [[ "${avail_bytes}" -lt "${min_bytes}" ]]; then
+        echo "Insufficient free space for live VM disk writes on $(df --output=target "${disk_dir}" | tail -n 1)."
+        echo "Need >= 20 GiB free, found $((avail_bytes / 1024 / 1024 / 1024)) GiB."
+        echo "Run: just prune-anaconda-dev"
+        exit 1
+    fi
+
     if [[ ! -f "${disk_img}" ]]; then
-        qemu-img create -f qcow2 "${disk_img}" 64G
+        qemu-img create -f qcow2 -o preallocation=metadata,lazy_refcounts=on "${disk_img}" 64G
     fi
 
     qemu-system-x86_64 \
@@ -509,7 +671,9 @@ run-live-iso-native source_tag="latest":
         -device usb-tablet &
     QEMU_PID=$!
     sleep 2
-    remote-viewer spice://localhost:5930 &
+    rv_cache="/var/tmp/kyth-remote-viewer-${USER}"
+    mkdir -p "${rv_cache}"
+    env XDG_CACHE_HOME="${rv_cache}" TMPDIR="/var/tmp" remote-viewer spice://localhost:5930 &
     wait "${QEMU_PID}"
 
 

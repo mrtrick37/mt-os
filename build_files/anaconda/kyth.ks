@@ -18,16 +18,19 @@
 network --bootproto=dhcp --device=link --activate --noipv6
 
 # Pull Kyth from the container registry and install it to disk.
-ostreecontainer --url="ghcr.io/mrtrick37/kyth:latest" --no-signature-verification
+ostreecontainer --url="ghcr.io/mrtrick37/kyth:latest" --transport=registry --no-signature-verification
 
 # Keep failure details visible in the live session.
 %onerror
-run0 --user=liveuser yad \
+# Display error log in a dialog. Anaconda %onerror runs as root — run yad
+# directly rather than via run0 which may not be available in this context.
+DISPLAY=:0 XAUTHORITY=/home/liveuser/.Xauthority yad \
 	--timeout=0 \
 	--text-info \
 	--no-buttons \
 	--width=900 \
 	--height=560 \
+	--title="Kyth Installer Error" \
 	--text="An installer error occurred. Please report this with the logs shown below." \
-	< /tmp/anaconda.log
+	< /tmp/anaconda.log || true
 %end

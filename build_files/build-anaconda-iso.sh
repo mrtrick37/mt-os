@@ -37,7 +37,7 @@ else
         || { echo "error: incorrect sudo password"; exit 1; }
     export _KYTH_BUILD_PW="$_build_pw"
     unset _build_pw
-    _ASKPASS=$(mktemp --tmpdir kyth-build-askpass.XXXXXXXX)
+    _ASKPASS=$(mktemp -p /var/tmp kyth-build-askpass.XXXXXXXX)
     chmod 0700 "$_ASKPASS"
     printf '#!/bin/sh\nprintf "%%s\\n" "$_KYTH_BUILD_PW"\n' > "$_ASKPASS"
     export SUDO_ASKPASS="$_ASKPASS"
@@ -68,8 +68,25 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 OUTPUT_DIR="${REPO_ROOT}/output/live-iso"
-ISO_NAME="kyth-live-${SOURCE_TAG}.iso"
+ISO_NAME="kyth-live-anaconda-${SOURCE_TAG}.iso"
 VOLID="Kyth-43-Live"
+
+# Hash relevant installer sources so cached container rebuilds when these files
+# change (even if the base image timestamp does not).
+SOURCE_HASH="$(
+    cd "${REPO_ROOT}"
+    sha256sum \
+        build_files/Containerfile.anaconda \
+        build_files/anaconda/kyth-launch-anaconda \
+        build_files/anaconda/kyth.ks \
+        build_files/anaconda/kyth-testing.ks \
+        build_files/plymouth/kyth.plymouth \
+        build_files/plymouth/kyth.script \
+        build_files/wallpaper/kyth-wallpaper.svg \
+        build_files/branding/kyth-logo.svg \
+    | sha256sum \
+    | awk '{print $1}'
+)"
 
 TMPDIR_BASE="${TMPDIR:-/var/tmp}"
 WORK=$(mktemp -d -p "${TMPDIR_BASE}" kyth-anaconda.XXXXXXXXXX)
@@ -119,6 +136,14 @@ elif ! docker image inspect "${ANACONDA_BUILD_TAG}" >/dev/null 2>&1; then
     echo "==> ${ANACONDA_BUILD_TAG} not found: building anaconda container"
     _need_rebuild=1
 else
+    _installed_hash=$(docker image inspect "${ANACONDA_BUILD_TAG}" \
+        --format '{{ index .Config.Labels "org.kyth.anaconda.source-hash" }}' \
+        2>/dev/null || echo "")
+    if [[ "${_installed_hash}" != "${SOURCE_HASH}" ]]; then
+        echo "==> Anaconda installer sources changed — rebuilding ${ANACONDA_BUILD_TAG}..."
+        _need_rebuild=1
+    fi
+
     _base_ts=$(docker image inspect "${LOCAL_BASE}" \
         --format '{{.Created}}' 2>/dev/null || echo "")
     _live_ts=$(docker image inspect "${ANACONDA_BUILD_TAG}" \
@@ -135,6 +160,7 @@ if [[ "${_need_rebuild}" == "1" ]]; then
     echo "==> Building anaconda live container (this takes a while)..."
     docker build \
         --build-arg BASE_IMAGE="${LOCAL_BASE}" \
+        --build-arg SOURCE_HASH="${SOURCE_HASH}" \
         --build-arg SOURCE_TAG="${SOURCE_TAG}" \
         -f "${SCRIPT_DIR}/Containerfile.anaconda" \
         -t "${ANACONDA_BUILD_TAG}" \
@@ -152,7 +178,7 @@ if command -v pv >/dev/null 2>&1; then
             --exclude='sys/*' \
             --exclude='dev/*' \
             --exclude='run/*' \
-            2> >(grep -v 'xattr' >&2)
+            2>/dev/null
 else
     docker export "${CONTAINER}" | \
         sudo tar -xC "${ROOTFS}" \
@@ -160,7 +186,7 @@ else
             --exclude='sys/*' \
             --exclude='dev/*' \
             --exclude='run/*' \
-            2> >(grep -v 'xattr' >&2)
+            2>/dev/null
 fi
 echo "==> Container export complete."
 docker rm "${CONTAINER}"
@@ -195,7 +221,7 @@ sudo mksquashfs "${ROOTFS}" "${ISO_DIR}/LiveOS/squashfs.img" \
 
 # ── 5a. GRUB config + dark theme ─────────────────────────────────────────────
 echo "==> Writing GRUB config and theme"
-LIVE_ARGS="root=live:CDLABEL=${VOLID} rd.live.image selinux=0 elevator=mq-deadline systemd.crash_reboot=0 inst.nokill"
+LIVE_ARGS="quiet rhgb root=live:CDLABEL=${VOLID} rd.live.image enforcing=0 elevator=mq-deadline systemd.crash_reboot=0 inst.nokill console=ttyS0,115200 systemd.journald.forward_to_console=1"
 
 cat > "${ISO_DIR}/boot/grub2/themes/kyth/theme.txt" <<THEMEEOF
 # Kyth GRUB2 dark theme
@@ -281,6 +307,11 @@ fi
 # ── Boot entries ───────────────────────────────────────────────────────────────
 menuentry "Try Kyth Live" --class fedora --class gnu-linux --class os {
     linux /images/pxeboot/vmlinuz ${LIVE_ARGS}
+    initrd /images/pxeboot/initrd.img
+}
+
+menuentry "Try Kyth Live (Basic Graphics)" --class fedora --class gnu-linux --class os {
+    linux /images/pxeboot/vmlinuz ${LIVE_ARGS} nomodeset
     initrd /images/pxeboot/initrd.img
 }
 
@@ -399,6 +430,11 @@ label live
   menu label Try Kyth Live
   kernel /images/pxeboot/vmlinuz
   append initrd=/images/pxeboot/initrd.img ${LIVE_ARGS}
+
+label basic
+  menu label Try Kyth Live (Basic Graphics)
+  kernel /images/pxeboot/vmlinuz
+  append initrd=/images/pxeboot/initrd.img ${LIVE_ARGS} nomodeset
 
 label check
   menu label Check media and boot Kyth Live

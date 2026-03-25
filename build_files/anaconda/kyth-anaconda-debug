@@ -1,0 +1,65 @@
+#!/usr/bin/bash
+# Print a compact Anaconda failure summary and save it to Desktop for screenshots.
+set -u
+
+OUT="${HOME}/Desktop/kyth-anaconda-debug.txt"
+HOST_OUT="/mnt/hostshare/kyth-anaconda-debug.txt"
+
+{
+    echo "==== Kyth Anaconda Debug Summary ===="
+    echo "timestamp: $(date -Is)"
+    echo "user: $(id -un) uid: $(id -u)"
+    echo
+
+    echo "---- /run/user/1000/kyth-anaconda.log (tail -200) ----"
+    tail -n 200 /run/user/1000/kyth-anaconda.log 2>/dev/null || echo "missing"
+    echo
+
+    echo "---- /tmp/anaconda.log (tail -250, sudo) ----"
+    sudo -n sh -c 'tail -n 250 /tmp/anaconda.log' 2>/dev/null || echo "missing/permission denied"
+    echo
+
+    echo "---- /tmp/anaconda-tb.txt (sudo) ----"
+    sudo -n sh -c 'cat /tmp/anaconda-tb.txt' 2>/dev/null || echo "missing/permission denied"
+    echo
+
+    echo "---- Filtered Errors (anaconda.log + anaconda-tb.txt) ----"
+    sudo -n sh -c 'grep -nEi "error|failed|failure|fatal|traceback|exception|critical|ostree|bootc|kickstart|payload" /tmp/anaconda.log /tmp/anaconda-tb.txt | tail -n 300' 2>/dev/null || echo "no matches"
+    echo
+
+    echo "---- Journal (anaconda/liveinst/webui/ostree) ----"
+    sudo -n sh -c 'journalctl -b --no-pager | grep -Ei "anaconda|liveinst|webui|ostree|bootc|kickstart|traceback|exception|failed|error" | tail -n 300' 2>/dev/null || echo "missing/permission denied"
+    echo
+
+    echo "---- Journal (OOM/kills/memory pressure) ----"
+    sudo -n sh -c 'journalctl -b --no-pager | grep -Ei "oom|out of memory|killed process|systemd-oomd|memory pressure|invoked oom-killer" | tail -n 300' 2>/dev/null || echo "no matches"
+    echo
+
+    echo "---- dmesg (OOM/kills, sudo) ----"
+    sudo -n sh -c 'dmesg -T 2>/dev/null | grep -Ei "oom|out of memory|killed process|invoked oom-killer" | tail -n 200' 2>/dev/null || echo "no matches"
+    echo "==== End Summary ===="
+} > "${OUT}"
+
+cat "${OUT}"
+echo
+echo "Saved: ${OUT}"
+
+if mountpoint -q /mnt/hostshare; then
+    cp -f "${OUT}" "${HOST_OUT}" 2>/dev/null || true
+    if sudo -n test -f /tmp/anaconda.log 2>/dev/null; then
+        sudo -n cat /tmp/anaconda.log > /mnt/hostshare/anaconda.log 2>/dev/null || true
+    fi
+    if sudo -n test -f /tmp/anaconda-tb.txt 2>/dev/null; then
+        sudo -n cat /tmp/anaconda-tb.txt > /mnt/hostshare/anaconda-tb.txt 2>/dev/null || true
+    fi
+    cp -f /run/user/1000/kyth-anaconda.log /mnt/hostshare/kyth-anaconda.log 2>/dev/null || true
+    {
+        echo "timestamp: $(date -Is)"
+        ls -l /mnt/hostshare/kyth-anaconda-debug.txt /mnt/hostshare/anaconda.log /mnt/hostshare/anaconda-tb.txt /mnt/hostshare/kyth-anaconda.log 2>/dev/null || true
+    } > /mnt/hostshare/kyth-anaconda-export-status.txt 2>/dev/null || true
+    chown "$(id -u):$(id -g)" "${HOST_OUT}" 2>/dev/null || true
+    chown "$(id -u):$(id -g)" /mnt/hostshare/anaconda.log /mnt/hostshare/anaconda-tb.txt /mnt/hostshare/kyth-anaconda.log 2>/dev/null || true
+    echo "Shared copy: ${HOST_OUT}"
+else
+    echo "Host share not mounted at /mnt/hostshare"
+fi

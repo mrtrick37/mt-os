@@ -38,7 +38,7 @@ else
         || { echo "error: incorrect sudo password"; exit 1; }
     export _KYTH_BUILD_PW="$_build_pw"
     unset _build_pw
-    _ASKPASS=$(mktemp --tmpdir kyth-build-askpass.XXXXXXXX)
+    _ASKPASS=$(mktemp -p /var/tmp kyth-build-askpass.XXXXXXXX)
     chmod 0700 "$_ASKPASS"
     printf '#!/bin/sh\nprintf "%%s\\n" "$_KYTH_BUILD_PW"\n' > "$_ASKPASS"
     export SUDO_ASKPASS="$_ASKPASS"

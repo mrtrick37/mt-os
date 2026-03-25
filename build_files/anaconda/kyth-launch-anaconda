@@ -1,23 +1,125 @@
 #!/usr/bin/bash
-# kyth-launch-anaconda — launch Anaconda WebUI from the live KDE desktop.
-#
-# Architecture (replicates what cockpit-desktop does):
-#   1. Start cockpit-ws in local-session mode — no TLS, no login screen
-#   2. Start anaconda via liveinst (the installation backend)
-#   3. Open Firefox in kiosk mode directly to the anaconda WebUI page
-#
-# cockpit-ws --local-session runs cockpit-bridge directly as the session,
-# bypassing PAM authentication entirely.  anaconda-webui (a cockpit plugin
-# installed at /usr/share/cockpit/anaconda-webui/) talks to the anaconda
-# backend over D-Bus through cockpit-bridge.
+# kyth-launch-anaconda — run Fedora's canonical live installer entrypoint.
+# This intentionally mirrors Bazzite/Aurora behavior by deferring to liveinst,
+# which in turn handles pkexec, anaconda backend startup, and webui-desktop.
+
+set -u
 
 LOG="${XDG_RUNTIME_DIR:-/tmp}/kyth-anaconda.log"
-COCKPIT_PORT=9090
-COCKPIT_URL="http://localhost:${COCKPIT_PORT}/anaconda"
+RUN_ID="$(date +%Y%m%d-%H%M%S)"
+HOST_DIR="/mnt/hostshare"
+HOST_RUN_DIR=""
+
+_host_setup() {
+    mkdir -p "${HOST_DIR}" 2>/dev/null || true
+    if ! mountpoint -q "${HOST_DIR}" 2>/dev/null; then
+        sudo -n mount -t 9p -o trans=virtio,version=9p2000.L,msize=104857600,cache=none hostshare "${HOST_DIR}" 2>/dev/null || true
+    fi
+
+    if mountpoint -q "${HOST_DIR}" 2>/dev/null && [[ -w "${HOST_DIR}" ]]; then
+        HOST_RUN_DIR="${HOST_DIR}/anaconda-${RUN_ID}"
+        mkdir -p "${HOST_RUN_DIR}" 2>/dev/null || true
+    fi
+}
+
+_host_export_logs() {
+    [[ -n "${HOST_RUN_DIR}" ]] || return 0
+
+    {
+        echo "timestamp: $(date -Is)"
+        echo "host_run_dir: ${HOST_RUN_DIR}"
+        echo "uid: $(id -u) user: $(id -un)"
+    } > "${HOST_RUN_DIR}/export-status.txt" 2>/dev/null || true
+
+    cp -f "${LOG}" "${HOST_RUN_DIR}/kyth-anaconda.log" 2>>"${HOST_RUN_DIR}/export-status.txt" || true
+
+    if sudo -n test -f /tmp/anaconda.log 2>/dev/null; then
+        sudo -n cat /tmp/anaconda.log > "${HOST_RUN_DIR}/anaconda.log" 2>>"${HOST_RUN_DIR}/export-status.txt" || true
+    else
+        echo "missing: /tmp/anaconda.log" >> "${HOST_RUN_DIR}/export-status.txt" || true
+    fi
+
+    if sudo -n test -f /tmp/anaconda-tb.txt 2>/dev/null; then
+        sudo -n cat /tmp/anaconda-tb.txt > "${HOST_RUN_DIR}/anaconda-tb.txt" 2>>"${HOST_RUN_DIR}/export-status.txt" || true
+    else
+        echo "missing: /tmp/anaconda-tb.txt" >> "${HOST_RUN_DIR}/export-status.txt" || true
+    fi
+
+    sudo -n journalctl -b --no-pager > "${HOST_RUN_DIR}/journal-full.log" 2>>"${HOST_RUN_DIR}/export-status.txt" || true
+
+    if ls "${HOST_RUN_DIR}" >/dev/null 2>&1; then
+        {
+            echo
+            echo "files:"
+            ls -l "${HOST_RUN_DIR}" 2>/dev/null || true
+        } >> "${HOST_RUN_DIR}/export-status.txt" 2>/dev/null || true
+    fi
+}
+
+cleanup() {
+    if [[ -n "${SYNC_PID:-}" ]]; then
+        kill "${SYNC_PID}" 2>/dev/null || true
+    fi
+    if [[ -n "${TAIL_PID:-}" ]]; then
+        kill "${TAIL_PID}" 2>/dev/null || true
+    fi
+    _host_export_logs
+}
+trap cleanup EXIT
+
+_host_sync_loop() {
+    [[ -n "${HOST_RUN_DIR}" ]] || return 0
+    errlog="${HOST_RUN_DIR}/sync-errors.log"
+    heartbeat="${HOST_RUN_DIR}/live-sync.txt"
+    while :; do
+        # Only replace destination files on successful source reads.
+        cp -f "${LOG}" "${HOST_RUN_DIR}/kyth-anaconda.log" 2>>"${errlog}" || true
+
+        if sudo -n test -r /tmp/anaconda.log 2>/dev/null; then
+            sudo -n cat /tmp/anaconda.log > "${HOST_RUN_DIR}/anaconda.log.tmp" 2>>"${errlog}" \
+                && mv -f "${HOST_RUN_DIR}/anaconda.log.tmp" "${HOST_RUN_DIR}/anaconda.log" 2>>"${errlog}" || true
+        fi
+
+        if sudo -n test -r /tmp/anaconda-tb.txt 2>/dev/null; then
+            sudo -n cat /tmp/anaconda-tb.txt > "${HOST_RUN_DIR}/anaconda-tb.txt.tmp" 2>>"${errlog}" \
+                && mv -f "${HOST_RUN_DIR}/anaconda-tb.txt.tmp" "${HOST_RUN_DIR}/anaconda-tb.txt" 2>>"${errlog}" || true
+        fi
+
+        sudo -n sh -c 'journalctl -b --no-pager | grep -Ei "anaconda|webui|cockpit|liveinst|ostree|bootc|traceback|exception|fatal|segfault|coredump|oom|killed|error|failed|i/o error|transaction aborted" | grep -Ev "pam_systemd\(sudo:session\): Failed to check if /run/user/0/bus exists|COMMAND=/usr/sbin/sh -c .+journalctl -b --no-pager|COMMAND=/usr/sbin/(test -r|cat) /tmp/anaconda(\.log|-tb\.txt)" | tail -n 500' > "${HOST_RUN_DIR}/journal-filtered.log.tmp" 2>>"${errlog}" \
+            && mv -f "${HOST_RUN_DIR}/journal-filtered.log.tmp" "${HOST_RUN_DIR}/journal-filtered.log" 2>>"${errlog}" || true
+
+        sudo -n dmesg -T | tail -n 300 > "${HOST_RUN_DIR}/dmesg-tail.log.tmp" 2>>"${errlog}" \
+            && mv -f "${HOST_RUN_DIR}/dmesg-tail.log.tmp" "${HOST_RUN_DIR}/dmesg-tail.log" 2>>"${errlog}" || true
+
+        printf '%s\n' "$(date -Is)" >> "${heartbeat}" 2>>"${errlog}" || true
+        sleep 2
+    done
+}
 
 _die() {
     echo "$(date '+%T'): ERROR: $*" | tee -a "${LOG}"
-    if command -v yad >/dev/null 2>&1; then
+    {
+        echo
+        echo "===== Kyth anaconda diagnostics ====="
+        echo "timestamp: $(date -Is)"
+        echo "uid: $(id -u) user: $(id -un)"
+        echo "cmdline: $(cat /proc/cmdline 2>/dev/null || true)"
+        echo
+        echo "--- ls -l /tmp/anaconda* ---"
+        ls -l /tmp/anaconda* 2>/dev/null || echo "no /tmp/anaconda* files"
+        echo
+        echo "--- /tmp/anaconda.log (tail -300, sudo) ---"
+        sudo -n sh -c 'tail -n 300 /tmp/anaconda.log' 2>&1 || true
+        echo
+        echo "--- /tmp/anaconda-tb.txt (sudo) ---"
+        sudo -n sh -c 'cat /tmp/anaconda-tb.txt' 2>&1 || true
+        echo
+        echo "--- journalctl -b (anaconda/liveinst/webui) ---"
+        sudo -n sh -c 'journalctl -b --no-pager | grep -Ei "anaconda|liveinst|webui|cockpit-ws|traceback|exception" | tail -n 300' 2>&1 || true
+        echo "===== End diagnostics ====="
+        echo
+    } >> "${LOG}" 2>&1
+    if command -v yad &>/dev/null; then
         yad --error --title="Kyth Installer" \
             --text="$*\n\nFull log: ${LOG}" \
             --width=500 2>/dev/null || true
@@ -25,84 +127,60 @@ _die() {
     exit 1
 }
 
-_cleanup() {
-    [[ -n "${COCKPIT_PID:-}" ]] && kill "${COCKPIT_PID}" 2>/dev/null || true
-    [[ -n "${LIVEINST_PID:-}" ]] && kill "${LIVEINST_PID}" 2>/dev/null || true
-}
-trap _cleanup EXIT
-
-# ── Locate liveinst ───────────────────────────────────────────────────────────
 LIVEINST_BIN=""
-for _p in /usr/sbin/liveinst /usr/bin/liveinst; do
-    if [[ -x "${_p}" ]]; then
-        LIVEINST_BIN="${_p}"
-        break
-    fi
+for _p in /usr/bin/liveinst /usr/sbin/liveinst; do
+    [[ -x "${_p}" ]] && LIVEINST_BIN="${_p}" && break
 done
 [[ -n "${LIVEINST_BIN}" ]] || _die "liveinst not found — is anaconda-live installed?"
 
-# ── Stop any pre-existing cockpit instance ────────────────────────────────────
-# cockpit.socket starts cockpit-ws in server mode (requires login).
-# We need local-session mode instead, so make sure nothing is on our port.
-sudo -n systemctl stop cockpit.socket cockpit.service 2>/dev/null || true
+_host_setup
+_host_sync_loop &
+SYNC_PID=$!
 
-# ── Start cockpit-ws in local-session mode (no auth, no TLS) ──────────────────
-# This is what cockpit-desktop does under the hood.  --local-session forks
-# cockpit-bridge as a direct child, giving the browser full system access
-# without any PAM/login dialog.
-echo "$(date '+%T'): Starting cockpit-ws (local session, port ${COCKPIT_PORT})..." | tee -a "${LOG}"
-sudo -n cockpit-ws \
-    --no-tls \
-    --port "${COCKPIT_PORT}" \
-    --local-session=cockpit-bridge >>"${LOG}" 2>&1 &
-COCKPIT_PID=$!
-
-# Wait for cockpit-ws to bind (up to 15s)
-_ready=0
-for _i in $(seq 1 15); do
-    if ! kill -0 "${COCKPIT_PID}" 2>/dev/null; then
-        _die "cockpit-ws exited unexpectedly — check ${LOG}"
-    fi
-    if ss -tlnp 2>/dev/null | grep -q ":${COCKPIT_PORT}"; then
-        _ready=1
-        break
-    fi
-    sleep 1
-done
-[[ "${_ready}" == "1" ]] || _die "cockpit-ws did not bind :${COCKPIT_PORT} within 15s — check ${LOG}"
-echo "$(date '+%T'): cockpit-ws ready on :${COCKPIT_PORT}" | tee -a "${LOG}"
-
-# ── Start Anaconda via liveinst ───────────────────────────────────────────────
-# liveinst starts anaconda which exposes its D-Bus interface on the system bus.
-# anaconda-webui (served by our cockpit-ws) communicates with it via
-# cockpit-bridge → D-Bus.
-#
-# Do NOT pass DBUS_SESSION_BUS_ADDRESS — anaconda runs as root and cannot
-# access liveuser's session bus (crashes in inhibit_screensaver).
-echo "$(date '+%T'): Starting liveinst (${LIVEINST_BIN})..." | tee -a "${LOG}"
-sudo -n \
-    DISPLAY="${DISPLAY:-}" \
-    XAUTHORITY="${XAUTHORITY:-}" \
-    WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-}" \
-    XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-}" \
-    XDG_SESSION_TYPE="${XDG_SESSION_TYPE:-x11}" \
-    "${LIVEINST_BIN}" >>"${LOG}" 2>&1 &
-LIVEINST_PID=$!
-
-# Brief pause to let anaconda initialise before the browser connects
-sleep 3
-if ! kill -0 "${LIVEINST_PID}" 2>/dev/null; then
-    _die "liveinst exited immediately — check ${LOG}"
+if [[ -z "${DISPLAY:-}" && -z "${WAYLAND_DISPLAY:-}" ]]; then
+    _die "No graphical session detected (DISPLAY/WAYLAND_DISPLAY missing)."
 fi
 
-# ── Open the WebUI in Firefox kiosk mode ──────────────────────────────────────
-echo "$(date '+%T'): Opening browser → ${COCKPIT_URL}" | tee -a "${LOG}"
-if command -v firefox >/dev/null 2>&1; then
-    firefox --kiosk "${COCKPIT_URL}" >>"${LOG}" 2>&1 &
-else
-    _die "Firefox not found — cannot display installer."
+{
+    echo "$(date '+%T'): Launcher env: DISPLAY=${DISPLAY:-<unset>} WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-<unset>} XAUTHORITY=${XAUTHORITY:-<unset>}"
+    echo "$(date '+%T'): Launcher env: PKEXEC_UID=${PKEXEC_UID:-<unset>} PKEXEC_USER=${PKEXEC_USER:-<unset>}"
+    if [[ -n "${HOST_RUN_DIR}" ]]; then
+        echo "$(date '+%T'): Host log export enabled: ${HOST_RUN_DIR}"
+    else
+        echo "$(date '+%T'): Host log export disabled: /mnt/hostshare not mounted/writable"
+    fi
+} >> "${LOG}" 2>&1
+
+# Avoid inheriting broken empty PKEXEC variables into liveinst. pkexec will set
+# correct values when it re-execs as root.
+unset PKEXEC_UID PKEXEC_USER
+
+# Stream backend logs live so failures are visible before liveinst exits.
+{
+    echo "$(date '+%T'): Starting live backend log stream (/tmp/anaconda.log, /tmp/anaconda-tb.txt)"
+    sudo -n sh -c 'touch /tmp/anaconda.log /tmp/anaconda-tb.txt; tail -n +1 -F /tmp/anaconda.log /tmp/anaconda-tb.txt'
+} >> "${LOG}" 2>&1 &
+TAIL_PID=$!
+
+echo "$(date '+%T'): Launching Fedora liveinst (${LIVEINST_BIN})" | tee -a "${LOG}"
+"${LIVEINST_BIN}" >>"${LOG}" 2>&1
+rc=$?
+
+{
+    echo
+    echo "===== liveinst exit summary ====="
+    echo "timestamp: $(date -Is)"
+    echo "liveinst rc: ${rc}"
+    echo "--- /tmp/anaconda.log (tail -200, sudo) ---"
+    sudo -n sh -c 'tail -n 200 /tmp/anaconda.log' 2>&1 || true
+    echo "--- /tmp/anaconda-tb.txt (sudo) ---"
+    sudo -n sh -c 'cat /tmp/anaconda-tb.txt' 2>&1 || true
+    echo "===== end summary ====="
+    echo
+} >> "${LOG}" 2>&1
+
+if [[ $rc -ne 0 ]]; then
+    _die "Anaconda exited with error code ${rc}. Check ${LOG} for details."
 fi
 
-# ── Wait for Anaconda to finish (install complete or cancelled) ───────────────
-wait "${LIVEINST_PID}" 2>/dev/null || true
-echo "$(date '+%T'): Anaconda exited." | tee -a "${LOG}"
+echo "$(date '+%T'): Anaconda exited cleanly." | tee -a "${LOG}"

@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 280 420" width="280" height="420">
+  <defs>
+    <!-- Identical to wallpaper logo-glow -->
+    <filter id="logo-glow" x="-80%" y="-80%" width="260%" height="260%">
+      <feGaussianBlur stdDeviation="28" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="spark-glow" x="-200%" y="-200%" width="500%" height="500%">
+      <feGaussianBlur stdDeviation="32" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+
+  <!-- Pure black background — matches wallpaper -->
+  <rect width="280" height="420" fill="#000000"/>
+
+  <!-- Kyth logo — exact same drawing as wallpaper, scaled 2× and centred -->
+  <g transform="translate(-49, 25) scale(2.0)" filter="url(#logo-glow)">
+    <line x1="54.6" y1="140.6" x2="54.6" y2="27.5"
+          stroke="#7aa2f7" stroke-width="16.9" stroke-linecap="round"/>
+    <circle cx="54.6" cy="17.2" r="12.5" fill="#7aa2f7"/>
+
+    <line x1="122.5" y1="26.9" x2="54.6" y2="82.0"
+          stroke="#bb9af7" stroke-width="16.9" stroke-linecap="round"/>
+    <circle cx="130.6" cy="19.4" r="12.5" fill="#bb9af7"/>
+
+    <line x1="122.5" y1="137.5" x2="54.6" y2="82.0"
+          stroke="#73daca" stroke-width="16.9" stroke-linecap="round"/>
+    <circle cx="130.6" cy="145.0" r="12.5" fill="#73daca"/>
+
+    <circle cx="54.6" cy="82.0" r="10.0" fill="#e0af68" opacity="0.4"
+            filter="url(#spark-glow)"/>
+    <circle cx="54.6" cy="82.0" r="5.6" fill="#e0af68"/>
+  </g>
+
+  <!-- "kyth" wordmark — centred under the K -->
+  <text x="140" y="400"
+        font-family="'DejaVu Sans', 'Liberation Sans', sans-serif"
+        font-size="48"
+        font-weight="300"
+        letter-spacing="15"
+        fill="#a9b1d6"
+        opacity="0.8"
+        text-anchor="middle">kyth</text>
+</svg>
