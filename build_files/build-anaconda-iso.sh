@@ -1,35 +1,33 @@
 #!/usr/bin/env bash
 
-# build-netinstall-iso.sh — Build a minimal network-install ISO for Kyth.
+# build-anaconda-iso.sh — Build a live desktop ISO for Kyth with the Anaconda installer.
 #
-# Identical to build-live-iso.sh except step 3b is replaced:
-# instead of bundling the OCI image (~3-4 GB) into the squashfs, a small
-# text file (/usr/share/kyth/source-imgref) is written with the registry
-# URL. kyth-bootcinstall detects the absence of the OCI bundle and pulls
-# from the registry at install time.
+# Flow:
+#   1. Build Containerfile.anaconda (extends kyth with live support + Anaconda WebUI)
+#   2. Export the container filesystem to a temporary rootfs
+#   3. Copy kernel + live initramfs out of the rootfs
+#   4. mksquashfs the rootfs → LiveOS/squashfs.img
+#   5. Assemble bootable ISO: UEFI (GRUB2) + BIOS (syslinux) via xorriso
 #
-# Result: an ISO with a full live desktop for diagnostics/networking,
-# but no embedded OS image — roughly 3-4 GB smaller than the offline ISO.
+# No OCI bundle is embedded — the OS is pulled from the registry at install
+# time by Anaconda via the ostreecontainer kickstart directive.
 #
-# Requirements: same as build-live-iso.sh
-#   xorriso squashfs-tools mtools dosfstools skopeo (skopeo not used here but checked)
-#   sudo dnf install xorriso squashfs-tools mtools dosfstools
+# Host requirements:
+#   xorriso, squashfs-tools (mksquashfs), mtools, dosfstools
+#   (all available via: sudo dnf install xorriso squashfs-tools mtools dosfstools)
 
 set -euo pipefail
 
 SOURCE_TAG="${SOURCE_TAG:-latest}"
 LOCAL_BASE="localhost/kyth:${SOURCE_TAG}"
-# Reuse the same live container cache as build-live-iso.sh
+# Cache image name — parallel to kyth-live:build so both can coexist locally
 if [[ "${SOURCE_TAG}" == "latest" ]]; then
-    LIVE_BUILD_TAG="kyth-live:build"
+    ANACONDA_BUILD_TAG="kyth-anaconda:build"
 else
-    LIVE_BUILD_TAG="kyth-live:build-${SOURCE_TAG}"
+    ANACONDA_BUILD_TAG="kyth-anaconda:build-${SOURCE_TAG}"
 fi
 
-# The registry ref the installer will pull from at install time.
-SOURCE_IMGREF="${SOURCE_IMGREF:-docker://ghcr.io/mrtrick37/kyth:${SOURCE_TAG}}"
-
-# ── Sudo setup ────────────────────────────────────────────────────────────────
+# ── Sudo setup: ask once, work fully unattended for the rest of the build ─────
 if command sudo -n true 2>/dev/null; then
     _ASKPASS=""
 else
@@ -39,14 +37,14 @@ else
         || { echo "error: incorrect sudo password"; exit 1; }
     export _KYTH_BUILD_PW="$_build_pw"
     unset _build_pw
-    _ASKPASS=$(mktemp --tmpdir kyth-build-askpass.XXXXXXXX)
+    _ASKPASS=$(mktemp -p /var/tmp kyth-build-askpass.XXXXXXXX)
     chmod 0700 "$_ASKPASS"
     printf '#!/bin/sh\nprintf "%%s\\n" "$_KYTH_BUILD_PW"\n' > "$_ASKPASS"
     export SUDO_ASKPASS="$_ASKPASS"
     sudo() { command sudo -A "$@"; }
 fi
 
-# ── Base image ────────────────────────────────────────────────────────────────
+# Ensure base image exists locally before building the anaconda container
 if ! docker image inspect "${LOCAL_BASE}" >/dev/null 2>&1; then
     if [[ "${SOURCE_TAG}" == "latest" ]]; then
         if docker image inspect ghcr.io/mrtrick37/kyth:latest >/dev/null 2>&1; then
@@ -62,7 +60,6 @@ if ! docker image inspect "${LOCAL_BASE}" >/dev/null 2>&1; then
             docker tag "ghcr.io/mrtrick37/kyth:${SOURCE_TAG}" "${LOCAL_BASE}"
         else
             echo "ERROR: ${LOCAL_BASE} not found locally and could not pull from registry." >&2
-            echo "       Make sure the ${SOURCE_TAG} image has been pushed to ghcr.io." >&2
             exit 1
         fi
     fi
@@ -70,12 +67,29 @@ fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-OUTPUT_DIR="${REPO_ROOT}/output/netinstall-iso"
-ISO_NAME="kyth-netinstall-${SOURCE_TAG}.iso"
-VOLID="Kyth-43-NetInst"
+OUTPUT_DIR="${REPO_ROOT}/output/live-iso"
+ISO_NAME="kyth-live-anaconda-${SOURCE_TAG}.iso"
+VOLID="Kyth-43-Live"
+
+# Hash relevant installer sources so cached container rebuilds when these files
+# change (even if the base image timestamp does not).
+SOURCE_HASH="$(
+    cd "${REPO_ROOT}"
+    sha256sum \
+        build_files/Containerfile.anaconda \
+        build_files/anaconda/kyth-launch-anaconda \
+        build_files/anaconda/kyth.ks \
+        build_files/anaconda/kyth-testing.ks \
+        build_files/plymouth/kyth.plymouth \
+        build_files/plymouth/kyth.script \
+        build_files/wallpaper/kyth-wallpaper.svg \
+        build_files/branding/kyth-logo.svg \
+    | sha256sum \
+    | awk '{print $1}'
+)"
 
 TMPDIR_BASE="${TMPDIR:-/var/tmp}"
-WORK=$(mktemp -d -p "${TMPDIR_BASE}" kyth-netinstall.XXXXXXXXXX)
+WORK=$(mktemp -d -p "${TMPDIR_BASE}" kyth-anaconda.XXXXXXXXXX)
 ROOTFS="${WORK}/rootfs"
 ISO_DIR="${WORK}/iso"
 
@@ -90,6 +104,8 @@ cleanup() {
     sudo rm -rf "${WORK}" 2>/dev/null || true
     [[ -n "${_ASKPASS:-}" ]] && rm -f "$_ASKPASS" 2>/dev/null || true
     unset _KYTH_BUILD_PW
+    # kyth-anaconda:build is kept intentionally so Docker layer cache is preserved
+    # for the next build. Run 'docker rmi kyth-anaconda:build' to force a rebuild.
 }
 trap cleanup EXIT
 
@@ -109,57 +125,73 @@ mkdir -p \
     "${ISO_DIR}/boot/grub2/themes/kyth" \
     "${ISO_DIR}/isolinux"
 
-# ── 1. Build live container (shared cache with build-live-iso.sh) ─────────────
+# ── 1. Build anaconda live container ─────────────────────────────────────────
 _need_rebuild=0
 if [[ "${SKIP_REBUILD:-}" == "1" ]]; then
-    echo "==> SKIP_REBUILD=1: using pre-built live container (CI mode)"
+    echo "==> SKIP_REBUILD=1: using pre-built anaconda container (CI mode)"
 elif [[ "${REBUILD_IMAGE:-}" == "1" ]]; then
-    echo "==> REBUILD_IMAGE=1: forcing live container rebuild"
+    echo "==> REBUILD_IMAGE=1: forcing anaconda container rebuild"
     _need_rebuild=1
-elif ! docker image inspect "${LIVE_BUILD_TAG}" >/dev/null 2>&1; then
-    echo "==> ${LIVE_BUILD_TAG} not found: building live container variant"
+elif ! docker image inspect "${ANACONDA_BUILD_TAG}" >/dev/null 2>&1; then
+    echo "==> ${ANACONDA_BUILD_TAG} not found: building anaconda container"
     _need_rebuild=1
 else
-    _base_ts=$(docker image inspect "${LOCAL_BASE}" --format '{{.Created}}' 2>/dev/null || echo "")
-    _live_ts=$(docker image inspect "${LIVE_BUILD_TAG}" --format '{{.Created}}' 2>/dev/null || echo "")
+    _installed_hash=$(docker image inspect "${ANACONDA_BUILD_TAG}" \
+        --format '{{ index .Config.Labels "org.kyth.anaconda.source-hash" }}' \
+        2>/dev/null || echo "")
+    if [[ "${_installed_hash}" != "${SOURCE_HASH}" ]]; then
+        echo "==> Anaconda installer sources changed — rebuilding ${ANACONDA_BUILD_TAG}..."
+        _need_rebuild=1
+    fi
+
+    _base_ts=$(docker image inspect "${LOCAL_BASE}" \
+        --format '{{.Created}}' 2>/dev/null || echo "")
+    _live_ts=$(docker image inspect "${ANACONDA_BUILD_TAG}" \
+        --format '{{.Created}}' 2>/dev/null || echo "")
     if [[ -n "${_base_ts}" && "${_base_ts}" > "${_live_ts}" ]]; then
-        echo "==> Base image newer than live container — rebuilding"
+        echo "==> Base image has changed — rebuilding ${ANACONDA_BUILD_TAG}..."
         _need_rebuild=1
     else
-        echo "==> ${LIVE_BUILD_TAG} is up to date — skipping live container rebuild"
+        echo "==> ${ANACONDA_BUILD_TAG} is up to date — skipping rebuild"
     fi
 fi
 
 if [[ "${_need_rebuild}" == "1" ]]; then
-    echo "==> Building live container variant..."
+    echo "==> Building anaconda live container (this takes a while)..."
     docker build \
         --build-arg BASE_IMAGE="${LOCAL_BASE}" \
-        -f "${SCRIPT_DIR}/Containerfile.live" \
-        -t "${LIVE_BUILD_TAG}" \
+        --build-arg SOURCE_HASH="${SOURCE_HASH}" \
+        --build-arg SOURCE_TAG="${SOURCE_TAG}" \
+        -f "${SCRIPT_DIR}/Containerfile.anaconda" \
+        -t "${ANACONDA_BUILD_TAG}" \
         "${REPO_ROOT}"
-    echo "==> Live container build complete"
+    echo "==> Anaconda container build complete"
 fi
 
 # ── 2. Export container filesystem ───────────────────────────────────────────
-echo "==> Exporting container filesystem to ${ROOTFS}..."
-CONTAINER=$(docker create "${LIVE_BUILD_TAG}" /bin/true)
+echo "==> Exporting container filesystem to ${ROOTFS}"
+CONTAINER=$(docker create "${ANACONDA_BUILD_TAG}" /bin/true)
 if command -v pv >/dev/null 2>&1; then
     docker export "${CONTAINER}" | pv | \
         sudo tar -xC "${ROOTFS}" \
-            --exclude='proc/*' --exclude='sys/*' \
-            --exclude='dev/*' --exclude='run/*' \
-            2> >(grep -v 'xattr' >&2)
+            --exclude='proc/*' \
+            --exclude='sys/*' \
+            --exclude='dev/*' \
+            --exclude='run/*' \
+            2>/dev/null
 else
     docker export "${CONTAINER}" | \
         sudo tar -xC "${ROOTFS}" \
-            --exclude='proc/*' --exclude='sys/*' \
-            --exclude='dev/*' --exclude='run/*' \
-            2> >(grep -v 'xattr' >&2)
+            --exclude='proc/*' \
+            --exclude='sys/*' \
+            --exclude='dev/*' \
+            --exclude='run/*' \
+            2>/dev/null
 fi
 echo "==> Container export complete."
 docker rm "${CONTAINER}"
 
-# ── 3. Kernel + live initramfs ────────────────────────────────────────────────
+# ── 3. Kernel + live initramfs ───────────────────────────────────────────────
 echo "==> Locating kernel and live initramfs"
 KVER=$(ls "${ROOTFS}/usr/lib/modules/" | grep cachyos | head -1)
 echo "    Kernel: ${KVER}"
@@ -170,17 +202,13 @@ INITRD="${ROOTFS}/usr/lib/modules/${KVER}/initramfs-live"
 [[ -f "${VMLINUZ}" ]] || { echo "ERROR: vmlinuz not found at ${VMLINUZ}" >&2; exit 1; }
 [[ -f "${INITRD}"  ]] || { echo "ERROR: live initramfs not found at ${INITRD}" >&2; exit 1; }
 
-sudo cp "${VMLINUZ}" "${ISO_DIR}/images/pxeboot/vmlinuz"
-sudo cp "${INITRD}"  "${ISO_DIR}/images/pxeboot/initrd.img"
+sudo cp "${VMLINUZ}" "${ISO_DIR}/images/pxeboot/vmlinuz" 2>/dev/null
+sudo cp "${INITRD}"  "${ISO_DIR}/images/pxeboot/initrd.img" 2>/dev/null
 sudo chmod 644 "${ISO_DIR}/images/pxeboot/"*
 
-# ── 3b. Write source-imgref (replaces OCI bundle in the offline ISO) ──────────
-# kyth-bootcinstall reads this file and pulls from the registry at install time.
-echo "==> Writing network install source ref: ${SOURCE_IMGREF}"
-sudo mkdir -p "${ROOTFS}/usr/share/kyth"
-echo "${SOURCE_IMGREF}" | sudo tee "${ROOTFS}/usr/share/kyth/source-imgref" > /dev/null
-
 # ── 4. Squashfs ───────────────────────────────────────────────────────────────
+# No OCI bundle embedded — Anaconda pulls from the registry at install time
+# via the ostreecontainer kickstart directive.
 echo "==> Creating squashfs (zstd, $(nproc) cores)"
 sudo mksquashfs "${ROOTFS}" "${ISO_DIR}/LiveOS/squashfs.img" \
     -comp zstd \
@@ -193,7 +221,7 @@ sudo mksquashfs "${ROOTFS}" "${ISO_DIR}/LiveOS/squashfs.img" \
 
 # ── 5a. GRUB config + dark theme ─────────────────────────────────────────────
 echo "==> Writing GRUB config and theme"
-LIVE_ARGS="root=live:CDLABEL=${VOLID} rd.live.image selinux=0 quiet splash elevator=mq-deadline"
+LIVE_ARGS="quiet rhgb rd.plymouth=1 plymouth.enable=1 plymouth.ignore-serial-consoles root=live:CDLABEL=${VOLID} rd.live.image enforcing=0 elevator=mq-deadline systemd.crash_reboot=0 inst.nokill console=ttyS0,115200 console=tty0"
 
 cat > "${ISO_DIR}/boot/grub2/themes/kyth/theme.txt" <<THEMEEOF
 # Kyth GRUB2 dark theme
@@ -226,7 +254,7 @@ terminal-border: "0"
     left   = 0%
     width  = 100%
     height = 50
-    text   = "KYTH 43 — NETWORK INSTALL"
+    text   = "KYTH 43"
     font   = "DejaVu Sans Bold 28"
     color  = "#61afef"
     align  = "center"
@@ -237,7 +265,7 @@ for src_font in \
     "${ROOTFS}/usr/share/fonts/dejavu-sans-fonts/DejaVuSans.ttf" \
     "${ROOTFS}/usr/share/fonts/dejavu/DejaVuSans.ttf"; do
     if [[ -f "${src_font}" ]]; then
-        grub2-mkfont -s 14 -o "${ISO_DIR}/boot/grub2/themes/kyth/dejavusans14.pf2"     "${src_font}" 2>/dev/null || true
+        grub2-mkfont -s 14 -o "${ISO_DIR}/boot/grub2/themes/kyth/dejavusans14.pf2" "${src_font}" 2>/dev/null || true
         grub2-mkfont -s 28 -o "${ISO_DIR}/boot/grub2/themes/kyth/dejavusansbold28.pf2" "${src_font}" 2>/dev/null || true
         break
     fi
@@ -257,6 +285,7 @@ cat > "${ISO_DIR}/boot/grub2/grub.cfg" << GRUBEOF
 set default=0
 set timeout=10
 
+# ── Graphical terminal + dark theme ───────────────────────────────────────────
 insmod all_video
 insmod gfxterm
 insmod gfxmenu
@@ -275,21 +304,28 @@ else
     set menu_color_highlight=black/light-cyan
 fi
 
-menuentry "Install Kyth (network — requires internet)" --class fedora --class gnu-linux --class os {
+# ── Boot entries ───────────────────────────────────────────────────────────────
+menuentry "Try Kyth Live" --class fedora --class gnu-linux --class os {
     linux /images/pxeboot/vmlinuz ${LIVE_ARGS}
     initrd /images/pxeboot/initrd.img
 }
 
-menuentry "Check media and install Kyth (network)" --class fedora --class gnu-linux --class os {
+menuentry "Try Kyth Live (Basic Graphics)" --class fedora --class gnu-linux --class os {
+    linux /images/pxeboot/vmlinuz ${LIVE_ARGS} nomodeset
+    initrd /images/pxeboot/initrd.img
+}
+
+menuentry "Check media and boot Kyth Live" --class fedora --class gnu-linux --class os {
     linux /images/pxeboot/vmlinuz ${LIVE_ARGS} rd.live.check
     initrd /images/pxeboot/initrd.img
 }
 GRUBEOF
 
-cp "${ISO_DIR}/boot/grub2/grub.cfg" "${ISO_DIR}/EFI/BOOT/grub.cfg"
+cp "${ISO_DIR}/boot/grub2/grub.cfg" "${ISO_DIR}/EFI/BOOT/grub.cfg" 2>/dev/null
 
-# ── 5b. UEFI EFI boot image ───────────────────────────────────────────────────
+# ── 5b. UEFI EFI boot image (FAT) ────────────────────────────────────────────
 echo "==> Creating UEFI EFI boot image"
+
 GRUB_EFI_BUILT=false
 GRUB_X64_MODS="/usr/lib/grub/x86_64-efi"
 if [[ ! -d "${GRUB_X64_MODS}" && -d "${ROOTFS}/usr/lib/grub/x86_64-efi" ]]; then
@@ -299,7 +335,7 @@ fi
 if [[ -d "${GRUB_X64_MODS}" ]] && command -v grub2-mkimage &>/dev/null; then
     GRUB_EMBED_CFG="${WORK}/grub-efi-embed.cfg"
     cat > "${GRUB_EMBED_CFG}" << 'EMBEDEOF'
-search --no-floppy --label --set=root Kyth-43-NetInst
+search --no-floppy --label --set=root Kyth-43-Live
 set prefix=($root)/boot/grub2
 source ($root)/boot/grub2/grub.cfg
 EMBEDEOF
@@ -313,7 +349,7 @@ EMBEDEOF
         linux normal iso9660 search search_label all_video gfxterm gfxmenu \
         png echo test ls part_gpt part_msdos fat
     GRUB_EFI_BUILT=true
-    echo "    UEFI EFI binary: built with grub2-mkimage"
+    echo "    UEFI EFI binary: built with grub2-mkimage (x86_64-efi)"
 else
     echo "ERROR: Cannot build BOOTX64.EFI — grub2-mkimage or x86_64-efi modules not found." >&2
     echo "       Install on host: sudo dnf install grub2-tools-minimal" >&2
@@ -331,17 +367,18 @@ mcopy -i "${EFI_IMG}" "${ISO_DIR}/EFI/BOOT/grub.cfg" ::/EFI/BOOT/grub.cfg
 
 cat > "${ISO_DIR}/startup.nsh" << 'NSHEOF'
 @echo -off
-echo Booting Kyth Network Installer...
+echo Booting Kyth...
 fs0:\EFI\BOOT\BOOTX64.EFI
 NSHEOF
 
-# ── 5c. BIOS boot ─────────────────────────────────────────────────────────────
+# ── 5c. BIOS boot ────────────────────────────────────────────────────────────
 echo "==> Setting up BIOS boot"
 HAVE_ISOLINUX=false
 HAVE_BIOS_GRUB=false
 
 GRUB_I386_MODS="${ROOTFS}/usr/lib/grub/i386-pc"
 if [[ -d "${GRUB_I386_MODS}" ]] && command -v grub2-mkimage &>/dev/null; then
+    echo "    Using GRUB2 BIOS (grub2-mkimage)"
     BIOS_IMG="${ISO_DIR}/boot/grub2/bios.img"
     grub2-mkimage \
         -O i386-pc-eltorito \
@@ -351,27 +388,61 @@ if [[ -d "${GRUB_I386_MODS}" ]] && command -v grub2-mkimage &>/dev/null; then
         linux normal iso9660 biosdisk all_video gfxterm gfxmenu png echo test ls
     HAVE_BIOS_GRUB=true
     echo "    GRUB2 BIOS boot image: OK"
+else
+    if [[ ! -d "${GRUB_I386_MODS}" ]]; then
+        echo "    NOTE: grub2-pc not in rootfs — falling back to syslinux for BIOS" >&2
+    fi
 fi
 
 ISOLINUX_BIN="${ROOTFS}/usr/share/syslinux/isolinux.bin"
 if ! "${HAVE_BIOS_GRUB}" && sudo test -f "${ISOLINUX_BIN}"; then
     echo "    Falling back to syslinux"
-    sudo cp "${ISOLINUX_BIN}" "${ISO_DIR}/isolinux/"
+    sudo cp "${ISOLINUX_BIN}" "${ISO_DIR}/isolinux/" 2>/dev/null
     for f in ldlinux.c32 vesamenu.c32 libcom32.c32 libutil.c32; do
         src="${ROOTFS}/usr/share/syslinux/${f}"
-        sudo test -f "${src}" && sudo cp "${src}" "${ISO_DIR}/isolinux/" || true
+        sudo test -f "${src}" && sudo cp "${src}" "${ISO_DIR}/isolinux/" 2>/dev/null || true
     done
+
     cat > "${ISO_DIR}/isolinux/isolinux.cfg" << ISOLINUXEOF
 default vesamenu.c32
 timeout 100
-menu title Kyth 43 Network Installer
+menu title Kyth 43 Live
+
+menu color screen     37;40    #a0000000 #00000000 std
+menu color border     30;44    #00000000 #00000000 std
+menu color title      1;37;44  #ffffffff #00000000 std
+menu color scrollbar  30;44    #40000000 #00000000 std
+menu color sel        7;37;40  #e0ffffff #20207fff std
+menu color hotsel     1;7;37;40 #e0ffffff #20207fff std
+menu color unsel      37;44    #70ffffff #00000000 std
+menu color help       37;40    #c0ffffff #00000000 std
+menu color timeout_msg 37;40   #80ffffff #00000000 std
+menu color timeout    1;37;40  #c0ffffff #00000000 std
+menu color cmdline    37;40    #c0ffffff #00000000 std
+menu hshift 13
+menu margin 8
+menu rows 5
+menu vshift 12
+menu tabmsgrow 18
+menu helpmsgrow 20
 
 label live
-  menu label Install Kyth (network)
+  menu label Try Kyth Live
   kernel /images/pxeboot/vmlinuz
   append initrd=/images/pxeboot/initrd.img ${LIVE_ARGS}
+
+label basic
+  menu label Try Kyth Live (Basic Graphics)
+  kernel /images/pxeboot/vmlinuz
+  append initrd=/images/pxeboot/initrd.img ${LIVE_ARGS} nomodeset
+
+label check
+  menu label Check media and boot Kyth Live
+  kernel /images/pxeboot/vmlinuz
+  append initrd=/images/pxeboot/initrd.img ${LIVE_ARGS} rd.live.check
 ISOLINUXEOF
     HAVE_ISOLINUX=true
+    echo "    syslinux: OK (fallback)"
 fi
 
 # ── 6. Assemble ISO ───────────────────────────────────────────────────────────
@@ -416,6 +487,5 @@ sudo chown "$(id -u):$(id -g)" "${OUTPUT_DIR}/${ISO_NAME}"
 ISO_SIZE=$(du -sh "${OUTPUT_DIR}/${ISO_NAME}" | cut -f1)
 ISO_PATH=$(readlink -f "${OUTPUT_DIR}/${ISO_NAME}")
 echo ""
-echo "==> Network install ISO ready"
+echo "==> Anaconda live ISO ready"
 echo "    ${ISO_PATH} (${ISO_SIZE})"
-echo "    Pulls from: ${SOURCE_IMGREF}"

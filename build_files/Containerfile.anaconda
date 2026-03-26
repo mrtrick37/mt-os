@@ -1,0 +1,349 @@
+# Live ISO variant of Kyth — Anaconda installer edition
+# Extends the full Kyth image with live session support.
+# Installation is handled by Anaconda WebUI (via the desktop icon), which calls
+# 'bootc install to-disk' through the ostreecontainer kickstart directive.
+# Built by build-anaconda-iso.sh; not pushed to the registry.
+
+ARG BASE_IMAGE=localhost/kyth:latest
+FROM ${BASE_IMAGE}
+
+ARG SOURCE_HASH=unknown
+LABEL org.kyth.anaconda.source-hash="${SOURCE_HASH}"
+
+# SOURCE_TAG controls which kickstart URL is embedded (:latest or :testing).
+ARG SOURCE_TAG=latest
+
+# Installer image must keep full locale data for Anaconda WebUI language list.
+# The base Kyth image enables '%_install_langs en_US' for size; remove it here.
+RUN sed -i '/^%_install_langs[[:space:]]\+en_US$/d' /etc/rpm/macros 2>/dev/null || true
+
+# ── Anaconda + live boot packages ───────────────────────────────────────────
+# Matches Bazzite's approach: --allowerasing lets dnf resolve the
+# NetworkManager conflict that anaconda-webui's cockpit deps cause.
+# anaconda-live pulls in anaconda-webui → cockpit-ws, cockpit-bridge.
+RUN dnf5 -y versionlock clear 2>/dev/null || true \
+    && dnf5 install -y --allowerasing \
+    anaconda-live \
+    anaconda-webui \
+    cockpit-ws \
+    cockpit-bridge \
+    glibc-all-langpacks \
+    firefox \
+    btrfs-progs \
+    libblockdev-btrfs \
+    libblockdev-lvm \
+    libblockdev-dm \
+    dracut-live \
+    yad \
+    && mkdir -p /var/lib/rpm-state \
+    && dnf5 clean all \
+    && echo "==> Verifying critical packages:" \
+    && rpm -q anaconda-live \
+    && rpm -q anaconda-webui \
+    && rpm -q cockpit-ws \
+    && rpm -q cockpit-bridge \
+    && rpm -q firefox \
+    && locale -a | grep -qi '^fr_FR\.utf8$' \
+    && locale -a | grep -qi '^de_DE\.utf8$' \
+    && locale -a | grep -qi '^ja_JP\.utf8$' \
+    && echo "==> cockpit-ws binary location:" \
+    && rpm -ql cockpit-ws | grep -E 'bin/|libexec/' || true \
+    && echo "==> All critical installer packages present"
+
+# ── Desktop, ISO tooling, and utilities (--skip-broken for optional deps) ──
+# Base image (Kinoite) already has KDE — these fill gaps for live session + ISO build.
+RUN dnf5 install -y \
+    syslinux grub2-efi-x64 grub2-efi-x64-modules grub2-pc \
+    gparted gdisk podman \
+    plymouth-plugin-script librsvg2-tools \
+    spice-vdagent \
+    zram-generator \
+    plasma-workspace \
+    plasma-desktop \
+    sddm \
+    xorg-x11-server-Xorg \
+    xorg-x11-xinit \
+    xorg-x11-drv-evdev \
+    xorg-x11-drv-libinput \
+    xorg-x11-drv-vmware \
+    xorg-x11-drv-qxl \
+    xorg-x11-drv-intel \
+    xorg-x11-drv-nouveau \
+    xorg-x11-drv-ati \
+    xorg-x11-drv-amdgpu \
+    plasma-workspace-x11 \
+    plasma-workspace-wayland \
+    kde-settings-pulseaudio \
+    kde-cli-tools \
+    kde-gtk-config \
+    kwin \
+    konsole \
+    dolphin \
+    ark \
+    kate \
+    gwenview \
+    okular \
+    systemsettings \
+    sddm-breeze \
+    breeze-icon-theme \
+    breeze-cursor-theme \
+    --skip-broken && dnf5 clean all
+
+# ── System setup: live user, autologin, mask setup service ───────────────────
+# Autologin strategy — two independent layers so one backs up the other:
+#
+#   Layer 1 — SDDM graphical autologin (primary):
+#     SDDM reads /etc/sddm.conf.d/autologin.conf and starts the plasmax11
+#     session directly.  The sddm.service drop-in injects software-rendering
+#     env vars so the SDDM greeter itself doesn't crash in QEMU (it renders
+#     its own QML UI with the same Mesa stack).
+#
+#   Layer 2 — getty/console autologin (fallback):
+#     If SDDM fails for any reason, secondary tty/console getty autologs in as
+#     liveuser.  .bash_profile then execs startx so the user still reaches
+#     the desktop without any manual typing.
+RUN groupadd -r autologin 2>/dev/null || true \
+    && useradd -c "Live User" -G autologin liveuser \
+    && passwd -d liveuser \
+    && printf '%s\n' \
+        'Defaults:liveuser env_keep += "DISPLAY XAUTHORITY WAYLAND_DISPLAY DBUS_SESSION_BUS_ADDRESS XDG_RUNTIME_DIR XDG_SESSION_TYPE LIBGL_ALWAYS_SOFTWARE GALLIUM_DRIVER QT_QUICK_BACKEND QML_XHR_ALLOW_FILE_READ"' \
+        'liveuser ALL=(ALL) NOPASSWD: ALL' \
+        > /etc/sudoers.d/liveuser \
+    && chmod 440 /etc/sudoers.d/liveuser \
+    && mkdir -p /etc/polkit-1/rules.d \
+    && printf 'polkit.addRule(function(action, subject) {\n    if (subject.user == "liveuser") {\n        return polkit.Result.YES;\n    }\n});\n' \
+        > /etc/polkit-1/rules.d/49-liveuser-allow-all.rules \
+    && mkdir -p /etc/sddm.conf.d \
+    && printf '[Autologin]\nUser=liveuser\nSession=plasmax11\nRelogin=true\n' \
+        > /etc/sddm.conf.d/autologin.conf \
+    && printf '[General]\nDisplayServer=x11\n\n[Theme]\nCurrent=breeze\n\n[X11]\nSessionDir=/usr/share/xsessions\n' \
+        > /etc/sddm.conf.d/20-live-x11.conf \
+    && mkdir -p /etc/systemd/system/sddm.service.d \
+    && printf '[Service]\nEnvironment="QT_QUICK_BACKEND=software"\n' \
+        > /etc/systemd/system/sddm.service.d/live-rendering.conf \
+    && mkdir -p /etc/systemd/system/console-getty.service.d \
+    && printf '[Service]\nExecStart=\nExecStart=-/sbin/agetty --autologin liveuser --noclear - linux\n' \
+        > /etc/systemd/system/console-getty.service.d/autologin.conf \
+    && ln -sf /dev/null /etc/systemd/system/getty@tty1.service \
+    && ln -sf /dev/null /etc/systemd/system/getty@tty2.service \
+    && ln -sf /usr/lib/systemd/system/graphical.target \
+              /etc/systemd/system/default.target \
+    && mkdir -p /etc/systemd/system/multi-user.target.wants \
+    && ln -sf /usr/lib/systemd/system/sddm.service \
+              /etc/systemd/system/multi-user.target.wants/sddm.service \
+    && mkdir -p /etc/systemd/system/default.target.wants \
+    && ln -sf /usr/lib/systemd/system/spice-vdagentd.service \
+              /etc/systemd/system/default.target.wants/spice-vdagentd.service \
+    && mkdir -p /etc/systemd/system/kyth-sddm-setup.service.d \
+    && ln -sf /dev/null /etc/systemd/system/kyth-sddm-setup.service
+
+# ── Live user home: KDE config, autostarts, desktop shortcuts ────────────────
+RUN mkdir -p \
+        /home/liveuser/Desktop \
+        /home/liveuser/.config/autostart \
+    /home/liveuser/.config \
+        /home/liveuser/.config/plasma-workspace/env \
+    && printf '[ -z "$DISPLAY" ] && [ -z "$WAYLAND_DISPLAY" ] && exec startx -- :0 vt1 -nolisten tcp\n' \
+        > /home/liveuser/.bash_profile \
+    && printf '#!/bin/bash\nexport XDG_SESSION_TYPE=x11\nexec startplasma-x11\n' \
+        > /home/liveuser/.xinitrc \
+    && chmod +x /home/liveuser/.xinitrc \
+    && printf '[Desktop Entry]\nType=Application\nName=Liveinst Setup\nHidden=true\n' \
+        > /home/liveuser/.config/autostart/liveinst-setup.desktop \
+    && printf '[Desktop Entry]\nType=Application\nName=Steam\nHidden=true\n' \
+        > /home/liveuser/.config/autostart/steam.desktop \
+    && printf '[Desktop Entry]\nType=Application\nName=Kyth Welcome\nHidden=true\n' \
+        > /home/liveuser/.config/autostart/kyth-welcome.desktop \
+    && printf '[Desktop Entry]\nType=Application\nName=SPICE Agent\nExec=/usr/bin/spice-vdagent\nOnlyShowIn=KDE;\nX-KDE-autostart-phase=1\n' \
+        > /home/liveuser/.config/autostart/spice-vdagent.desktop \
+    && printf '[Compositing]\nEnabled=false\n' \
+        > /home/liveuser/.config/kwinrc \
+    && printf '[General]\nColorScheme=BreezeDark\n\n[KDE]\nLookAndFeelPackage=org.kde.breezedark.desktop\n' \
+        > /home/liveuser/.config/kdeglobals \
+    && printf '[Theme]\nname=breeze-dark\n' \
+        > /home/liveuser/.config/plasmarc \
+    && printf '# Let Mesa auto-detect GPU (virtio-gpu/virgl in VMs, real GPU on hardware)\n' \
+        > /home/liveuser/.config/plasma-workspace/env/live.sh \
+    && chmod +x /home/liveuser/.config/plasma-workspace/env/live.sh \
+    && printf '[Desktop Entry]\nName=Install Kyth\nComment=Install Kyth to this computer\nExec=/usr/bin/kyth-launch-anaconda\nIcon=kyth\nTerminal=false\nType=Application\nCategories=System;\n' \
+        > /home/liveuser/Desktop/install-kyth.desktop \
+    && printf '[Desktop Entry]\nName=Install Kyth\nComment=Install Kyth to this computer\nExec=/usr/bin/kyth-launch-anaconda\nIcon=kyth\nTerminal=false\nType=Application\nCategories=System;\n' \
+        > /usr/share/applications/kyth-install.desktop \
+    && printf '[Favorites]\nFavoriteURLs=/usr/share/applications/org.mozilla.firefox.desktop,/usr/share/applications/org.kde.dolphin.desktop,/usr/share/applications/systemsettings.desktop,/usr/share/applications/org.kde.konsole.desktop,/usr/share/applications/kyth-install.desktop\n' \
+        > /home/liveuser/.config/kickoffrc \
+    && printf '[Desktop Entry]\nType=Application\nName=Kyth Wallpaper\nExec=plasma-apply-wallpaperimage /usr/share/wallpapers/kyth/contents/images/kyth-wallpaper.png\nX-KDE-autostart-after=panel\n' \
+        > /home/liveuser/.config/autostart/kyth-wallpaper.desktop \
+    && cp /etc/skel/.config/autostart/kyth-set-kickoff-icon.desktop \
+        /home/liveuser/.config/autostart/kyth-set-kickoff-icon.desktop \
+    && chmod +x /home/liveuser/Desktop/install-kyth.desktop \
+    && chown -R liveuser:liveuser /home/liveuser/
+
+# ── Copy all assets before the post-COPY setup RUN ───────────────────────────
+COPY build_files/wallpaper/kyth-wallpaper.svg \
+     /usr/share/wallpapers/kyth/contents/images/1920x1080.svg
+COPY build_files/branding/kyth-logo.svg \
+     /usr/share/icons/hicolor/scalable/apps/kyth.svg
+COPY build_files/anaconda/kyth-launch-anaconda    /usr/bin/kyth-launch-anaconda
+COPY build_files/anaconda/kyth-anaconda-debug     /usr/bin/kyth-anaconda-debug
+COPY build_files/anaconda/kyth.ks                 /etc/anaconda/kyth.ks
+COPY build_files/anaconda/kyth-testing.ks         /etc/anaconda/kyth-testing.ks
+COPY build_files/plymouth/kyth.plymouth /usr/share/plymouth/themes/kyth/kyth.plymouth
+COPY build_files/plymouth/kyth.script   /usr/share/plymouth/themes/kyth/kyth.script
+COPY build_files/branding/kyth-logo-transparent.svg /usr/share/cockpit/branding/fedora-kyth/logo.svg
+COPY build_files/branding/cockpit-branding.css      /usr/share/cockpit/branding/fedora-kyth/branding.css
+
+# ── Post-COPY setup: kickstart selection, wallpaper metadata, icons, branding ──
+# Select the kickstart for this build's source tag:
+#   latest  → kyth.ks  (ostreecontainer url=ghcr.io/mrtrick37/kyth:latest)
+#   testing → kyth-testing.ks (ostreecontainer url=ghcr.io/mrtrick37/kyth:testing)
+# The selected kickstart lands at /etc/anaconda/ks.cfg for debugging/manual runs.
+# Live desktop installs use liveinst.
+# IMPORTANT: mimic Bazzite/Aurora by APPENDING to interactive-defaults.ks,
+# not replacing it, so Anaconda keeps its built-in defaults.
+RUN if [ "${SOURCE_TAG}" = "testing" ]; then \
+        cp /etc/anaconda/kyth-testing.ks /etc/anaconda/ks.cfg; \
+    else \
+        cp /etc/anaconda/kyth.ks /etc/anaconda/ks.cfg; \
+    fi \
+    && printf '\n' >> /usr/share/anaconda/interactive-defaults.ks \
+    && cat /etc/anaconda/ks.cfg >> /usr/share/anaconda/interactive-defaults.ks \
+    && rm -f /etc/anaconda/kyth.ks /etc/anaconda/kyth-testing.ks \
+    && mkdir -p /etc/anaconda/conf.d \
+    && printf '[User Interface]\nwebui_web_engine = firefox\n' \
+        > /etc/anaconda/conf.d/10-kyth-webui-browser.conf \
+    && mkdir -p /etc/anaconda/profile.d \
+    && printf '[Profile]\nprofile_id = kyth\n' \
+        > /etc/anaconda/profile.d/kyth.conf \
+    && chmod +x /usr/bin/kyth-launch-anaconda /usr/bin/kyth-anaconda-debug \
+    && mkdir -p /usr/share/wallpapers/kyth/contents/images \
+    && printf '{"KPlugin":{"Authors":[{"Name":"Kyth"}],"Id":"kyth","Name":"Kyth","License":"CC-BY-SA-4.0"},"KPackageStructure":"Wallpaper/Images"}\n' \
+        > /usr/share/wallpapers/kyth/metadata.json \
+    && cp /usr/share/icons/hicolor/scalable/apps/kyth.svg \
+          /usr/share/icons/hicolor/scalable/apps/start-here.svg \
+    && mkdir -p /usr/share/icons/breeze-dark/apps/scalable \
+    && cp /usr/share/icons/hicolor/scalable/apps/kyth.svg \
+          /usr/share/icons/breeze-dark/apps/scalable/start-here.svg \
+           && if [ -f /usr/share/applications/liveinst.desktop ]; then \
+               sed -i 's/^NoDisplay=true/NoDisplay=false/' /usr/share/applications/liveinst.desktop; \
+               sed -i 's|^Exec=.*|Exec=/usr/bin/kyth-launch-anaconda|' /usr/share/applications/liveinst.desktop; \
+               sed -i 's|^Name=.*|Name=Install Kyth|' /usr/share/applications/liveinst.desktop; \
+               sed -i 's|^Icon=.*|Icon=kyth|' /usr/share/applications/liveinst.desktop; \
+             chmod +x /usr/share/applications/liveinst.desktop; \
+         fi \
+    && gtk-update-icon-cache -f /usr/share/icons/hicolor/    2>/dev/null || true \
+    && gtk-update-icon-cache -f /usr/share/icons/breeze-dark/ 2>/dev/null || true \
+    && sed -i 's/^PRETTY_NAME=.*/PRETTY_NAME="Kyth 43 Live"/' /etc/os-release \
+    && sed -i 's/^NAME=.*/NAME="Kyth"/' /etc/os-release \
+    && sed -i '/^VARIANT_ID=/d' /etc/os-release \
+    && printf 'VARIANT_ID=kyth\n' >> /etc/os-release \
+    && printf 'PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin\n' >> /etc/environment \
+    && mkdir -p /etc/X11/xorg.conf.d \
+    && BREEZE_DARK_DEFAULTS="/usr/share/plasma/look-and-feel/org.kde.breezedark.desktop/contents/defaults" \
+    && if [ -f "$BREEZE_DARK_DEFAULTS" ]; then \
+           sed -i 's/^Image=.*/Image=kyth/' "$BREEZE_DARK_DEFAULTS"; \
+           grep -q '^Image=' "$BREEZE_DARK_DEFAULTS" \
+               || printf '\n[Wallpaper]\nImage=kyth\n' >> "$BREEZE_DARK_DEFAULTS"; \
+       fi \
+    || true
+
+# ── Rebuild initramfs with dmsquash-live + Kyth Plymouth theme ────────────────
+# No kickstart embedded — anaconda-webui (bluesky) does not support kickstart-
+# driven installs and auto-detects /run/install/ks.cfg if present, causing it
+# to reject startup. Source is provided via interactive-defaults.ks in userspace.
+RUN KVER=$(ls /usr/lib/modules/ | grep cachyos | head -1) \
+    && rsvg-convert -w 200 \
+        /usr/share/icons/hicolor/scalable/apps/kyth.svg \
+        -o /usr/share/plymouth/themes/kyth/kyth-logo.png \
+    && rsvg-convert -w 128 -h 128 \
+        /usr/share/cockpit/branding/fedora-kyth/logo.svg \
+        -o /usr/share/cockpit/branding/fedora-kyth/logo.png \
+    && rsvg-convert -w 64 -h 64 \
+        /usr/share/cockpit/branding/fedora-kyth/logo.svg \
+        -o /usr/share/cockpit/branding/fedora-kyth/apple-touch-icon.png \
+    && mkdir -p /usr/share/anaconda/pixmaps \
+    && cp /usr/share/cockpit/branding/fedora-kyth/logo.png \
+          /usr/share/anaconda/pixmaps/sidebar-logo.png \
+    && rsvg-convert -w 1920 -h 1080 \
+        /usr/share/wallpapers/kyth/contents/images/1920x1080.svg \
+        -o /usr/share/wallpapers/kyth/contents/images/kyth-wallpaper.png \
+    && mkdir -p /usr/share/sddm/themes/breeze \
+    && printf '[General]\nbackground=/usr/share/wallpapers/kyth/contents/images/kyth-wallpaper.png\nblur=false\n' \
+        > /usr/share/sddm/themes/breeze/theme.conf.user \
+    && plymouth-set-default-theme kyth \
+    && TMPDIR=/var/tmp dracut \
+        --no-hostonly \
+        --add "dmsquash-live plymouth" \
+        --kver "$KVER" \
+        --force \
+        "/usr/lib/modules/$KVER/initramfs-live" \
+        2> >(grep -Ev 'xattr|fail to copy' >&2) \
+    && echo "Live initramfs built for $KVER (Plymouth: kyth)"
+
+# ── Live-session I/O scheduler override ──────────────────────────────────────
+# During install, Anaconda runs bootc install to-disk which reads from a squashfs
+# loop device and writes btrfs to the target disk simultaneously.  BFQ can
+# deadlock under this workload on the CachyOS kernel when the block device type
+# is unmatched (e.g. VirtIO vd*).
+# Force mq-deadline on all block types seen in QEMU/KVM live sessions.
+RUN mkdir -p /etc/udev/rules.d \
+    && cat > /etc/udev/rules.d/61-live-ioschedulers.rules <<'LIVEIOEOF'
+# Live session: force mq-deadline on all block device types.
+# Anaconda runs bootc install to-disk which reads squashfs (loop device) and
+# writes btrfs to the target disk simultaneously.  BFQ can deadlock under this
+# mixed read/write workload on the CachyOS kernel, freezing the I/O stack.
+ACTION=="add|change", KERNEL=="vd[a-z]*",      ATTR{queue/scheduler}="mq-deadline"
+ACTION=="add|change", KERNEL=="sd[a-z]*",      ATTR{queue/scheduler}="mq-deadline"
+ACTION=="add|change", KERNEL=="nvme[0-9]*",    ATTR{queue/scheduler}="mq-deadline"
+ACTION=="add|change", KERNEL=="loop[0-9]*",    ATTR{queue/scheduler}="mq-deadline"
+LIVEIOEOF
+
+RUN mkdir -p /mnt/hostshare
+
+# ── Finalize: machine-id, mask services, zram swap, locale / timezone ────────
+# machine-id must be "uninitialized" so systemd generates a volatile one.
+# Mask ostree/bootc services that require a real ostree deployment.
+# Parity with Fedora live defaults: disable background services that are noisy
+# on live media and use a stable non-localhost hostname for xauth reliability.
+# zram swap: Anaconda pulls the OS from the registry during install while the
+# live session runs in RAM.  OCI layer decompression can exhaust physical RAM
+# and cause an OOM freeze.  A larger zram device plus disabled oomd prevents
+# killing the installer UI under temporary memory pressure.
+# system responsive during the download.
+RUN echo "uninitialized" > /etc/machine-id \
+    && for unit in \
+        ostree-remount.service \
+        ostree-prepare-root.service \
+        rpm-ostree.service \
+        rpm-ostree-countme.service \
+        rpm-ostree-countme.timer \
+        bootc-fetch-apply-updates.service \
+        bootc-fetch-apply-updates.timer \
+        systemd-firstboot.service \
+        systemd-oomd.service \
+        scxd.service \
+        ananicy-cpp.service; do \
+        ln -sf /dev/null "/etc/systemd/system/${unit}"; \
+    done \
+    && for unit in \
+        firstboot-text.service \
+        firstboot-graphical.service \
+        mdmonitor.service \
+        mdmonitor-takeover.service \
+        crond.service \
+        atd.service \
+        abrtd.service; do \
+        ln -sf /dev/null "/etc/systemd/system/${unit}"; \
+    done \
+    && printf '[zram0]\nzram-size = min(ram*2, 16384)\ncompression-algorithm = zstd\n' \
+        > /etc/systemd/zram-generator.conf \
+    && (sed -i 's/rtcsync//g' /etc/chrony.conf 2>/dev/null || true) \
+    && (hostnamectl set-hostname "localhost-live" || true) \
+    && echo "LANG=en_US.UTF-8" > /etc/locale.conf \
+    && ln -sf /usr/share/zoneinfo/UTC /etc/localtime \
+    && echo "KEYMAP=us" > /etc/vconsole.conf \
+    && mkdir -p /home/liveuser/.config/systemd/user/graphical.target.wants \
+    && if [ -e /usr/lib/systemd/user/locale1-x11-sync.service ]; then \
+           ln -sf /usr/lib/systemd/user/locale1-x11-sync.service \
+                  /home/liveuser/.config/systemd/user/graphical.target.wants/locale1-x11-sync.service; \
+       fi \
+    && chown -R liveuser:liveuser /home/liveuser/.config

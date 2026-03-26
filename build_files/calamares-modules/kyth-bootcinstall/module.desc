@@ -1,5 +1,0 @@
----
-type:       "job"
-name:       "kyth-bootcinstall"
-interface:  "python"
-script:     "main.py"

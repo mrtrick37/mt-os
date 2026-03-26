@@ -11,3 +11,7 @@ cosign.key
 _build_*
 output
 _build-*/**
+
+# Crash dumps
+core
+core.*

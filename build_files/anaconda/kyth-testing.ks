@@ -1,4 +1,4 @@
-# Kyth — Anaconda kickstart
+# Kyth — Anaconda kickstart (testing branch)
 #
 # Used by two paths:
 #   1. Live session (desktop icon):
@@ -7,7 +7,7 @@
 #
 #   2. Direct boot (GRUB "Install Kyth" entry):
 #      Embedded in the live initramfs at /run/install/ks.cfg via:
-#        dracut --include /etc/anaconda/kyth.ks /run/install/ks.cfg
+#        dracut --include /etc/anaconda/ks.cfg /run/install/ks.cfg
 #      Loaded by kernel parameter: inst.ks=file:///run/install/ks.cfg
 #
 # Storage, timezone, language, and user account are configured interactively
@@ -17,8 +17,8 @@
 # eth0 which doesn't exist on most real hardware with predictable interface names).
 network --bootproto=dhcp --device=link --activate --noipv6
 
-# Pull Kyth from the container registry and install it to disk.
-ostreecontainer --url="ghcr.io/mrtrick37/kyth:latest" --transport=registry --no-signature-verification
+# Pull Kyth (testing) from the container registry and install it to disk.
+ostreecontainer --url="ghcr.io/mrtrick37/kyth:testing" --transport=registry --no-signature-verification
 
 # Keep failure details visible in the live session.
 %onerror

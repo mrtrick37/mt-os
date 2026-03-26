@@ -1,4 +1,4 @@
-name: Build Live ISO
+name: Build Anaconda Live ISO
 
 on:
   workflow_dispatch:
@@ -13,13 +13,12 @@ on:
           - testing
 
 jobs:
-  # ── Job 1: Build the live container image and push it to GHCR ───────────────
+  # ── Job 1: Build the anaconda live container and push it to GHCR ─────────────
   # Uses docker buildx (BuildKit) which:
   #   • Has no 128-layer overlay2 limit — no need to flatten the base image
   #   • Streams layers directly to GHCR with --push, storing nothing locally
-  # This keeps local disk usage near-zero for the build job.
-  build-live-container:
-    name: Build live container
+  build-anaconda-container:
+    name: Build anaconda container
     runs-on: ubuntu-latest
     permissions:
       packages: write
@@ -47,30 +46,32 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3.10.0
 
-      - name: Build and push live container directly to GHCR
-        # BuildKit (docker buildx) has no 128-layer limit and --push streams
-        # finished layers straight to GHCR — nothing is written to local storage.
+      - name: Build and push anaconda container directly to GHCR
+        # BuildKit has no 128-layer limit and --push streams finished layers
+        # straight to GHCR — nothing is written to local storage.
+        # SOURCE_TAG is passed so the embedded kickstart URL matches the tag.
         id: push
         run: |
           BASE_IMAGE="ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:${{ inputs.source_tag || 'latest' }}"
-          IMAGE="ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:live-build"
+          IMAGE="ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:anaconda-build"
           docker buildx build \
             --tag "${IMAGE}" \
             --build-arg BASE_IMAGE="${BASE_IMAGE}" \
-            -f build_files/Containerfile.live \
+            --build-arg SOURCE_TAG="${{ inputs.source_tag || 'latest' }}" \
+            -f build_files/Containerfile.anaconda \
             --push \
             .
           echo "image-ref=${IMAGE}" >> $GITHUB_OUTPUT
 
-      - name: Flatten live container to a single layer
-        # The live image inherits 100+ layers from the kyth base image.
+      - name: Flatten anaconda container to a single layer
+        # The anaconda image inherits 100+ layers from the kyth base image.
         # docker pull in Job 2 hits Docker's 128-layer overlay2 limit before
         # it can even finish pulling. crane flatten squashes all layers into one
         # and pushes the result back to the same tag, so Job 2 can pull cleanly.
         run: |
           curl -sSfL "https://github.com/google/go-containerregistry/releases/download/v0.20.6/go-containerregistry_Linux_x86_64.tar.gz" \
             | tar -xz -C /usr/local/bin crane
-          IMAGE="ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:live-build"
+          IMAGE="ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:anaconda-build"
           crane auth login ghcr.io -u "${{ github.actor }}" -p "${{ secrets.GITHUB_TOKEN }}"
           crane flatten "${IMAGE}"
 
@@ -79,7 +80,7 @@ jobs:
   # so overlay2 storage doesn't overlap with the large squashfs + ISO on disk.
   build-iso:
     name: Build ISO
-    needs: build-live-container
+    needs: build-anaconda-container
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -102,82 +103,66 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            xorriso squashfs-tools mtools dosfstools git skopeo \
+            xorriso squashfs-tools mtools dosfstools git \
             grub-common grub-pc-bin grub-efi-amd64-bin
           curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh \
             | sudo bash -s -- --to /usr/local/bin
           sudo ln -sf /usr/bin/grub-mkimage /usr/local/bin/grub2-mkimage
           sudo ln -sf /usr/bin/grub-mkfont  /usr/local/bin/grub2-mkfont
 
-      - name: Pull pre-built live container and base image
-        # kyth-live:build  → used by build-live-iso.sh (skips the Docker build step)
-        # localhost/kyth:latest is NOT pulled into Docker here — it has 100+ layers
-        # and hits Docker's 128-layer overlay2 limit. Instead, SKOPEO_BASE is set
-        # below so build-live-iso.sh copies the OCI bundle directly from GHCR via
-        # skopeo (which has no layer limit), bypassing the Docker daemon entirely.
+      - name: Pull pre-built anaconda container
+        # Import with the tag name build-anaconda-iso.sh expects:
+        #   latest  → kyth-anaconda:build
+        #   testing → kyth-anaconda:build-testing
         run: |
           echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
 
-          # Pull the live container and flatten it into a single layer.
-          # kyth:latest has 100+ layers; Containerfile.live adds more, so the
-          # combined image exceeds Docker's 128-layer overlay2 limit.  Flattening
-          # brings it to 1 layer so 'docker create' / 'docker export' succeed.
-          # (skopeo, used later for the OCI bundle, reads layers directly and has
-          # no such limit, so localhost/kyth:latest does NOT need flattening.)
-          # docker import sets the image creation time to now, so kyth-live:build
-          # will be newer than localhost/kyth:latest — staleness check passes.
-          # Import with the tag name build-live-iso.sh expects:
-          #   latest  → kyth-live:build
-          #   testing → kyth-live:build-testing
           SOURCE_TAG="${{ inputs.source_tag || 'latest' }}"
           if [[ "${SOURCE_TAG}" == "latest" ]]; then
-            LIVE_TAG="kyth-live:build"
+            ANACONDA_TAG="kyth-anaconda:build"
           else
-            LIVE_TAG="kyth-live:build-${SOURCE_TAG}"
+            ANACONDA_TAG="kyth-anaconda:build-${SOURCE_TAG}"
           fi
-          docker pull "${{ needs.build-live-container.outputs.image-ref }}"
-          CID=$(docker create "${{ needs.build-live-container.outputs.image-ref }}" /bin/true)
-          docker export "${CID}" | docker import - "${LIVE_TAG}"
+
+          docker pull "${{ needs.build-anaconda-container.outputs.image-ref }}"
+          CID=$(docker create "${{ needs.build-anaconda-container.outputs.image-ref }}" /bin/true)
+          docker export "${CID}" | docker import - "${ANACONDA_TAG}"
           docker rm "${CID}"
-          docker rmi "${{ needs.build-live-container.outputs.image-ref }}" || true
+          docker rmi "${{ needs.build-anaconda-container.outputs.image-ref }}" || true
 
       - name: Ensure permissions and directories
         run: |
           mkdir -p output/live-iso
           chmod -R 777 output
           chmod -R 777 build_files
-          chmod +x build_files/build-live-iso.sh
+          chmod +x build_files/build-anaconda-iso.sh
 
-      - name: Build Live ISO
-        # SKIP_REBUILD=1: kyth-live:build was pre-built in job 1 and imported
-        # above — skip the staleness check so the script goes straight to
-        # container export + squashfs + ISO without triggering a rebuild.
-        # Prune Docker storage right after the container is exported to reclaim
-        # the ~10 GB overlay2 footprint before squashfs runs.
+      - name: Build Anaconda Live ISO
+        # SKIP_REBUILD=1: kyth-anaconda:build was pre-built in job 1 and
+        # imported above — skip the staleness check and go straight to
+        # container export + squashfs + ISO.
+        # Prune Docker storage right after container export to reclaim the
+        # overlay2 footprint before mksquashfs runs.
+        # No OCI bundle step — significantly less disk pressure than the
+        # offline live ISO.
         env:
           SKIP_REBUILD: "1"
-          SKOPEO_BASE: "docker://ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:${{ inputs.source_tag || 'latest' }}"
         run: |
           SOURCE_TAG="${{ inputs.source_tag || 'latest' }}"
           if [[ "${SOURCE_TAG}" == "latest" ]]; then
-            LIVE_TAG="kyth-live:build"
+            ANACONDA_TAG="kyth-anaconda:build"
           else
-            LIVE_TAG="kyth-live:build-${SOURCE_TAG}"
+            ANACONDA_TAG="kyth-anaconda:build-${SOURCE_TAG}"
           fi
 
-          just build-live-iso "${SOURCE_TAG}" &
+          just build-anaconda-iso "${SOURCE_TAG}" &
           BUILD_PID=$!
 
-          # Wait for the container export to finish (ROOTFS will appear),
-          # then prune Docker to free overlay2 space before squashfs starts.
           while kill -0 $BUILD_PID 2>/dev/null; do
             ROOTFS=$(find /var/tmp -maxdepth 2 -name rootfs -type d 2>/dev/null | head -1)
             if [[ -n "${ROOTFS}" && -f "${ROOTFS}/etc/os-release" ]]; then
               echo "==> Container exported to ${ROOTFS} — pruning Docker overlay2"
-              # Remove the live container image (already exported, no longer needed).
-              # Do NOT prune -a: localhost/kyth:latest must survive for the skopeo
-              # OCI bundle step that runs after squashfs.
-              docker rmi "${LIVE_TAG}" || true
+              docker rmi "${ANACONDA_TAG}" || true
               docker system prune -f || true
               break
             fi
@@ -189,7 +174,7 @@ jobs:
       - name: Upload ISO artifact
         uses: actions/upload-artifact@v4
         with:
-          name: kyth-live-iso
+          name: kyth-anaconda-iso
           path: output/live-iso/kyth-live-${{ inputs.source_tag || 'latest' }}.iso
           if-no-files-found: error
 

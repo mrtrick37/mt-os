@@ -1,0 +1,400 @@
+#!/usr/bin/bash
+# kyth-launch-anaconda — run Fedora's canonical live installer entrypoint.
+# This intentionally mirrors Bazzite/Aurora behavior by deferring to liveinst,
+# which in turn handles pkexec, anaconda backend startup, and webui-desktop.
+
+set -u
+
+LOG="${XDG_RUNTIME_DIR:-/tmp}/kyth-anaconda.log"
+RUN_ID="$(date +%Y%m%d-%H%M%S)"
+HOST_DIR="/mnt/hostshare"
+HOST_RUN_DIR=""
+
+_host_setup() {
+    mkdir -p "${HOST_DIR}" 2>/dev/null || true
+    if ! mountpoint -q "${HOST_DIR}" 2>/dev/null; then
+        sudo -n mount -t 9p -o trans=virtio,version=9p2000.L,msize=104857600,cache=none hostshare "${HOST_DIR}" 2>/dev/null || true
+    fi
+
+    if mountpoint -q "${HOST_DIR}" 2>/dev/null && [[ -w "${HOST_DIR}" ]]; then
+        HOST_RUN_DIR="${HOST_DIR}/anaconda-${RUN_ID}"
+        mkdir -p "${HOST_RUN_DIR}" 2>/dev/null || true
+    fi
+}
+
+_host_export_logs() {
+    [[ -n "${HOST_RUN_DIR}" ]] || return 0
+
+    {
+        echo "timestamp: $(date -Is)"
+        echo "host_run_dir: ${HOST_RUN_DIR}"
+        echo "uid: $(id -u) user: $(id -un)"
+    } > "${HOST_RUN_DIR}/export-status.txt" 2>/dev/null || true
+
+    cp -f "${LOG}" "${HOST_RUN_DIR}/kyth-anaconda.log" 2>>"${HOST_RUN_DIR}/export-status.txt" || true
+
+    if sudo -n test -f /tmp/anaconda.log 2>/dev/null; then
+        sudo -n cat /tmp/anaconda.log > "${HOST_RUN_DIR}/anaconda.log" 2>>"${HOST_RUN_DIR}/export-status.txt" || true
+    else
+        echo "missing: /tmp/anaconda.log" >> "${HOST_RUN_DIR}/export-status.txt" || true
+    fi
+
+    if sudo -n test -f /tmp/anaconda-tb.txt 2>/dev/null; then
+        sudo -n cat /tmp/anaconda-tb.txt > "${HOST_RUN_DIR}/anaconda-tb.txt" 2>>"${HOST_RUN_DIR}/export-status.txt" || true
+    else
+        echo "missing: /tmp/anaconda-tb.txt" >> "${HOST_RUN_DIR}/export-status.txt" || true
+    fi
+
+    sudo -n journalctl -b --no-pager > "${HOST_RUN_DIR}/journal-full.log" 2>>"${HOST_RUN_DIR}/export-status.txt" || true
+
+    if ls "${HOST_RUN_DIR}" >/dev/null 2>&1; then
+        {
+            echo
+            echo "files:"
+            ls -l "${HOST_RUN_DIR}" 2>/dev/null || true
+        } >> "${HOST_RUN_DIR}/export-status.txt" 2>/dev/null || true
+    fi
+}
+
+cleanup() {
+    if [[ -n "${SYNC_PID:-}" ]]; then
+        kill "${SYNC_PID}" 2>/dev/null || true
+    fi
+    if [[ -n "${TAIL_PID:-}" ]]; then
+        kill "${TAIL_PID}" 2>/dev/null || true
+    fi
+    if [[ -n "${IOPRI_PID:-}" ]]; then
+        kill "${IOPRI_PID}" 2>/dev/null || true
+    fi
+    if [[ -n "${VTFIX_PID:-}" ]]; then
+        kill "${VTFIX_PID}" 2>/dev/null || true
+    fi
+    if [[ -n "${FEEDBACK_PID:-}" ]]; then
+        kill "${FEEDBACK_PID}" 2>/dev/null || true
+    fi
+    _host_export_logs
+}
+trap cleanup EXIT
+
+_browser_fallback_watchdog() {
+    # If liveinst never opens the WebUI browser window, open it explicitly.
+    sleep 12
+    if ! pgrep -u "$(id -u)" -f '/run/user/.*/anaconda/firefox-profile' >/dev/null 2>&1; then
+        {
+            echo "$(date '+%T'): No Anaconda Firefox process detected after launch; starting fallback browser."
+            echo "$(date '+%T'): Fallback browser cmd: /usr/bin/env MOZ_APP_TITLE= MOZ_APP_REMOTINGNAME=liveinst MOZ_GTK_TITLEBAR_DECORATION=client /usr/bin/firefox --new-instance --window-size 1024,768 --profile /run/user/$(id -u)/anaconda/firefox-profile http://127.0.0.1"
+        } >> "${LOG}" 2>&1
+
+        mkdir -p "/run/user/$(id -u)/anaconda/firefox-profile" 2>/dev/null || true
+        /usr/bin/env MOZ_APP_TITLE= MOZ_APP_REMOTINGNAME=liveinst MOZ_GTK_TITLEBAR_DECORATION=client \
+            /usr/bin/firefox --new-instance --window-size 1024,768 \
+            --profile "/run/user/$(id -u)/anaconda/firefox-profile" http://127.0.0.1 \
+            >> "${LOG}" 2>&1 &
+    fi
+}
+
+_host_sync_loop() {
+    [[ -n "${HOST_RUN_DIR}" ]] || return 0
+    errlog="${HOST_RUN_DIR}/sync-errors.log"
+    heartbeat="${HOST_RUN_DIR}/live-sync.txt"
+    while :; do
+        # Only replace destination files on successful source reads.
+        cp -f "${LOG}" "${HOST_RUN_DIR}/kyth-anaconda.log" 2>>"${errlog}" || true
+
+        if sudo -n test -r /tmp/anaconda.log 2>/dev/null; then
+            sudo -n cat /tmp/anaconda.log > "${HOST_RUN_DIR}/anaconda.log.tmp" 2>>"${errlog}" \
+                && mv -f "${HOST_RUN_DIR}/anaconda.log.tmp" "${HOST_RUN_DIR}/anaconda.log" 2>>"${errlog}" || true
+        fi
+
+        if sudo -n test -r /tmp/anaconda-tb.txt 2>/dev/null; then
+            sudo -n cat /tmp/anaconda-tb.txt > "${HOST_RUN_DIR}/anaconda-tb.txt.tmp" 2>>"${errlog}" \
+                && mv -f "${HOST_RUN_DIR}/anaconda-tb.txt.tmp" "${HOST_RUN_DIR}/anaconda-tb.txt" 2>>"${errlog}" || true
+        fi
+
+        sudo -n sh -c 'journalctl -b --no-pager | grep -Ei "anaconda|webui|cockpit|liveinst|ostree|bootc|traceback|exception|fatal|segfault|coredump|oom|killed|error|failed|i/o error|transaction aborted" | grep -Ev "pam_systemd\(sudo:session\): Failed to check if /run/user/0/bus exists|COMMAND=/usr/sbin/sh -c .+journalctl -b --no-pager|COMMAND=/usr/sbin/(test -r|cat) /tmp/anaconda(\.log|-tb\.txt)" | tail -n 500' > "${HOST_RUN_DIR}/journal-filtered.log.tmp" 2>>"${errlog}" \
+            && mv -f "${HOST_RUN_DIR}/journal-filtered.log.tmp" "${HOST_RUN_DIR}/journal-filtered.log" 2>>"${errlog}" || true
+
+        sudo -n dmesg -T | tail -n 300 > "${HOST_RUN_DIR}/dmesg-tail.log.tmp" 2>>"${errlog}" \
+            && mv -f "${HOST_RUN_DIR}/dmesg-tail.log.tmp" "${HOST_RUN_DIR}/dmesg-tail.log" 2>>"${errlog}" || true
+
+        printf '%s\n' "$(date -Is)" >> "${heartbeat}" 2>>"${errlog}" || true
+        sleep 2
+    done
+}
+
+_latest_install_activity() {
+    local msg=""
+
+    if sudo -n test -r /tmp/anaconda.log 2>/dev/null; then
+        msg=$(sudo -n sh -c "grep -E 'Deployment starting|All tasks in the installation queue are done|Copying file:|web-ui:|ostree|bootc|install' /tmp/anaconda.log | tail -n 1" 2>/dev/null || true)
+    fi
+
+    if [[ -z "${msg}" ]]; then
+        if sudo -n journalctl -b --no-pager 2>/dev/null | grep -Eq 'ostree|bootc|anaconda.modules.boss.installation|Writing|Deploy|Installing'; then
+            msg=$(sudo -n journalctl -b --no-pager 2>/dev/null | grep -E 'ostree|bootc|anaconda.modules.boss.installation|Writing|Deploy|Installing' | tail -n 1 || true)
+        fi
+    fi
+
+    msg=$(printf '%s' "${msg}" | sed -E 's/^.*(INFO:|WRN |DBG )//' | sed -E 's/[[:space:]]+/ /g' | cut -c1-180)
+
+    if [[ -z "${msg}" ]]; then
+        msg="Preparing and deploying system content"
+    fi
+
+    printf '%s' "${msg}"
+}
+
+_show_install_progress_hint() {
+    local elapsed_min="$1"
+    local activity="$2"
+    local text="Still installing (${elapsed_min} min elapsed). ${activity}. This phase can take a while on first install."
+
+    if command -v kdialog &>/dev/null; then
+        kdialog --title "Kyth Installer" --passivepopup "${text}" 8 >/dev/null 2>&1 || true
+        return 0
+    fi
+
+    if command -v notify-send &>/dev/null; then
+        notify-send -a "Kyth Installer" "Installation in progress" "${text}" >/dev/null 2>&1 || true
+        return 0
+    fi
+}
+
+_install_feedback_loop() {
+    local start_ts now elapsed_min activity
+
+    start_ts=$(date +%s)
+    # Give the UI some time to settle before the first hint.
+    sleep 75
+
+    while :; do
+        now=$(date +%s)
+        elapsed_min=$(( (now - start_ts) / 60 ))
+        activity=$(_latest_install_activity)
+        echo "$(date '+%T'): Progress hint: ${activity} (elapsed ${elapsed_min} min)." >> "${LOG}" 2>&1
+        _show_install_progress_hint "${elapsed_min}" "${activity}"
+        sleep 75
+    done
+}
+
+_active_vt() {
+    local vt
+    vt=$(fgconsole 2>/dev/null || true)
+    if [[ -z "${vt}" && -r /sys/class/tty/tty0/active ]]; then
+        vt=$(tr -d '[:space:]' < /sys/class/tty/tty0/active)
+        vt=${vt#tty}
+    fi
+    printf '%s' "${vt}"
+}
+
+_keep_installer_vt_foreground_loop() {
+    local target_vt="$1"
+    [[ -n "${target_vt}" ]] || return 0
+
+    while :; do
+        local current_vt
+        current_vt=$(_active_vt)
+        if [[ -n "${current_vt}" && "${current_vt}" != "${target_vt}" ]]; then
+            echo "$(date '+%T'): VT guard: active tty${current_vt}; switching back to tty${target_vt}." >> "${LOG}" 2>&1
+            sudo -n chvt "${target_vt}" >/dev/null 2>&1 || true
+        fi
+        sleep 2
+    done
+}
+
+_die() {
+    echo "$(date '+%T'): ERROR: $*" | tee -a "${LOG}"
+    {
+        echo
+        echo "===== Kyth anaconda diagnostics ====="
+        echo "timestamp: $(date -Is)"
+        echo "uid: $(id -u) user: $(id -un)"
+        echo "cmdline: $(cat /proc/cmdline 2>/dev/null || true)"
+        echo
+        echo "--- ls -l /tmp/anaconda* ---"
+        ls -l /tmp/anaconda* 2>/dev/null || echo "no /tmp/anaconda* files"
+        echo
+        echo "--- /tmp/anaconda.log (tail -300, sudo) ---"
+        sudo -n sh -c 'tail -n 300 /tmp/anaconda.log' 2>&1 || true
+        echo
+        echo "--- /tmp/anaconda-tb.txt (sudo) ---"
+        sudo -n sh -c 'cat /tmp/anaconda-tb.txt' 2>&1 || true
+        echo
+        echo "--- journalctl -b (anaconda/liveinst/webui) ---"
+        sudo -n sh -c 'journalctl -b --no-pager | grep -Ei "anaconda|liveinst|webui|cockpit-ws|traceback|exception" | tail -n 300' 2>&1 || true
+        echo "===== End diagnostics ====="
+        echo
+    } >> "${LOG}" 2>&1
+    if command -v yad &>/dev/null; then
+        yad --error --title="Kyth Installer" \
+            --text="$*\n\nFull log: ${LOG}" \
+            --width=500 2>/dev/null || true
+    fi
+    exit 1
+}
+
+_prompt_reboot() {
+    local prompt_text="Installation finished.\n\nReboot now to boot into the installed system?"
+
+    if command -v yad &>/dev/null; then
+        if yad --question \
+            --title="Kyth Installer" \
+            --text="$prompt_text" \
+            --button="Reboot now:0" \
+            --button="Stay on desktop:1" \
+            --width=520 2>/dev/null; then
+            return 0
+        fi
+        return 1
+    fi
+
+    if command -v kdialog &>/dev/null; then
+        if kdialog --title "Kyth Installer" --yes-label "Reboot now" --no-label "Stay on desktop" --yesno "$prompt_text" 2>/dev/null; then
+            return 0
+        fi
+        return 1
+    fi
+
+    echo "$(date '+%T'): No dialog tool available for reboot prompt; staying on desktop by default." | tee -a "${LOG}"
+    return 1
+}
+
+_is_benign_liveinst_rc1() {
+    # Layer 1: known WebUI teardown signature after successful install.
+    if sudo -n test ! -s /tmp/anaconda-tb.txt 2>/dev/null \
+        && sudo -n grep -Fq 'web-ui: the webui-desktop script ended abruptly!' /tmp/anaconda.log 2>/dev/null \
+        && sudo -n grep -Fq 'web-ui: cockpit web view has finished running' /tmp/anaconda.log 2>/dev/null; then
+        echo "$(date '+%T'): rc=1 classifier layer-1 matched (known WebUI teardown signature)." >> "${LOG}" 2>&1
+        return 0
+    fi
+
+    # Layer 2: journal-backed success path for Exit-to-Desktop. This catches
+    # minor log wording drift while still requiring no traceback.
+    if sudo -n test ! -s /tmp/anaconda-tb.txt 2>/dev/null \
+        && sudo -n journalctl -b --no-pager | grep -Fq 'All tasks in the installation queue are done. Installation successfully finished.' 2>/dev/null \
+        && sudo -n journalctl -b --no-pager | grep -Fq 'Exit called with RebootData(action=-1' 2>/dev/null; then
+        echo "$(date '+%T'): rc=1 classifier layer-2 matched (install-finished + exit-to-desktop markers)." >> "${LOG}" 2>&1
+        return 0
+    fi
+
+    return 1
+}
+
+LIVEINST_BIN=""
+for _p in /usr/bin/liveinst /usr/sbin/liveinst; do
+    [[ -x "${_p}" ]] && LIVEINST_BIN="${_p}" && break
+done
+[[ -n "${LIVEINST_BIN}" ]] || _die "liveinst not found — is anaconda-live installed?"
+
+_host_setup
+_host_sync_loop &
+SYNC_PID=$!
+
+if [[ -z "${DISPLAY:-}" && -z "${WAYLAND_DISPLAY:-}" ]]; then
+    _die "No graphical session detected (DISPLAY/WAYLAND_DISPLAY missing)."
+fi
+
+{
+    echo "$(date '+%T'): Launcher env: DISPLAY=${DISPLAY:-<unset>} WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-<unset>} XAUTHORITY=${XAUTHORITY:-<unset>}"
+    echo "$(date '+%T'): Launcher env: PKEXEC_UID=${PKEXEC_UID:-<unset>} PKEXEC_USER=${PKEXEC_USER:-<unset>}"
+    if [[ -n "${HOST_RUN_DIR}" ]]; then
+        echo "$(date '+%T'): Host log export enabled: ${HOST_RUN_DIR}"
+    else
+        echo "$(date '+%T'): Host log export disabled: /mnt/hostshare not mounted/writable"
+    fi
+} >> "${LOG}" 2>&1
+
+# Avoid inheriting broken empty PKEXEC variables into liveinst. pkexec will set
+# correct values when it re-execs as root.
+unset PKEXEC_UID PKEXEC_USER
+
+# Stream backend logs live so failures are visible before liveinst exits.
+{
+    echo "$(date '+%T'): Starting live backend log stream (/tmp/anaconda.log, /tmp/anaconda-tb.txt)"
+    sudo -n sh -c 'touch /tmp/anaconda.log /tmp/anaconda-tb.txt; tail -n +1 -F /tmp/anaconda.log /tmp/anaconda-tb.txt'
+} >> "${LOG}" 2>&1 &
+TAIL_PID=$!
+
+echo "$(date '+%T'): Launching Fedora liveinst (${LIVEINST_BIN})" | tee -a "${LOG}"
+_browser_fallback_watchdog &
+FALLBACK_PID=$!
+INSTALLER_VT=$(_active_vt)
+if [[ -n "${INSTALLER_VT}" ]]; then
+    echo "$(date '+%T'): Installer started on tty${INSTALLER_VT}; enabling VT guard while install is running." >> "${LOG}" 2>&1
+    _keep_installer_vt_foreground_loop "${INSTALLER_VT}" &
+    VTFIX_PID=$!
+else
+    echo "$(date '+%T'): VT guard unavailable (active tty not detected)." >> "${LOG}" 2>&1
+fi
+# Background loop: continuously deprioritize anaconda/ostree child processes
+# so the desktop (Xorg, plasmashell) stays responsive during the multi-GB
+# ostree pull.  ionice on the parent alone doesn't propagate to grandchildren
+# spawned by anaconda, and liveinst runs as root via pkexec so sudo is needed.
+_io_deprioritize_loop() {
+    sleep 10  # wait for anaconda to spawn
+    while true; do
+        for pid in $(sudo -n pgrep -f 'anaconda|ostree-container|bootc' 2>/dev/null); do
+            sudo -n ionice -c 3 -p "$pid" 2>/dev/null || true
+            sudo -n renice -n 15 -p "$pid" >/dev/null 2>&1 || true
+        done
+        sleep 5
+    done
+}
+_io_deprioritize_loop &
+IOPRI_PID=$!
+
+_install_feedback_loop &
+FEEDBACK_PID=$!
+
+"${LIVEINST_BIN}" >>"${LOG}" 2>&1
+rc=$?
+
+if [[ -n "${FALLBACK_PID:-}" ]]; then
+    kill "${FALLBACK_PID}" 2>/dev/null || true
+fi
+if [[ -n "${VTFIX_PID:-}" ]]; then
+    kill "${VTFIX_PID}" 2>/dev/null || true
+fi
+if [[ -n "${FEEDBACK_PID:-}" ]]; then
+    kill "${FEEDBACK_PID}" 2>/dev/null || true
+fi
+
+{
+    echo
+    echo "===== liveinst exit summary ====="
+    echo "timestamp: $(date -Is)"
+    echo "liveinst rc: ${rc}"
+    echo "--- /tmp/anaconda.log (tail -200, sudo) ---"
+    sudo -n sh -c 'tail -n 200 /tmp/anaconda.log' 2>&1 || true
+    echo "--- /tmp/anaconda-tb.txt (sudo) ---"
+    sudo -n sh -c 'cat /tmp/anaconda-tb.txt' 2>&1 || true
+    echo "===== end summary ====="
+    echo
+} >> "${LOG}" 2>&1
+
+if [[ $rc -ne 0 ]]; then
+    if [[ $rc -eq 1 ]] && _is_benign_liveinst_rc1; then
+        echo "$(date '+%T'): WARNING: liveinst exited with rc=1 but matched benign post-install teardown classifier; treating as successful exit-to-desktop." | tee -a "${LOG}"
+        rc=0
+    fi
+fi
+
+if [[ $rc -ne 0 ]]; then
+    _die "Anaconda exited with error code ${rc}. Check ${LOG} for details."
+fi
+
+echo "$(date '+%T'): Anaconda exited cleanly." | tee -a "${LOG}"
+
+if _prompt_reboot; then
+    echo "$(date '+%T'): User chose reboot after installation." | tee -a "${LOG}"
+    if ! sudo -n systemctl reboot; then
+        echo "$(date '+%T'): ERROR: Failed to trigger reboot via systemctl." | tee -a "${LOG}"
+        if command -v yad &>/dev/null; then
+            yad --error --title="Kyth Installer" \
+                --text="Failed to trigger reboot automatically.\n\nPlease reboot manually from the system menu." \
+                --width=520 2>/dev/null || true
+        fi
+    fi
+else
+    echo "$(date '+%T'): User chose to stay on desktop after installation." | tee -a "${LOG}"
+fi

@@ -1,0 +1,24 @@
+/* Kyth — Cockpit/Anaconda WebUI branding
+ * Tokyo Night color palette */
+
+:root {
+    --ct-color-host-accent: #7aa2f7;
+}
+
+/* Login page (if ever shown) */
+html body.login-pf {
+    background-color: #1a1b26;
+}
+
+/* Sidebar logo area */
+#index-brand img {
+    max-height: 48px;
+    width: auto;
+}
+
+/* Product name in topbar */
+.ct-topnav .pf-v5-c-masthead__brand {
+    color: #cdd6f4;
+    font-weight: 300;
+    letter-spacing: 2px;
+}

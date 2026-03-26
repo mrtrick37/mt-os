@@ -169,10 +169,10 @@ for theme_dir in \
     /usr/share/icons/breeze/apps/scalable \
     /usr/share/icons/breeze-dark/apps/scalable; do
     mkdir -p "${theme_dir}"
-    cp /ctx/calamares/branding/kyth/kyth-logo.svg "${theme_dir}/kyth.svg"
-    cp /ctx/calamares/branding/kyth/kyth-logo.svg "${theme_dir}/start-here.svg"
-    cp /ctx/calamares/branding/kyth/kyth-logo.svg "${theme_dir}/start-here-kde.svg"
-    cp /ctx/calamares/branding/kyth/kyth-logo.svg "${theme_dir}/start-here-kde-plasma.svg"
+    cp /ctx/branding/kyth-logo.svg "${theme_dir}/kyth.svg"
+    cp /ctx/branding/kyth-logo.svg "${theme_dir}/start-here.svg"
+    cp /ctx/branding/kyth-logo.svg "${theme_dir}/start-here-kde.svg"
+    cp /ctx/branding/kyth-logo.svg "${theme_dir}/start-here-kde-plasma.svg"
 done
 gtk-update-icon-cache -f /usr/share/icons/hicolor/    2>/dev/null || true
 gtk-update-icon-cache -f /usr/share/icons/breeze/      2>/dev/null || true
@@ -333,7 +333,7 @@ cp /ctx/plymouth/kyth.script   "${PLYMOUTH_DIR}/kyth.script"
 
 # Render logo SVG → PNG for Plymouth (Plymouth cannot read SVG natively)
 rsvg-convert -w 200 \
-    /ctx/calamares/branding/kyth/kyth-logo.svg \
+    /ctx/branding/kyth-logo.svg \
     -o "${PLYMOUTH_DIR}/kyth-logo.png"
 
 plymouth-set-default-theme kyth

@@ -1,0 +1,39 @@
+#!/bin/sh
+# Live-session reboot intercept: persist anaconda logs and optionally block auto reboot.
+REAL_SYSTEMCTL="${KYTH_REAL_SYSTEMCTL:-/usr/bin/systemctl.real}"
+
+if [ "$1" = "reboot" ] || [ "$1" = "poweroff" ] || [ "$1" = "halt" ]; then
+    TS="$(date +%Y%m%d-%H%M%S)"
+    LOG_TMP="/tmp/anaconda-crash.log"
+    LOG_VAR="/var/tmp/anaconda-crash-${TS}.log"
+    DESKTOP_LOG="/var/home/liveuser/Desktop/anaconda-crash-${TS}.log"
+
+    {
+        echo "=== anaconda.log ==="
+        cat /tmp/anaconda.log 2>/dev/null
+        echo
+        echo "=== anaconda-tb.txt ==="
+        cat /tmp/anaconda-tb.txt 2>/dev/null
+        echo
+        echo "=== cmdline ==="
+        cat /proc/cmdline 2>/dev/null
+    } > "$LOG_TMP" 2>&1
+
+    cp -f "$LOG_TMP" "$LOG_VAR" 2>/dev/null || true
+    if [ -d /var/home/liveuser/Desktop ]; then
+        cp -f "$LOG_TMP" "$DESKTOP_LOG" 2>/dev/null || true
+        chown liveuser:liveuser "$DESKTOP_LOG" 2>/dev/null || true
+    fi
+
+    echo "INSTALLER CRASHED - logs: $LOG_TMP and $LOG_VAR" | tee /dev/console
+
+    if [ "${KYTH_DISABLE_AUTO_REBOOT:-0}" = "1" ]; then
+        echo "Auto reboot blocked (KYTH_DISABLE_AUTO_REBOOT=1)." | tee /dev/console
+        exit 0
+    fi
+
+    echo "Rebooting in 120s" | tee /dev/console
+    sleep 120
+fi
+
+exec "$REAL_SYSTEMCTL" "$@"
