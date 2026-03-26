@@ -5,14 +5,14 @@ Custom atomic gaming and development desktop OS built on Fedora Kinoite (KDE Pla
 ## Build Commands
 
 ```bash
-just build                  # Build base image + full OS image (requires Docker)
-just rebuild-live-iso       # Build the live bootable ISO
-just build-live-iso         # Same as above
-just build-qcow2            # Build QCOW2 VM image
-just run-live-iso           # Boot ISO in QEMU
-just clean                  # Remove build artifacts
-just purge                  # Reclaim max disk space
-just lint && just format    # Shellcheck + shfmt
+just build                        # Build base image + full OS image (requires Docker)
+just rebuild-anaconda-iso         # Build the live bootable ISO (Anaconda installer)
+just build-anaconda-iso           # Same as above (uses cached container layer)
+just run-anaconda-iso-native      # Boot Anaconda ISO in QEMU with SPICE
+just build-qcow2                  # Build QCOW2 VM image
+just clean                        # Remove build artifacts
+just purge                        # Reclaim max disk space
+just lint && just format          # Shellcheck + shfmt
 ```
 
 Feature flags:
@@ -38,13 +38,13 @@ build_base/             # Layer 1: CachyOS kernel + base Fedora Kinoite 43
   build.sh
 build_files/            # Layer 2+: packages, gaming tweaks, branding
   build.sh              # Main package/config script
-  build-live-iso.sh     # Assembles squashfs + GRUB2 + ISO
-  Containerfile.live    # Live session variant
+  build-anaconda-iso.sh # Assembles squashfs + GRUB2 + ISO
+  Containerfile.anaconda # Live session variant (Anaconda WebUI installer)
+  anaconda/             # Anaconda kickstart, launcher, debug scripts
+  branding/             # Kyth logos and Cockpit branding CSS
   scripts/
     ge-proton.sh        # GE-Proton installer
     mesa-git.sh         # Bleeding-edge Mesa GPU drivers
-  calamares/            # Graphical installer config/branding
-  calamares-modules/    # Custom Python modules (bootc install)
   just/kyth.just        # ujust recipes shipped in the OS
   kyth-welcome/         # First-boot welcome app
 disk_config/            # Bootc Image Builder configs

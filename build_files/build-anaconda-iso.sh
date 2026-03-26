@@ -221,7 +221,7 @@ sudo mksquashfs "${ROOTFS}" "${ISO_DIR}/LiveOS/squashfs.img" \
 
 # ── 5a. GRUB config + dark theme ─────────────────────────────────────────────
 echo "==> Writing GRUB config and theme"
-LIVE_ARGS="quiet rhgb root=live:CDLABEL=${VOLID} rd.live.image enforcing=0 elevator=mq-deadline systemd.crash_reboot=0 inst.nokill console=ttyS0,115200 systemd.journald.forward_to_console=1"
+LIVE_ARGS="quiet rhgb rd.plymouth=1 plymouth.enable=1 plymouth.ignore-serial-consoles root=live:CDLABEL=${VOLID} rd.live.image enforcing=0 elevator=mq-deadline systemd.crash_reboot=0 inst.nokill console=ttyS0,115200 console=tty0"
 
 cat > "${ISO_DIR}/boot/grub2/themes/kyth/theme.txt" <<THEMEEOF
 # Kyth GRUB2 dark theme

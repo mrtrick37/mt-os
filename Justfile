@@ -125,25 +125,11 @@ prune-anaconda-dev:
     df -h /tmp /var || true
     docker system df || true
 
-# Drop the kyth-live:build cache image so the next 'just build-live-iso' does a
-# full container rebuild from scratch.  Use this when the Containerfile.live has
-# changed in ways that Docker layer caching would miss (e.g. base image bumps).
-[group('Utility')]
-clean-live-cache:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    if docker image inspect kyth-live:build >/dev/null 2>&1; then
-        docker rmi kyth-live:build
-        echo "Removed kyth-live:build. Next build-live-iso will rebuild from scratch."
-    else
-        echo "kyth-live:build not present — nothing to remove."
-    fi
-
-# Full local cleanup: stale outputs + Docker cache + live build cache.
+# Full local cleanup: stale outputs + Docker cache.
 # Does NOT remove localhost/kyth:latest or ghcr.io/ublue-os/kinoite-main:43
 # since those are needed to build.
 [group('Utility')]
-clean-all: clean-output clean-docker clean-live-cache
+clean-all: clean-output clean-docker
 
 # Nuclear purge: reclaim maximum disk space.
 # Removes ALL _build* temp dirs, old ISOs, stale /var/tmp build dirs,
@@ -447,44 +433,6 @@ build-raw $target_image=("localhost/" + image_name) $tag=default_tag: && (_build
 [group('Build Virtual Machine Image')]
 build-iso $target_image=("localhost/" + image_name) $tag=default_tag: && (_build-bib target_image tag "iso" "disk_config/iso.toml")
 
-# Build a full live desktop ISO (boots to the complete Kyth KDE environment;
-# "Install Kyth" desktop icon installs from ghcr.io/mrtrick37/kyth:latest)
-# Requires: xorriso squashfs-tools mtools dosfstools
-# Builds localhost/kyth:latest automatically if not already present.
-# Pass source_tag to build from a different image: just build-live-iso testing
-[group('Build Virtual Machine Image')]
-build-live-iso source_tag="latest":
-    #!/usr/bin/env bash
-    set -euo pipefail
-    SOURCE_TAG={{ source_tag }} bash build_files/build-live-iso.sh
-
-# Force a full rebuild of the live ISO, ignoring the cached live container layer.
-# Use this after changing Containerfile.live or any file it COPYs (modules, main.py, etc.)
-# Pass source_tag to rebuild from a different image: just rebuild-live-iso testing
-[group('Build Virtual Machine Image')]
-rebuild-live-iso source_tag="latest":
-    #!/usr/bin/env bash
-    set -euo pipefail
-    SOURCE_TAG={{ source_tag }} REBUILD_IMAGE=1 bash build_files/build-live-iso.sh
-
-# Build a network install ISO — live desktop boots from the squashfs but the
-# OS is pulled from the registry at install time (~3-4 GB smaller than the offline ISO).
-# Reuses the kyth-live:build container cache from build-live-iso if already built.
-# Pass source_tag to target a different branch: just build-netinstall-iso testing
-# Override the pull URL:  SOURCE_IMGREF=ghcr.io/myfork/kyth:main just build-netinstall-iso
-[group('Build Virtual Machine Image')]
-build-netinstall-iso source_tag="latest":
-    #!/usr/bin/env bash
-    set -euo pipefail
-    SOURCE_TAG={{ source_tag }} bash build_files/build-netinstall-iso.sh
-
-# Force a full rebuild of the network install ISO.
-[group('Build Virtual Machine Image')]
-rebuild-netinstall-iso source_tag="latest":
-    #!/usr/bin/env bash
-    set -euo pipefail
-    SOURCE_TAG={{ source_tag }} REBUILD_IMAGE=1 bash build_files/build-netinstall-iso.sh
-
 # Build a live ISO with the Anaconda WebUI installer (netinstall — pulls OS from
 # the registry at install time via ostreecontainer kickstart directive).
 # Pass source_tag to target a different branch: just build-anaconda-iso testing
@@ -588,10 +536,8 @@ run-anaconda-iso-native source_tag="latest":
         -smp 4 \
         -m 8G \
         -machine q35 \
-        -no-reboot \
-        -no-shutdown \
         -cdrom "${image_file}" \
-        -boot order=d \
+        -boot order=c,once=d \
         -drive file="${disk_img}",if=virtio,format=qcow2 \
         -device virtio-vga \
         -display none \
@@ -616,31 +562,31 @@ run-anaconda-iso-native source_tag="latest":
     env XDG_CACHE_HOME="${rv_cache}" TMPDIR="/var/tmp" remote-viewer spice://localhost:5931 &
     wait "${QEMU_PID}"
 
-# Boot the live ISO directly in QEMU with a native GTK window (full clipboard, no noVNC).
-# Builds the ISO first if it does not exist. Pass source_tag to run a testing ISO.
+# Alternate Anaconda native run target that keeps legacy boot behavior.
+# Useful for A/B testing reboot-path issues against the reboot-friendly target above.
 [group('Run Virtual Machine')]
-run-live-iso-native source_tag="latest":
+run-anaconda-iso-native-legacy source_tag="latest":
     #!/usr/bin/bash
     set -eoux pipefail
 
-    image_file="output/live-iso/kyth-live-{{ source_tag }}.iso"
+    image_file="output/live-iso/kyth-live-anaconda-{{ source_tag }}.iso"
     if [[ ! -f "${image_file}" ]]; then
-        just build-live-iso {{ source_tag }}
+        just build-anaconda-iso {{ source_tag }}
     fi
 
     disk_dir="/var/tmp/kyth-vm-disks-${USER}"
     mkdir -p "${disk_dir}"
-    disk_img="${disk_dir}/kyth-live-test.qcow2"
+    disk_img="${disk_dir}/kyth-anaconda-test.qcow2"
 
-    if [[ "${LIVE_VM_RESET:-0}" == "1" ]]; then
+    if [[ "${ANACONDA_VM_RESET:-0}" == "1" ]]; then
         rm -f "${disk_img}"
     fi
 
     avail_bytes=$(df --output=avail -B1 "${disk_dir}" | tail -n 1 | tr -d '[:space:]')
-    min_bytes=$((20 * 1024 * 1024 * 1024))
+    min_bytes=$((30 * 1024 * 1024 * 1024))
     if [[ "${avail_bytes}" -lt "${min_bytes}" ]]; then
-        echo "Insufficient free space for live VM disk writes on $(df --output=target "${disk_dir}" | tail -n 1)."
-        echo "Need >= 20 GiB free, found $((avail_bytes / 1024 / 1024 / 1024)) GiB."
+        echo "Insufficient free space for Anaconda VM disk writes on $(df --output=target "${disk_dir}" | tail -n 1)."
+        echo "Need >= 30 GiB free, found $((avail_bytes / 1024 / 1024 / 1024)) GiB."
         echo "Run: just prune-anaconda-dev"
         exit 1
     fi
@@ -649,66 +595,49 @@ run-live-iso-native source_tag="latest":
         qemu-img create -f qcow2 -o preallocation=metadata,lazy_refcounts=on "${disk_img}" 64G
     fi
 
+    share_dir="/var/tmp/kyth-vm-share-${USER}"
+    mkdir -p "${share_dir}"
+    serial_log="${share_dir}/qemu-serial.log"
+    qemu_log="${share_dir}/qemu-debug.log"
+    rm -f "${serial_log}" "${qemu_log}"
+    echo "Host shared folder: ${share_dir}"
+    echo "Serial log on host: ${serial_log}"
+    echo "QEMU debug log on host: ${qemu_log}"
+    echo "In VM, run: sudo mkdir -p /mnt/hostshare && sudo mount -t 9p -o trans=virtio,version=9p2000.L,cache=none hostshare /mnt/hostshare"
+
     qemu-system-x86_64 \
         -enable-kvm \
         -cpu host \
         -smp 4 \
         -m 8G \
         -machine q35 \
+        -no-reboot \
+        -no-shutdown \
         -cdrom "${image_file}" \
         -boot order=d \
         -drive file="${disk_img}",if=virtio,format=qcow2 \
         -device virtio-vga \
         -display none \
-        -spice port=5930,disable-ticketing=on \
+        -spice port=5932,disable-ticketing=on,disable-copy-paste=off,disable-agent-file-xfer=off \
         -device virtio-serial \
         -chardev spicevmc,id=vdagent,name=vdagent \
         -device virtserialport,chardev=vdagent,name=com.redhat.spice.0 \
         -device virtio-net-pci,netdev=net0 \
-        -netdev user,id=net0,hostfwd=tcp::2222-:22 \
+        -netdev user,id=net0,hostfwd=tcp::2224-:22 \
         -device virtio-rng-pci \
         -device qemu-xhci \
-        -device usb-tablet &
+        -device usb-tablet \
+        -d guest_errors \
+        -serial "file:${serial_log}" \
+        -D "${qemu_log}" \
+        -virtfs local,path="${share_dir}",mount_tag=hostshare,security_model=mapped-xattr,id=hostshare \
+        &
     QEMU_PID=$!
     sleep 2
     rv_cache="/var/tmp/kyth-remote-viewer-${USER}"
     mkdir -p "${rv_cache}"
-    env XDG_CACHE_HOME="${rv_cache}" TMPDIR="/var/tmp" remote-viewer spice://localhost:5930 &
+    env XDG_CACHE_HOME="${rv_cache}" TMPDIR="/var/tmp" remote-viewer spice://localhost:5932 &
     wait "${QEMU_PID}"
-
-
-# Boot the live desktop ISO in a VM (BIOS, web UI at http://localhost:PORT)
-# Builds the ISO first if it does not exist. Pass source_tag to run a testing ISO.
-[group('Run Virtual Machine')]
-run-live-iso source_tag="latest":
-    #!/usr/bin/bash
-    set -eoux pipefail
-
-    image_file="output/live-iso/kyth-live-{{ source_tag }}.iso"
-    if [[ ! -f "${image_file}" ]]; then
-        just build-live-iso {{ source_tag }}
-    fi
-
-    port=8006
-    while grep -q ":${port}" <<< $(ss -tunalp); do
-        port=$(( port + 1 ))
-    done
-    echo "Using Port: ${port}"
-    echo "Connect to http://localhost:${port}"
-
-    (sleep 30 && xdg-open http://localhost:"$port") &
-    docker run \
-        --rm --privileged \
-        --pull missing \
-        --publish "127.0.0.1:${port}:8006" \
-        --env "CPU_CORES=4" \
-        --env "RAM_SIZE=8G" \
-        --env "DISK_SIZE=64G" \
-        --env "GPU=Y" \
-        --device=/dev/kvm \
-        --volume "${PWD}/${image_file}:/boot.iso" \
-        docker.io/qemux/qemu
-
 
 # Run a virtual machine with the specified image type and configuration
 _run-vm $target_image $tag $type $config:

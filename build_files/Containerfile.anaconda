@@ -27,9 +27,9 @@ RUN dnf5 -y versionlock clear 2>/dev/null || true \
     anaconda-webui \
     cockpit-ws \
     cockpit-bridge \
-    livesys-scripts \
     glibc-all-langpacks \
     firefox \
+    btrfs-progs \
     libblockdev-btrfs \
     libblockdev-lvm \
     libblockdev-dm \
@@ -49,11 +49,6 @@ RUN dnf5 -y versionlock clear 2>/dev/null || true \
     && echo "==> cockpit-ws binary location:" \
     && rpm -ql cockpit-ws | grep -E 'bin/|libexec/' || true \
     && echo "==> All critical installer packages present"
-
-# ── Fedora/Bazzite livesys parity (KDE session) ───────────────────────────
-# Keep Fedora live boot initialization semantics for user/session prep.
-RUN sed -i 's/^livesys_session=.*/livesys_session=kde/' /etc/sysconfig/livesys \
-    && systemctl enable livesys.service livesys-late.service
 
 # ── Desktop, ISO tooling, and utilities (--skip-broken for optional deps) ──
 # Base image (Kinoite) already has KDE — these fill gaps for live session + ISO build.
@@ -104,7 +99,7 @@ RUN dnf5 install -y \
 #     its own QML UI with the same Mesa stack).
 #
 #   Layer 2 — getty/console autologin (fallback):
-#     If SDDM fails for any reason, tty/console getty autologs in as
+#     If SDDM fails for any reason, secondary tty/console getty autologs in as
 #     liveuser.  .bash_profile then execs startx so the user still reaches
 #     the desktop without any manual typing.
 RUN groupadd -r autologin 2>/dev/null || true \
@@ -119,22 +114,18 @@ RUN groupadd -r autologin 2>/dev/null || true \
     && printf 'polkit.addRule(function(action, subject) {\n    if (subject.user == "liveuser") {\n        return polkit.Result.YES;\n    }\n});\n' \
         > /etc/polkit-1/rules.d/49-liveuser-allow-all.rules \
     && mkdir -p /etc/sddm.conf.d \
-    && printf '[Autologin]\nUser=liveuser\nSession=plasmax11\nRelogin=false\n' \
+    && printf '[Autologin]\nUser=liveuser\nSession=plasmax11\nRelogin=true\n' \
         > /etc/sddm.conf.d/autologin.conf \
-    && printf '[General]\nDisplayServer=x11\n\n[X11]\nSessionDir=/usr/share/xsessions\n' \
+    && printf '[General]\nDisplayServer=x11\n\n[Theme]\nCurrent=breeze\n\n[X11]\nSessionDir=/usr/share/xsessions\n' \
         > /etc/sddm.conf.d/20-live-x11.conf \
     && mkdir -p /etc/systemd/system/sddm.service.d \
-    && printf '[Service]\nEnvironment="LIBGL_ALWAYS_SOFTWARE=1"\nEnvironment="GALLIUM_DRIVER=softpipe"\nEnvironment="QT_QUICK_BACKEND=software"\n' \
+    && printf '[Service]\nEnvironment="QT_QUICK_BACKEND=software"\n' \
         > /etc/systemd/system/sddm.service.d/live-rendering.conf \
-    && mkdir -p /etc/systemd/system/getty@tty1.service.d \
-              /etc/systemd/system/getty@tty2.service.d \
-              /etc/systemd/system/console-getty.service.d \
-    && printf '[Service]\nExecStart=\nExecStart=-/sbin/agetty --autologin liveuser --noclear %%I linux\n' \
-        > /etc/systemd/system/getty@tty1.service.d/autologin.conf \
-    && printf '[Service]\nExecStart=\nExecStart=-/sbin/agetty --autologin liveuser --noclear %%I linux\n' \
-        > /etc/systemd/system/getty@tty2.service.d/autologin.conf \
+    && mkdir -p /etc/systemd/system/console-getty.service.d \
     && printf '[Service]\nExecStart=\nExecStart=-/sbin/agetty --autologin liveuser --noclear - linux\n' \
         > /etc/systemd/system/console-getty.service.d/autologin.conf \
+    && ln -sf /dev/null /etc/systemd/system/getty@tty1.service \
+    && ln -sf /dev/null /etc/systemd/system/getty@tty2.service \
     && ln -sf /usr/lib/systemd/system/graphical.target \
               /etc/systemd/system/default.target \
     && mkdir -p /etc/systemd/system/multi-user.target.wants \
@@ -152,27 +143,33 @@ RUN mkdir -p \
         /home/liveuser/.config/autostart \
     /home/liveuser/.config \
         /home/liveuser/.config/plasma-workspace/env \
-    && printf 'case "$(tty)" in /dev/tty1|/dev/tty2|/dev/console|/dev/ttyS0) [ -z "$DISPLAY" ] && exec startx -- :0 vt1 -nolisten tcp ;; esac\n' \
+    && printf '[ -z "$DISPLAY" ] && [ -z "$WAYLAND_DISPLAY" ] && exec startx -- :0 vt1 -nolisten tcp\n' \
         > /home/liveuser/.bash_profile \
     && printf '#!/bin/bash\nexport XDG_SESSION_TYPE=x11\nexec startplasma-x11\n' \
         > /home/liveuser/.xinitrc \
     && chmod +x /home/liveuser/.xinitrc \
+    && printf '[Desktop Entry]\nType=Application\nName=Liveinst Setup\nHidden=true\n' \
+        > /home/liveuser/.config/autostart/liveinst-setup.desktop \
     && printf '[Desktop Entry]\nType=Application\nName=Steam\nHidden=true\n' \
         > /home/liveuser/.config/autostart/steam.desktop \
     && printf '[Desktop Entry]\nType=Application\nName=Kyth Welcome\nHidden=true\n' \
         > /home/liveuser/.config/autostart/kyth-welcome.desktop \
-    && printf '[Compositing]\nEnabled=false\nOpenGLIsUnsafe=true\n' \
+    && printf '[Desktop Entry]\nType=Application\nName=SPICE Agent\nExec=/usr/bin/spice-vdagent\nOnlyShowIn=KDE;\nX-KDE-autostart-phase=1\n' \
+        > /home/liveuser/.config/autostart/spice-vdagent.desktop \
+    && printf '[Compositing]\nEnabled=false\n' \
         > /home/liveuser/.config/kwinrc \
     && printf '[General]\nColorScheme=BreezeDark\n\n[KDE]\nLookAndFeelPackage=org.kde.breezedark.desktop\n' \
         > /home/liveuser/.config/kdeglobals \
     && printf '[Theme]\nname=breeze-dark\n' \
         > /home/liveuser/.config/plasmarc \
-    && printf 'export QT_QUICK_BACKEND=software\n' \
+    && printf '# Let Mesa auto-detect GPU (virtio-gpu/virgl in VMs, real GPU on hardware)\n' \
         > /home/liveuser/.config/plasma-workspace/env/live.sh \
     && chmod +x /home/liveuser/.config/plasma-workspace/env/live.sh \
     && printf '[Desktop Entry]\nName=Install Kyth\nComment=Install Kyth to this computer\nExec=/usr/bin/kyth-launch-anaconda\nIcon=kyth\nTerminal=false\nType=Application\nCategories=System;\n' \
         > /home/liveuser/Desktop/install-kyth.desktop \
-    && printf '[Favorites]\nFavoriteURLs=/usr/share/applications/org.mozilla.firefox.desktop,/usr/share/applications/org.kde.dolphin.desktop,/usr/share/applications/systemsettings.desktop,/usr/share/applications/org.kde.konsole.desktop,/usr/share/applications/liveinst.desktop\n' \
+    && printf '[Desktop Entry]\nName=Install Kyth\nComment=Install Kyth to this computer\nExec=/usr/bin/kyth-launch-anaconda\nIcon=kyth\nTerminal=false\nType=Application\nCategories=System;\n' \
+        > /usr/share/applications/kyth-install.desktop \
+    && printf '[Favorites]\nFavoriteURLs=/usr/share/applications/org.mozilla.firefox.desktop,/usr/share/applications/org.kde.dolphin.desktop,/usr/share/applications/systemsettings.desktop,/usr/share/applications/org.kde.konsole.desktop,/usr/share/applications/kyth-install.desktop\n' \
         > /home/liveuser/.config/kickoffrc \
     && printf '[Desktop Entry]\nType=Application\nName=Kyth Wallpaper\nExec=plasma-apply-wallpaperimage /usr/share/wallpapers/kyth/contents/images/kyth-wallpaper.png\nX-KDE-autostart-after=panel\n' \
         > /home/liveuser/.config/autostart/kyth-wallpaper.desktop \
@@ -192,6 +189,8 @@ COPY build_files/anaconda/kyth.ks                 /etc/anaconda/kyth.ks
 COPY build_files/anaconda/kyth-testing.ks         /etc/anaconda/kyth-testing.ks
 COPY build_files/plymouth/kyth.plymouth /usr/share/plymouth/themes/kyth/kyth.plymouth
 COPY build_files/plymouth/kyth.script   /usr/share/plymouth/themes/kyth/kyth.script
+COPY build_files/branding/kyth-logo-transparent.svg /usr/share/cockpit/branding/fedora-kyth/logo.svg
+COPY build_files/branding/cockpit-branding.css      /usr/share/cockpit/branding/fedora-kyth/branding.css
 
 # ── Post-COPY setup: kickstart selection, wallpaper metadata, icons, branding ──
 # Select the kickstart for this build's source tag:
@@ -224,17 +223,21 @@ RUN if [ "${SOURCE_TAG}" = "testing" ]; then \
     && mkdir -p /usr/share/icons/breeze-dark/apps/scalable \
     && cp /usr/share/icons/hicolor/scalable/apps/kyth.svg \
           /usr/share/icons/breeze-dark/apps/scalable/start-here.svg \
-        && if [ -f /usr/share/applications/liveinst.desktop ]; then \
-             sed -i 's/^NoDisplay=true/NoDisplay=false/' /usr/share/applications/liveinst.desktop; \
+           && if [ -f /usr/share/applications/liveinst.desktop ]; then \
+               sed -i 's/^NoDisplay=true/NoDisplay=false/' /usr/share/applications/liveinst.desktop; \
+               sed -i 's|^Exec=.*|Exec=/usr/bin/kyth-launch-anaconda|' /usr/share/applications/liveinst.desktop; \
+               sed -i 's|^Name=.*|Name=Install Kyth|' /usr/share/applications/liveinst.desktop; \
+               sed -i 's|^Icon=.*|Icon=kyth|' /usr/share/applications/liveinst.desktop; \
              chmod +x /usr/share/applications/liveinst.desktop; \
          fi \
     && gtk-update-icon-cache -f /usr/share/icons/hicolor/    2>/dev/null || true \
     && gtk-update-icon-cache -f /usr/share/icons/breeze-dark/ 2>/dev/null || true \
     && sed -i 's/^PRETTY_NAME=.*/PRETTY_NAME="Kyth 43 Live"/' /etc/os-release \
-    && printf 'LIBGL_ALWAYS_SOFTWARE=1\nGALLIUM_DRIVER=softpipe\nQT_QUICK_BACKEND=software\nPATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin\n' >> /etc/environment \
+    && sed -i 's/^NAME=.*/NAME="Kyth"/' /etc/os-release \
+    && sed -i '/^VARIANT_ID=/d' /etc/os-release \
+    && printf 'VARIANT_ID=kyth\n' >> /etc/os-release \
+    && printf 'PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin\n' >> /etc/environment \
     && mkdir -p /etc/X11/xorg.conf.d \
-    && printf 'Section "Device"\n    Identifier "Live"\n    Driver "modesetting"\n    Option "AccelMethod" "none"\nEndSection\n' \
-        > /etc/X11/xorg.conf.d/10-live-modesetting.conf \
     && BREEZE_DARK_DEFAULTS="/usr/share/plasma/look-and-feel/org.kde.breezedark.desktop/contents/defaults" \
     && if [ -f "$BREEZE_DARK_DEFAULTS" ]; then \
            sed -i 's/^Image=.*/Image=kyth/' "$BREEZE_DARK_DEFAULTS"; \
@@ -251,6 +254,15 @@ RUN KVER=$(ls /usr/lib/modules/ | grep cachyos | head -1) \
     && rsvg-convert -w 200 \
         /usr/share/icons/hicolor/scalable/apps/kyth.svg \
         -o /usr/share/plymouth/themes/kyth/kyth-logo.png \
+    && rsvg-convert -w 128 -h 128 \
+        /usr/share/cockpit/branding/fedora-kyth/logo.svg \
+        -o /usr/share/cockpit/branding/fedora-kyth/logo.png \
+    && rsvg-convert -w 64 -h 64 \
+        /usr/share/cockpit/branding/fedora-kyth/logo.svg \
+        -o /usr/share/cockpit/branding/fedora-kyth/apple-touch-icon.png \
+    && mkdir -p /usr/share/anaconda/pixmaps \
+    && cp /usr/share/cockpit/branding/fedora-kyth/logo.png \
+          /usr/share/anaconda/pixmaps/sidebar-logo.png \
     && rsvg-convert -w 1920 -h 1080 \
         /usr/share/wallpapers/kyth/contents/images/1920x1080.svg \
         -o /usr/share/wallpapers/kyth/contents/images/kyth-wallpaper.png \
