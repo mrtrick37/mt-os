@@ -211,9 +211,6 @@ RUN if [ "${SOURCE_TAG}" = "testing" ]; then \
     && mkdir -p /etc/anaconda/conf.d \
     && printf '[User Interface]\nwebui_web_engine = firefox\n' \
         > /etc/anaconda/conf.d/10-kyth-webui-browser.conf \
-    && mkdir -p /etc/anaconda/profile.d \
-    && printf '[Profile]\nprofile_id = kyth\n' \
-        > /etc/anaconda/profile.d/kyth.conf \
     && chmod +x /usr/bin/kyth-launch-anaconda /usr/bin/kyth-anaconda-debug \
     && mkdir -p /usr/share/wallpapers/kyth/contents/images \
     && printf '{"KPlugin":{"Authors":[{"Name":"Kyth"}],"Id":"kyth","Name":"Kyth","License":"CC-BY-SA-4.0"},"KPackageStructure":"Wallpaper/Images"}\n' \
