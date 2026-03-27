@@ -528,7 +528,7 @@ run-anaconda-iso-native source_tag="latest":
     echo "Host shared folder: ${share_dir}"
     echo "Serial log on host: ${serial_log}"
     echo "QEMU debug log on host: ${qemu_log}"
-    echo "In VM, run: sudo mkdir -p /mnt/hostshare && sudo mount -t 9p -o trans=virtio,version=9p2000.L,cache=none hostshare /mnt/hostshare"
+    echo "In VM, run: sudo mkdir -p /var/mnt/hostshare && sudo mount -t 9p -o trans=virtio,version=9p2000.L,cache=none hostshare /var/mnt/hostshare"
 
     qemu-system-x86_64 \
         -enable-kvm \
@@ -603,7 +603,7 @@ run-anaconda-iso-native-legacy source_tag="latest":
     echo "Host shared folder: ${share_dir}"
     echo "Serial log on host: ${serial_log}"
     echo "QEMU debug log on host: ${qemu_log}"
-    echo "In VM, run: sudo mkdir -p /mnt/hostshare && sudo mount -t 9p -o trans=virtio,version=9p2000.L,cache=none hostshare /mnt/hostshare"
+    echo "In VM, run: sudo mkdir -p /var/mnt/hostshare && sudo mount -t 9p -o trans=virtio,version=9p2000.L,cache=none hostshare /var/mnt/hostshare"
 
     qemu-system-x86_64 \
         -enable-kvm \

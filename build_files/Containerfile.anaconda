@@ -1,10 +1,12 @@
 # Live ISO variant of Kyth — Anaconda installer edition
-# Extends the full Kyth image with live session support.
+# Built as a separate stable installer product.
+# Uses a conservative desktop/runtime base image; installed target OS is still
+# pulled from Kyth's ostreecontainer image.
 # Installation is handled by Anaconda WebUI (via the desktop icon), which calls
 # 'bootc install to-disk' through the ostreecontainer kickstart directive.
 # Built by build-anaconda-iso.sh; not pushed to the registry.
 
-ARG BASE_IMAGE=localhost/kyth:latest
+ARG BASE_IMAGE=ghcr.io/ublue-os/kinoite-main:43
 FROM ${BASE_IMAGE}
 
 ARG SOURCE_HASH=unknown
@@ -53,7 +55,7 @@ RUN dnf5 -y versionlock clear 2>/dev/null || true \
 # ── Desktop, ISO tooling, and utilities (--skip-broken for optional deps) ──
 # Base image (Kinoite) already has KDE — these fill gaps for live session + ISO build.
 RUN dnf5 install -y \
-    syslinux grub2-efi-x64 grub2-efi-x64-modules grub2-pc \
+    syslinux grub2-efi-x64 grub2-efi-x64-modules grub2-pc shim-x64 \
     gparted gdisk podman \
     plymouth-plugin-script librsvg2-tools \
     spice-vdagent \
@@ -88,6 +90,31 @@ RUN dnf5 install -y \
     breeze-icon-theme \
     breeze-cursor-theme \
     --skip-broken && dnf5 clean all
+
+# ── Installer stability overrides (runtime only) ──────────────────────────────
+# The installed OS still comes from the ostreecontainer image (Kyth with
+# CachyOS). This section only stabilizes the live installer environment:
+#  - Disable Mesa-git/CachyOS COPRs if inherited from BASE_IMAGE
+#  - Prefer Fedora stable Mesa/libdrm stack
+#  - Replace CachyOS kernel in the live environment with Fedora kernel
+RUN set -e; \
+    dnf5 copr disable -y xxmitsu/mesa-git 2>/dev/null || true; \
+    dnf5 copr disable -y bieszczaders/kernel-cachyos 2>/dev/null || true; \
+    dnf5 distro-sync -y --allowerasing --skip-unavailable \
+        mesa\* \
+        libdrm\* \
+        xorg-x11-drv-amdgpu \
+        xorg-x11-drv-intel \
+        xorg-x11-drv-ati \
+        xorg-x11-drv-nouveau; \
+    dnf5 install -y --allowerasing \
+        kernel \
+        kernel-core \
+        kernel-modules \
+        kernel-modules-extra; \
+    rpm -qa 'kernel-cachyos*' | xargs -r rpm -e --nodeps || true; \
+    find /usr/lib/modules -mindepth 1 -maxdepth 1 -type d -name '*cachyos*' -exec rm -rf {} +; \
+    dnf5 clean all
 
 # ── System setup: live user, autologin, mask setup service ───────────────────
 # Autologin strategy — two independent layers so one backs up the other:
@@ -125,7 +152,10 @@ RUN groupadd -r autologin 2>/dev/null || true \
     && printf '[Service]\nExecStart=\nExecStart=-/sbin/agetty --autologin liveuser --noclear - linux\n' \
         > /etc/systemd/system/console-getty.service.d/autologin.conf \
     && ln -sf /dev/null /etc/systemd/system/getty@tty1.service \
-    && ln -sf /dev/null /etc/systemd/system/getty@tty2.service \
+    && rm -f /etc/systemd/system/getty@tty2.service \
+    && mkdir -p /etc/systemd/system/getty.target.wants \
+    && ln -sf /usr/lib/systemd/system/getty@.service \
+              /etc/systemd/system/getty.target.wants/getty@tty2.service \
     && ln -sf /usr/lib/systemd/system/graphical.target \
               /etc/systemd/system/default.target \
     && mkdir -p /etc/systemd/system/multi-user.target.wants \
@@ -173,8 +203,10 @@ RUN mkdir -p \
         > /home/liveuser/.config/kickoffrc \
     && printf '[Desktop Entry]\nType=Application\nName=Kyth Wallpaper\nExec=plasma-apply-wallpaperimage /usr/share/wallpapers/kyth/contents/images/kyth-wallpaper.png\nX-KDE-autostart-after=panel\n' \
         > /home/liveuser/.config/autostart/kyth-wallpaper.desktop \
-    && cp /etc/skel/.config/autostart/kyth-set-kickoff-icon.desktop \
-        /home/liveuser/.config/autostart/kyth-set-kickoff-icon.desktop \
+    && if [ -f /etc/skel/.config/autostart/kyth-set-kickoff-icon.desktop ]; then \
+           cp /etc/skel/.config/autostart/kyth-set-kickoff-icon.desktop \
+              /home/liveuser/.config/autostart/kyth-set-kickoff-icon.desktop; \
+       fi \
     && chmod +x /home/liveuser/Desktop/install-kyth.desktop \
     && chown -R liveuser:liveuser /home/liveuser/
 
@@ -185,6 +217,7 @@ COPY build_files/branding/kyth-logo.svg \
      /usr/share/icons/hicolor/scalable/apps/kyth.svg
 COPY build_files/anaconda/kyth-launch-anaconda    /usr/bin/kyth-launch-anaconda
 COPY build_files/anaconda/kyth-anaconda-debug     /usr/bin/kyth-anaconda-debug
+COPY build_files/anaconda/kyth-systemctl-wrapper  /usr/bin/kyth-systemctl-wrapper
 COPY build_files/anaconda/kyth.ks                 /etc/anaconda/kyth.ks
 COPY build_files/anaconda/kyth-testing.ks         /etc/anaconda/kyth-testing.ks
 COPY build_files/plymouth/kyth.plymouth /usr/share/plymouth/themes/kyth/kyth.plymouth
@@ -211,10 +244,7 @@ RUN if [ "${SOURCE_TAG}" = "testing" ]; then \
     && mkdir -p /etc/anaconda/conf.d \
     && printf '[User Interface]\nwebui_web_engine = firefox\n' \
         > /etc/anaconda/conf.d/10-kyth-webui-browser.conf \
-    && mkdir -p /etc/anaconda/profile.d \
-    && printf '[Profile]\nprofile_id = kyth\n' \
-        > /etc/anaconda/profile.d/kyth.conf \
-    && chmod +x /usr/bin/kyth-launch-anaconda /usr/bin/kyth-anaconda-debug \
+    && chmod +x /usr/bin/kyth-launch-anaconda /usr/bin/kyth-anaconda-debug /usr/bin/kyth-systemctl-wrapper \
     && mkdir -p /usr/share/wallpapers/kyth/contents/images \
     && printf '{"KPlugin":{"Authors":[{"Name":"Kyth"}],"Id":"kyth","Name":"Kyth","License":"CC-BY-SA-4.0"},"KPackageStructure":"Wallpaper/Images"}\n' \
         > /usr/share/wallpapers/kyth/metadata.json \
@@ -250,7 +280,7 @@ RUN if [ "${SOURCE_TAG}" = "testing" ]; then \
 # No kickstart embedded — anaconda-webui (bluesky) does not support kickstart-
 # driven installs and auto-detects /run/install/ks.cfg if present, causing it
 # to reject startup. Source is provided via interactive-defaults.ks in userspace.
-RUN KVER=$(ls /usr/lib/modules/ | grep cachyos | head -1) \
+RUN KVER=$(find /usr/lib/modules -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort -V | tail -n 1) \
     && rsvg-convert -w 200 \
         /usr/share/icons/hicolor/scalable/apps/kyth.svg \
         -o /usr/share/plymouth/themes/kyth/kyth-logo.png \
@@ -284,20 +314,17 @@ RUN KVER=$(ls /usr/lib/modules/ | grep cachyos | head -1) \
 # loop device and writes btrfs to the target disk simultaneously.  BFQ can
 # deadlock under this workload on the CachyOS kernel when the block device type
 # is unmatched (e.g. VirtIO vd*).
-# Force mq-deadline on all block types seen in QEMU/KVM live sessions.
+# Force mq-deadline only for virtio block devices used in VM test paths.
 RUN mkdir -p /etc/udev/rules.d \
     && cat > /etc/udev/rules.d/61-live-ioschedulers.rules <<'LIVEIOEOF'
-# Live session: force mq-deadline on all block device types.
+# Live session: force mq-deadline only for virtio block devices (VM path).
 # Anaconda runs bootc install to-disk which reads squashfs (loop device) and
 # writes btrfs to the target disk simultaneously.  BFQ can deadlock under this
-# mixed read/write workload on the CachyOS kernel, freezing the I/O stack.
+# mixed read/write workload on VM disks.
 ACTION=="add|change", KERNEL=="vd[a-z]*",      ATTR{queue/scheduler}="mq-deadline"
-ACTION=="add|change", KERNEL=="sd[a-z]*",      ATTR{queue/scheduler}="mq-deadline"
-ACTION=="add|change", KERNEL=="nvme[0-9]*",    ATTR{queue/scheduler}="mq-deadline"
-ACTION=="add|change", KERNEL=="loop[0-9]*",    ATTR{queue/scheduler}="mq-deadline"
 LIVEIOEOF
 
-RUN mkdir -p /mnt/hostshare
+RUN mkdir -p /var/mnt/hostshare
 
 # ── Finalize: machine-id, mask services, zram swap, locale / timezone ────────
 # machine-id must be "uninitialized" so systemd generates a volatile one.

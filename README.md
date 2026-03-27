@@ -134,7 +134,13 @@ just build-anaconda-iso
 just run-anaconda-iso-native
 ```
 
-`sudo just build` produces `localhost/kyth:latest`. `just build-anaconda-iso` wraps it in a live session layer with the Anaconda WebUI installer and assembles the bootable ISO. The ISO is written to `output/live-iso/kyth-live-anaconda-latest.iso`.
+`sudo just build` produces `localhost/kyth:latest`. `just build-anaconda-iso` builds a separate, stable installer runtime image (default base: `ghcr.io/ublue-os/kinoite-main:43`) and assembles the bootable ISO. The installer still deploys Kyth from the registry (`ghcr.io/mrtrick37/kyth:<tag>`). The ISO is written to `output/live-iso/kyth-live-anaconda-latest.iso`.
+
+To override installer runtime base explicitly:
+
+```bash
+INSTALLER_BASE_IMAGE=ghcr.io/ublue-os/kinoite-main:43 just rebuild-anaconda-iso
+```
 
 ### Useful build recipes
 
@@ -171,7 +177,7 @@ build_base/
 build_files/
   build.sh                        Packages, gaming tweaks, skel, icons, dev tools
   build-anaconda-iso.sh           Assembles squashfs + GRUB2 + UEFI/BIOS bootable ISO
-  Containerfile.anaconda          Live ISO container (X11 autologin, Anaconda WebUI)
+  Containerfile.anaconda          Stable installer runtime container (X11 autologin, Anaconda WebUI)
   anaconda/
     kyth.ks                       Kickstart — ostreecontainer source for :latest
     kyth-testing.ks               Kickstart — ostreecontainer source for :testing

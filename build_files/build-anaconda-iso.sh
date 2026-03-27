@@ -3,7 +3,7 @@
 # build-anaconda-iso.sh — Build a live desktop ISO for Kyth with the Anaconda installer.
 #
 # Flow:
-#   1. Build Containerfile.anaconda (extends kyth with live support + Anaconda WebUI)
+#   1. Build Containerfile.anaconda (stable installer runtime + Anaconda WebUI)
 #   2. Export the container filesystem to a temporary rootfs
 #   3. Copy kernel + live initramfs out of the rootfs
 #   4. mksquashfs the rootfs → LiveOS/squashfs.img
@@ -19,7 +19,7 @@
 set -euo pipefail
 
 SOURCE_TAG="${SOURCE_TAG:-latest}"
-LOCAL_BASE="localhost/kyth:${SOURCE_TAG}"
+INSTALLER_BASE_IMAGE="${INSTALLER_BASE_IMAGE:-ghcr.io/ublue-os/kinoite-main:43}"
 # Cache image name — parallel to kyth-live:build so both can coexist locally
 if [[ "${SOURCE_TAG}" == "latest" ]]; then
     ANACONDA_BUILD_TAG="kyth-anaconda:build"
@@ -44,27 +44,6 @@ else
     sudo() { command sudo -A "$@"; }
 fi
 
-# Ensure base image exists locally before building the anaconda container
-if ! docker image inspect "${LOCAL_BASE}" >/dev/null 2>&1; then
-    if [[ "${SOURCE_TAG}" == "latest" ]]; then
-        if docker image inspect ghcr.io/mrtrick37/kyth:latest >/dev/null 2>&1; then
-            echo "Retagging ghcr.io/mrtrick37/kyth:latest as ${LOCAL_BASE}..."
-            docker tag ghcr.io/mrtrick37/kyth:latest "${LOCAL_BASE}"
-        else
-            echo "Base image ${LOCAL_BASE} not found. Building..."
-            just build || { echo "Failed to build base image."; exit 1; }
-        fi
-    else
-        echo "==> Pulling ghcr.io/mrtrick37/kyth:${SOURCE_TAG} from registry..."
-        if docker pull "ghcr.io/mrtrick37/kyth:${SOURCE_TAG}"; then
-            docker tag "ghcr.io/mrtrick37/kyth:${SOURCE_TAG}" "${LOCAL_BASE}"
-        else
-            echo "ERROR: ${LOCAL_BASE} not found locally and could not pull from registry." >&2
-            exit 1
-        fi
-    fi
-fi
-
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 OUTPUT_DIR="${REPO_ROOT}/output/live-iso"
@@ -78,6 +57,7 @@ SOURCE_HASH="$(
     sha256sum \
         build_files/Containerfile.anaconda \
         build_files/anaconda/kyth-launch-anaconda \
+        build_files/anaconda/kyth-systemctl-wrapper \
         build_files/anaconda/kyth.ks \
         build_files/anaconda/kyth-testing.ks \
         build_files/plymouth/kyth.plymouth \
@@ -98,6 +78,13 @@ if ! command -v docker &>/dev/null || ! docker info &>/dev/null; then
     exit 1
 fi
 echo "==> Using container engine: docker"
+echo "==> Installer runtime base image: ${INSTALLER_BASE_IMAGE}"
+
+echo "==> Pulling installer runtime base image..."
+if ! docker pull "${INSTALLER_BASE_IMAGE}"; then
+    echo "ERROR: Failed to pull installer runtime base image: ${INSTALLER_BASE_IMAGE}" >&2
+    exit 1
+fi
 
 cleanup() {
     echo "==> Cleaning up ${WORK}"
@@ -144,7 +131,7 @@ else
         _need_rebuild=1
     fi
 
-    _base_ts=$(docker image inspect "${LOCAL_BASE}" \
+    _base_ts=$(docker image inspect "${INSTALLER_BASE_IMAGE}" \
         --format '{{.Created}}' 2>/dev/null || echo "")
     _live_ts=$(docker image inspect "${ANACONDA_BUILD_TAG}" \
         --format '{{.Created}}' 2>/dev/null || echo "")
@@ -159,7 +146,7 @@ fi
 if [[ "${_need_rebuild}" == "1" ]]; then
     echo "==> Building anaconda live container (this takes a while)..."
     docker build \
-        --build-arg BASE_IMAGE="${LOCAL_BASE}" \
+        --build-arg BASE_IMAGE="${INSTALLER_BASE_IMAGE}" \
         --build-arg SOURCE_HASH="${SOURCE_HASH}" \
         --build-arg SOURCE_TAG="${SOURCE_TAG}" \
         -f "${SCRIPT_DIR}/Containerfile.anaconda" \
@@ -193,7 +180,11 @@ docker rm "${CONTAINER}"
 
 # ── 3. Kernel + live initramfs ───────────────────────────────────────────────
 echo "==> Locating kernel and live initramfs"
-KVER=$(ls "${ROOTFS}/usr/lib/modules/" | grep cachyos | head -1)
+KVER=$(
+    find "${ROOTFS}/usr/lib/modules" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' \
+        | sort -V \
+        | tail -n 1
+)
 echo "    Kernel: ${KVER}"
 
 VMLINUZ="${ROOTFS}/usr/lib/modules/${KVER}/vmlinuz"
@@ -221,7 +212,7 @@ sudo mksquashfs "${ROOTFS}" "${ISO_DIR}/LiveOS/squashfs.img" \
 
 # ── 5a. GRUB config + dark theme ─────────────────────────────────────────────
 echo "==> Writing GRUB config and theme"
-LIVE_ARGS="quiet rhgb rd.plymouth=1 plymouth.enable=1 plymouth.ignore-serial-consoles root=live:CDLABEL=${VOLID} rd.live.image enforcing=0 elevator=mq-deadline systemd.crash_reboot=0 inst.nokill console=ttyS0,115200 console=tty0"
+LIVE_ARGS="quiet rhgb rd.plymouth=1 plymouth.enable=1 plymouth.ignore-serial-consoles root=live:CDLABEL=${VOLID} rd.live.image enforcing=0 systemd.crash_reboot=0 inst.nokill console=ttyS0,115200 console=tty0"
 
 cat > "${ISO_DIR}/boot/grub2/themes/kyth/theme.txt" <<THEMEEOF
 # Kyth GRUB2 dark theme
@@ -315,6 +306,11 @@ menuentry "Try Kyth Live (Basic Graphics)" --class fedora --class gnu-linux --cl
     initrd /images/pxeboot/initrd.img
 }
 
+menuentry "Try Kyth Live (Installer Safe Mode)" --class fedora --class gnu-linux --class os {
+    linux /images/pxeboot/vmlinuz ${LIVE_ARGS} kyth.installer.safe=1
+    initrd /images/pxeboot/initrd.img
+}
+
 menuentry "Check media and boot Kyth Live" --class fedora --class gnu-linux --class os {
     linux /images/pxeboot/vmlinuz ${LIVE_ARGS} rd.live.check
     initrd /images/pxeboot/initrd.img
@@ -342,14 +338,40 @@ EMBEDEOF
 
     grub2-mkimage \
         -O x86_64-efi \
-        -o "${ISO_DIR}/EFI/BOOT/BOOTX64.EFI" \
+        -o "${ISO_DIR}/EFI/BOOT/grubx64.efi" \
         -p /boot/grub2 \
         -c "${GRUB_EMBED_CFG}" \
         -d "${GRUB_X64_MODS}" \
         linux normal iso9660 search search_label all_video gfxterm gfxmenu \
+        efi_gop efi_uga font loopback chain \
         png echo test ls part_gpt part_msdos fat
     GRUB_EFI_BUILT=true
-    echo "    UEFI EFI binary: built with grub2-mkimage (x86_64-efi)"
+    echo "    UEFI GRUB binary: built with grub2-mkimage (x86_64-efi) → grubx64.efi"
+
+    # Secure Boot: use Fedora-signed shim as BOOTX64.EFI.
+    # The shim chainloads grubx64.efi from the same directory.
+    SHIM_SRC=""
+    for shim_path in \
+        "${ROOTFS}/boot/efi/EFI/fedora/shimx64.efi" \
+        "${ROOTFS}/usr/share/shim/*/shimx64.efi"; do
+        if [[ -f "${shim_path}" ]]; then
+            SHIM_SRC="${shim_path}"
+            break
+        fi
+    done
+    if [[ -n "${SHIM_SRC}" ]]; then
+        cp "${SHIM_SRC}" "${ISO_DIR}/EFI/BOOT/BOOTX64.EFI"
+        echo "    Secure Boot shim: ${SHIM_SRC} → BOOTX64.EFI"
+        # Also copy the Fedora CA fallback (mmx64.efi) if present
+        SHIM_DIR="$(dirname "${SHIM_SRC}")"
+        if [[ -f "${SHIM_DIR}/mmx64.efi" ]]; then
+            cp "${SHIM_DIR}/mmx64.efi" "${ISO_DIR}/EFI/BOOT/mmx64.efi"
+        fi
+    else
+        echo "WARNING: shimx64.efi not found in rootfs — falling back to unsigned boot." >&2
+        echo "         Secure Boot must be disabled on the target machine." >&2
+        cp "${ISO_DIR}/EFI/BOOT/grubx64.efi" "${ISO_DIR}/EFI/BOOT/BOOTX64.EFI"
+    fi
 else
     echo "ERROR: Cannot build BOOTX64.EFI — grub2-mkimage or x86_64-efi modules not found." >&2
     echo "       Install on host: sudo dnf install grub2-tools-minimal" >&2
@@ -360,8 +382,12 @@ EFI_IMG="${ISO_DIR}/images/efiboot.img"
 truncate -s 15M "${EFI_IMG}"
 mkfs.fat -n "EFIBOOT" "${EFI_IMG}"
 mmd  -i "${EFI_IMG}" ::/EFI ::/EFI/BOOT
+mcopy -i "${EFI_IMG}" "${ISO_DIR}/EFI/BOOT/BOOTX64.EFI" ::/EFI/BOOT/BOOTX64.EFI
 if [[ "${GRUB_EFI_BUILT}" == "true" ]]; then
-    mcopy -i "${EFI_IMG}" "${ISO_DIR}/EFI/BOOT/BOOTX64.EFI" ::/EFI/BOOT/BOOTX64.EFI
+    mcopy -i "${EFI_IMG}" "${ISO_DIR}/EFI/BOOT/grubx64.efi" ::/EFI/BOOT/grubx64.efi
+fi
+if [[ -f "${ISO_DIR}/EFI/BOOT/mmx64.efi" ]]; then
+    mcopy -i "${EFI_IMG}" "${ISO_DIR}/EFI/BOOT/mmx64.efi" ::/EFI/BOOT/mmx64.efi
 fi
 mcopy -i "${EFI_IMG}" "${ISO_DIR}/EFI/BOOT/grub.cfg" ::/EFI/BOOT/grub.cfg
 
@@ -435,6 +461,11 @@ label basic
   menu label Try Kyth Live (Basic Graphics)
   kernel /images/pxeboot/vmlinuz
   append initrd=/images/pxeboot/initrd.img ${LIVE_ARGS} nomodeset
+
+label safemode
+  menu label Try Kyth Live (Installer Safe Mode)
+  kernel /images/pxeboot/vmlinuz
+  append initrd=/images/pxeboot/initrd.img ${LIVE_ARGS} kyth.installer.safe=1
 
 label check
   menu label Check media and boot Kyth Live
