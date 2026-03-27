@@ -88,10 +88,16 @@ cat > /etc/skel/.config/topgrade.toml <<'TOPGRADEEOF'
 [misc]
 # rpm-ostree upgrade pulls from the base Kinoite ostree repo, not Kyth.
 # System updates go through bootc instead (see [commands] below).
-disable = ["rpm_ostree"]
+#
+# distrobox: disabled because distrobox-upgrade --all fails without a PTY
+# (runs inside the kyth-welcome GUI and topgrade exits non-zero as a result).
+# Update containers manually with: distrobox-upgrade --all
+disable = ["rpm_ostree", "distrobox"]
 
 [commands]
-"Kyth system update" = "sudo bootc upgrade"
+# -n makes sudo fail fast if it can't run non-interactively, rather than hanging
+# waiting for a password. NOPASSWD is granted in /etc/sudoers.d/kyth-bootc.
+"Kyth system update" = "sudo -n bootc upgrade"
 TOPGRADEEOF
 
 # ── Default KDE theme for all new users via /etc/skel ─────────────────────────
