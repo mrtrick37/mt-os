@@ -3,7 +3,7 @@
 set -u
 
 OUT="${HOME}/Desktop/kyth-anaconda-debug.txt"
-HOST_OUT="/mnt/hostshare/kyth-anaconda-debug.txt"
+HOST_OUT="/var/mnt/hostshare/kyth-anaconda-debug.txt"
 
 {
     echo "==== Kyth Anaconda Debug Summary ===="
@@ -11,8 +11,8 @@ HOST_OUT="/mnt/hostshare/kyth-anaconda-debug.txt"
     echo "user: $(id -un) uid: $(id -u)"
     echo
 
-    echo "---- /run/user/1000/kyth-anaconda.log (tail -200) ----"
-    tail -n 200 /run/user/1000/kyth-anaconda.log 2>/dev/null || echo "missing"
+    echo "---- /var/tmp/kyth-anaconda.log (tail -200) ----"
+    tail -n 200 /var/tmp/kyth-anaconda.log 2>/dev/null || echo "missing"
     echo
 
     echo "---- /tmp/anaconda.log (tail -250, sudo) ----"
@@ -44,22 +44,22 @@ cat "${OUT}"
 echo
 echo "Saved: ${OUT}"
 
-if mountpoint -q /mnt/hostshare; then
+if mountpoint -q /var/mnt/hostshare; then
     cp -f "${OUT}" "${HOST_OUT}" 2>/dev/null || true
     if sudo -n test -f /tmp/anaconda.log 2>/dev/null; then
-        sudo -n cat /tmp/anaconda.log > /mnt/hostshare/anaconda.log 2>/dev/null || true
+        sudo -n cat /tmp/anaconda.log > /var/mnt/hostshare/anaconda.log 2>/dev/null || true
     fi
     if sudo -n test -f /tmp/anaconda-tb.txt 2>/dev/null; then
-        sudo -n cat /tmp/anaconda-tb.txt > /mnt/hostshare/anaconda-tb.txt 2>/dev/null || true
+        sudo -n cat /tmp/anaconda-tb.txt > /var/mnt/hostshare/anaconda-tb.txt 2>/dev/null || true
     fi
-    cp -f /run/user/1000/kyth-anaconda.log /mnt/hostshare/kyth-anaconda.log 2>/dev/null || true
+    cp -f /var/tmp/kyth-anaconda.log /var/mnt/hostshare/kyth-anaconda.log 2>/dev/null || true
     {
         echo "timestamp: $(date -Is)"
-        ls -l /mnt/hostshare/kyth-anaconda-debug.txt /mnt/hostshare/anaconda.log /mnt/hostshare/anaconda-tb.txt /mnt/hostshare/kyth-anaconda.log 2>/dev/null || true
-    } > /mnt/hostshare/kyth-anaconda-export-status.txt 2>/dev/null || true
+        ls -l /var/mnt/hostshare/kyth-anaconda-debug.txt /var/mnt/hostshare/anaconda.log /var/mnt/hostshare/anaconda-tb.txt /var/mnt/hostshare/kyth-anaconda.log 2>/dev/null || true
+    } > /var/mnt/hostshare/kyth-anaconda-export-status.txt 2>/dev/null || true
     chown "$(id -u):$(id -g)" "${HOST_OUT}" 2>/dev/null || true
-    chown "$(id -u):$(id -g)" /mnt/hostshare/anaconda.log /mnt/hostshare/anaconda-tb.txt /mnt/hostshare/kyth-anaconda.log 2>/dev/null || true
+    chown "$(id -u):$(id -g)" /var/mnt/hostshare/anaconda.log /var/mnt/hostshare/anaconda-tb.txt /var/mnt/hostshare/kyth-anaconda.log 2>/dev/null || true
     echo "Shared copy: ${HOST_OUT}"
 else
-    echo "Host share not mounted at /mnt/hostshare"
+    echo "Host share not mounted at /var/mnt/hostshare"
 fi

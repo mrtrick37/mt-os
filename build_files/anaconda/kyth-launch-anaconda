@@ -5,10 +5,15 @@
 
 set -u
 
-LOG="${XDG_RUNTIME_DIR:-/tmp}/kyth-anaconda.log"
 RUN_ID="$(date +%Y%m%d-%H%M%S)"
-HOST_DIR="/mnt/hostshare"
+LOG="/var/tmp/kyth-anaconda-${RUN_ID}.log"
+LATEST_LOG="/var/tmp/kyth-anaconda.log"
+HOST_DIR="/var/mnt/hostshare"
 HOST_RUN_DIR=""
+
+mkdir -p /var/tmp 2>/dev/null || true
+touch "${LOG}" 2>/dev/null || true
+ln -sfn "${LOG}" "${LATEST_LOG}" 2>/dev/null || true
 
 _host_setup() {
     mkdir -p "${HOST_DIR}" 2>/dev/null || true
@@ -46,6 +51,8 @@ _host_export_logs() {
     fi
 
     sudo -n journalctl -b --no-pager > "${HOST_RUN_DIR}/journal-full.log" 2>>"${HOST_RUN_DIR}/export-status.txt" || true
+
+    cp -f "${LOG}" /var/tmp/kyth-anaconda-last.log 2>/dev/null || true
 
     if ls "${HOST_RUN_DIR}" >/dev/null 2>&1; then
         {
@@ -300,7 +307,7 @@ fi
     if [[ -n "${HOST_RUN_DIR}" ]]; then
         echo "$(date '+%T'): Host log export enabled: ${HOST_RUN_DIR}"
     else
-        echo "$(date '+%T'): Host log export disabled: /mnt/hostshare not mounted/writable"
+        echo "$(date '+%T'): Host log export disabled: /var/mnt/hostshare not mounted/writable"
     fi
 } >> "${LOG}" 2>&1
 
@@ -308,12 +315,27 @@ fi
 # correct values when it re-execs as root.
 unset PKEXEC_UID PKEXEC_USER
 
+# Use software rendering for installer UI by default on live media.
+# This avoids known AMD+installer browser crashes on some bare-metal laptops.
+# Advanced override for diagnostics: pass kyth.installer.hwgl=1 to keep HW GL.
+if grep -qw 'kyth.installer.hwgl=1' /proc/cmdline 2>/dev/null; then
+    echo "$(date '+%T'): Installer hardware GL override enabled via kernel arg (kyth.installer.hwgl=1)." >> "${LOG}" 2>&1
+else
+    export LIBGL_ALWAYS_SOFTWARE=1
+    export GALLIUM_DRIVER=llvmpipe
+    export MESA_LOADER_DRIVER_OVERRIDE=llvmpipe
+    export QT_QUICK_BACKEND=software
+    echo "$(date '+%T'): Installer software rendering enabled (default)." >> "${LOG}" 2>&1
+fi
+
 # Disable Firefox WebRender (GPU compositor) for the installer session.
 # Mesa-git on bare-metal AMD can crash during WebUI form rendering (text input
 # fields on the accounts spoke). QEMU's virtio-gpu is unaffected because it
 # uses a different driver path.  MOZ_WEBRENDER=0 falls back to the stable
 # software compositor while keeping the rest of the desktop GPU-accelerated.
 export MOZ_WEBRENDER=0
+export MOZ_X11_EGL=0
+export MOZ_DISABLE_RDD_SANDBOX=1
 
 # Stream backend logs live so failures are visible before liveinst exits.
 {
@@ -323,15 +345,26 @@ export MOZ_WEBRENDER=0
 TAIL_PID=$!
 
 echo "$(date '+%T'): Launching Fedora liveinst (${LIVEINST_BIN})" | tee -a "${LOG}"
-_browser_fallback_watchdog &
-FALLBACK_PID=$!
-INSTALLER_VT=$(_active_vt)
-if [[ -n "${INSTALLER_VT}" ]]; then
-    echo "$(date '+%T'): Installer started on tty${INSTALLER_VT}; enabling VT guard while install is running." >> "${LOG}" 2>&1
-    _keep_installer_vt_foreground_loop "${INSTALLER_VT}" &
-    VTFIX_PID=$!
+# Optional browser watchdog for diagnostics and slow startup edge cases.
+if grep -qw 'kyth.installer.browser_watchdog=1' /proc/cmdline 2>/dev/null; then
+    _browser_fallback_watchdog &
+    FALLBACK_PID=$!
 else
-    echo "$(date '+%T'): VT guard unavailable (active tty not detected)." >> "${LOG}" 2>&1
+    echo "$(date '+%T'): Browser watchdog disabled (default)." >> "${LOG}" 2>&1
+fi
+INSTALLER_VT=$(_active_vt)
+# Optional VT guard for kiosks/lab runs.
+# Disabled by default so users can switch to tty2/tty3 for crash triage.
+if grep -qw 'kyth.installer.vtguard=1' /proc/cmdline 2>/dev/null; then
+    if [[ -n "${INSTALLER_VT}" ]]; then
+        echo "$(date '+%T'): Installer started on tty${INSTALLER_VT}; VT guard enabled via kernel arg." >> "${LOG}" 2>&1
+        _keep_installer_vt_foreground_loop "${INSTALLER_VT}" &
+        VTFIX_PID=$!
+    else
+        echo "$(date '+%T'): VT guard requested but active tty not detected." >> "${LOG}" 2>&1
+    fi
+else
+    echo "$(date '+%T'): VT guard disabled (default)." >> "${LOG}" 2>&1
 fi
 # Background loop: continuously deprioritize anaconda/ostree child processes
 # so the desktop (Xorg, plasmashell) stays responsive during the multi-GB
@@ -347,11 +380,19 @@ _io_deprioritize_loop() {
         sleep 5
     done
 }
-_io_deprioritize_loop &
-IOPRI_PID=$!
+if grep -qw 'kyth.installer.iotune=1' /proc/cmdline 2>/dev/null; then
+    _io_deprioritize_loop &
+    IOPRI_PID=$!
+else
+    echo "$(date '+%T'): Installer I/O tuning loop disabled (default)." >> "${LOG}" 2>&1
+fi
 
-_install_feedback_loop &
-FEEDBACK_PID=$!
+if grep -qw 'kyth.installer.feedback=1' /proc/cmdline 2>/dev/null; then
+    _install_feedback_loop &
+    FEEDBACK_PID=$!
+else
+    echo "$(date '+%T'): Installer progress popup loop disabled (default)." >> "${LOG}" 2>&1
+fi
 
 "${LIVEINST_BIN}" >>"${LOG}" 2>&1
 rc=$?
@@ -394,7 +435,7 @@ echo "$(date '+%T'): Anaconda exited cleanly." | tee -a "${LOG}"
 
 if _prompt_reboot; then
     echo "$(date '+%T'): User chose reboot after installation." | tee -a "${LOG}"
-    if ! sudo -n systemctl reboot; then
+    if ! sudo -n env KYTH_REAL_SYSTEMCTL=/usr/bin/systemctl /usr/bin/kyth-systemctl-wrapper reboot; then
         echo "$(date '+%T'): ERROR: Failed to trigger reboot via systemctl." | tee -a "${LOG}"
         if command -v yad &>/dev/null; then
             yad --error --title="Kyth Installer" \

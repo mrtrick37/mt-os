@@ -1,6 +1,9 @@
 #!/bin/sh
 # Live-session reboot intercept: persist anaconda logs and optionally block auto reboot.
 REAL_SYSTEMCTL="${KYTH_REAL_SYSTEMCTL:-/usr/bin/systemctl.real}"
+if [ ! -x "$REAL_SYSTEMCTL" ] && [ -x /usr/bin/systemctl ]; then
+    REAL_SYSTEMCTL=/usr/bin/systemctl
+fi
 
 if [ "$1" = "reboot" ] || [ "$1" = "poweroff" ] || [ "$1" = "halt" ]; then
     TS="$(date +%Y%m%d-%H%M%S)"
