@@ -342,14 +342,40 @@ EMBEDEOF
 
     grub2-mkimage \
         -O x86_64-efi \
-        -o "${ISO_DIR}/EFI/BOOT/BOOTX64.EFI" \
+        -o "${ISO_DIR}/EFI/BOOT/grubx64.efi" \
         -p /boot/grub2 \
         -c "${GRUB_EMBED_CFG}" \
         -d "${GRUB_X64_MODS}" \
         linux normal iso9660 search search_label all_video gfxterm gfxmenu \
+        efi_gop efi_uga font loopback chain \
         png echo test ls part_gpt part_msdos fat
     GRUB_EFI_BUILT=true
-    echo "    UEFI EFI binary: built with grub2-mkimage (x86_64-efi)"
+    echo "    UEFI GRUB binary: built with grub2-mkimage (x86_64-efi) → grubx64.efi"
+
+    # Secure Boot: use Fedora-signed shim as BOOTX64.EFI.
+    # The shim chainloads grubx64.efi from the same directory.
+    SHIM_SRC=""
+    for shim_path in \
+        "${ROOTFS}/boot/efi/EFI/fedora/shimx64.efi" \
+        "${ROOTFS}/usr/share/shim/*/shimx64.efi"; do
+        if [[ -f "${shim_path}" ]]; then
+            SHIM_SRC="${shim_path}"
+            break
+        fi
+    done
+    if [[ -n "${SHIM_SRC}" ]]; then
+        cp "${SHIM_SRC}" "${ISO_DIR}/EFI/BOOT/BOOTX64.EFI"
+        echo "    Secure Boot shim: ${SHIM_SRC} → BOOTX64.EFI"
+        # Also copy the Fedora CA fallback (mmx64.efi) if present
+        SHIM_DIR="$(dirname "${SHIM_SRC}")"
+        if [[ -f "${SHIM_DIR}/mmx64.efi" ]]; then
+            cp "${SHIM_DIR}/mmx64.efi" "${ISO_DIR}/EFI/BOOT/mmx64.efi"
+        fi
+    else
+        echo "WARNING: shimx64.efi not found in rootfs — falling back to unsigned boot." >&2
+        echo "         Secure Boot must be disabled on the target machine." >&2
+        cp "${ISO_DIR}/EFI/BOOT/grubx64.efi" "${ISO_DIR}/EFI/BOOT/BOOTX64.EFI"
+    fi
 else
     echo "ERROR: Cannot build BOOTX64.EFI — grub2-mkimage or x86_64-efi modules not found." >&2
     echo "       Install on host: sudo dnf install grub2-tools-minimal" >&2
@@ -360,8 +386,12 @@ EFI_IMG="${ISO_DIR}/images/efiboot.img"
 truncate -s 15M "${EFI_IMG}"
 mkfs.fat -n "EFIBOOT" "${EFI_IMG}"
 mmd  -i "${EFI_IMG}" ::/EFI ::/EFI/BOOT
+mcopy -i "${EFI_IMG}" "${ISO_DIR}/EFI/BOOT/BOOTX64.EFI" ::/EFI/BOOT/BOOTX64.EFI
 if [[ "${GRUB_EFI_BUILT}" == "true" ]]; then
-    mcopy -i "${EFI_IMG}" "${ISO_DIR}/EFI/BOOT/BOOTX64.EFI" ::/EFI/BOOT/BOOTX64.EFI
+    mcopy -i "${EFI_IMG}" "${ISO_DIR}/EFI/BOOT/grubx64.efi" ::/EFI/BOOT/grubx64.efi
+fi
+if [[ -f "${ISO_DIR}/EFI/BOOT/mmx64.efi" ]]; then
+    mcopy -i "${EFI_IMG}" "${ISO_DIR}/EFI/BOOT/mmx64.efi" ::/EFI/BOOT/mmx64.efi
 fi
 mcopy -i "${EFI_IMG}" "${ISO_DIR}/EFI/BOOT/grub.cfg" ::/EFI/BOOT/grub.cfg
 

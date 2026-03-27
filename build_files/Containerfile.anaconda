@@ -53,7 +53,7 @@ RUN dnf5 -y versionlock clear 2>/dev/null || true \
 # ── Desktop, ISO tooling, and utilities (--skip-broken for optional deps) ──
 # Base image (Kinoite) already has KDE — these fill gaps for live session + ISO build.
 RUN dnf5 install -y \
-    syslinux grub2-efi-x64 grub2-efi-x64-modules grub2-pc \
+    syslinux grub2-efi-x64 grub2-efi-x64-modules grub2-pc shim-x64 \
     gparted gdisk podman \
     plymouth-plugin-script librsvg2-tools \
     spice-vdagent \
