@@ -175,7 +175,7 @@ RUN mkdir -p \
         /home/liveuser/.config/plasma-workspace/env \
     && printf '[ -z "$DISPLAY" ] && [ -z "$WAYLAND_DISPLAY" ] && exec startx -- :0 vt1 -nolisten tcp\n' \
         > /home/liveuser/.bash_profile \
-    && printf '#!/bin/bash\nexport XDG_SESSION_TYPE=x11\nexec startplasma-x11\n' \
+    && printf '#!/bin/bash\nexport XDG_SESSION_TYPE=x11\n# Stability-first live session rendering defaults.\nif ! grep -qw '\''kyth.live.hwgl=1'\'' /proc/cmdline 2>/dev/null; then\n    export LIBGL_ALWAYS_SOFTWARE=1\n    export GALLIUM_DRIVER=llvmpipe\n    export MESA_LOADER_DRIVER_OVERRIDE=llvmpipe\n    export QT_QUICK_BACKEND=software\nfi\nexec startplasma-x11\n' \
         > /home/liveuser/.xinitrc \
     && chmod +x /home/liveuser/.xinitrc \
     && printf '[Desktop Entry]\nType=Application\nName=Liveinst Setup\nHidden=true\n' \
@@ -192,7 +192,7 @@ RUN mkdir -p \
         > /home/liveuser/.config/kdeglobals \
     && printf '[Theme]\nname=breeze-dark\n' \
         > /home/liveuser/.config/plasmarc \
-    && printf '# Let Mesa auto-detect GPU (virtio-gpu/virgl in VMs, real GPU on hardware)\n' \
+    && printf '#!/bin/bash\n# Live environment hook kept for compatibility.\n# Rendering policy is applied in ~/.xinitrc for deterministic startup.\ntrue\n' \
         > /home/liveuser/.config/plasma-workspace/env/live.sh \
     && chmod +x /home/liveuser/.config/plasma-workspace/env/live.sh \
     && printf '[Desktop Entry]\nName=Install Kyth\nComment=Install Kyth to this computer\nExec=/usr/bin/kyth-launch-anaconda\nIcon=kyth\nTerminal=false\nType=Application\nCategories=System;\n' \

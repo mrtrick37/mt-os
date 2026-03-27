@@ -301,20 +301,11 @@ menuentry "Try Kyth Live" --class fedora --class gnu-linux --class os {
     initrd /images/pxeboot/initrd.img
 }
 
-menuentry "Try Kyth Live (Basic Graphics)" --class fedora --class gnu-linux --class os {
-    linux /images/pxeboot/vmlinuz ${LIVE_ARGS} nomodeset
+menuentry "Try Kyth Live (Hardware GL Test)" --class fedora --class gnu-linux --class os {
+    linux /images/pxeboot/vmlinuz ${LIVE_ARGS} kyth.live.hwgl=1 kyth.installer.hwgl=1
     initrd /images/pxeboot/initrd.img
 }
 
-menuentry "Try Kyth Live (Installer Safe Mode)" --class fedora --class gnu-linux --class os {
-    linux /images/pxeboot/vmlinuz ${LIVE_ARGS} kyth.installer.safe=1
-    initrd /images/pxeboot/initrd.img
-}
-
-menuentry "Check media and boot Kyth Live" --class fedora --class gnu-linux --class os {
-    linux /images/pxeboot/vmlinuz ${LIVE_ARGS} rd.live.check
-    initrd /images/pxeboot/initrd.img
-}
 GRUBEOF
 
 cp "${ISO_DIR}/boot/grub2/grub.cfg" "${ISO_DIR}/EFI/BOOT/grub.cfg" 2>/dev/null
@@ -457,20 +448,11 @@ label live
   kernel /images/pxeboot/vmlinuz
   append initrd=/images/pxeboot/initrd.img ${LIVE_ARGS}
 
-label basic
-  menu label Try Kyth Live (Basic Graphics)
+label hwgl
+  menu label Try Kyth Live (Hardware GL Test)
   kernel /images/pxeboot/vmlinuz
-  append initrd=/images/pxeboot/initrd.img ${LIVE_ARGS} nomodeset
+  append initrd=/images/pxeboot/initrd.img ${LIVE_ARGS} kyth.live.hwgl=1 kyth.installer.hwgl=1
 
-label safemode
-  menu label Try Kyth Live (Installer Safe Mode)
-  kernel /images/pxeboot/vmlinuz
-  append initrd=/images/pxeboot/initrd.img ${LIVE_ARGS} kyth.installer.safe=1
-
-label check
-  menu label Check media and boot Kyth Live
-  kernel /images/pxeboot/vmlinuz
-  append initrd=/images/pxeboot/initrd.img ${LIVE_ARGS} rd.live.check
 ISOLINUXEOF
     HAVE_ISOLINUX=true
     echo "    syslinux: OK (fallback)"
