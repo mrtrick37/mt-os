@@ -35,8 +35,11 @@ if [ "$1" = "reboot" ] || [ "$1" = "poweroff" ] || [ "$1" = "halt" ]; then
         exit 0
     fi
 
-    echo "Rebooting in 120s" | tee /dev/console
-    sleep 120
+    REBOOT_DELAY="${KYTH_REBOOT_DELAY_SEC:-0}"
+    if [ "${REBOOT_DELAY}" -gt 0 ] 2>/dev/null; then
+        echo "Rebooting in ${REBOOT_DELAY}s" | tee /dev/console
+        sleep "${REBOOT_DELAY}"
+    fi
 fi
 
 exec "$REAL_SYSTEMCTL" "$@"
