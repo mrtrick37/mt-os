@@ -308,6 +308,13 @@ fi
 # correct values when it re-execs as root.
 unset PKEXEC_UID PKEXEC_USER
 
+# Disable Firefox WebRender (GPU compositor) for the installer session.
+# Mesa-git on bare-metal AMD can crash during WebUI form rendering (text input
+# fields on the accounts spoke). QEMU's virtio-gpu is unaffected because it
+# uses a different driver path.  MOZ_WEBRENDER=0 falls back to the stable
+# software compositor while keeping the rest of the desktop GPU-accelerated.
+export MOZ_WEBRENDER=0
+
 # Stream backend logs live so failures are visible before liveinst exits.
 {
     echo "$(date '+%T'): Starting live backend log stream (/tmp/anaconda.log, /tmp/anaconda-tb.txt)"
