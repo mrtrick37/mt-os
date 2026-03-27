@@ -296,7 +296,7 @@ _install_progress_monitor() {
     # doesn't provide per-layer progress output.
 
     local start_ts rx_start rx_now rx_prev speed downloaded elapsed
-    local total_size_label="" total_size_bytes=0
+    local total_size_label=""
     local phase="waiting"
     local fifo="/var/tmp/kyth-progress-fifo.$$"
     local bootc_pid=""

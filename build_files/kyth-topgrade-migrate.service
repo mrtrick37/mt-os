@@ -1,7 +1,7 @@
 [Unit]
-Description=Kyth migration: configure topgrade to use bootc instead of rpm-ostree
+Description=Kyth migration: configure topgrade for Kyth (disable distrobox, use sudo -n)
 After=local-fs.target
-ConditionPathExists=!/var/lib/kyth/migrations/topgrade-v1.done
+ConditionPathExists=!/var/lib/kyth/migrations/topgrade-v2.done
 
 [Service]
 Type=oneshot

@@ -1,6 +1,6 @@
 # Kyth
 
-An atomic gaming and development desktop built on Fedora Kinoite with the CachyOS kernel. Immutable OS, Anaconda WebUI installer, ships as a bootable live ISO.
+An atomic gaming and development desktop built on Fedora Kinoite with the CachyOS kernel. The entire OS ships as a container image — immutable, atomic updates, one-command rollback. Installed via the Anaconda WebUI installer from a live ISO.
 
 > Work in progress. Don't install on anything you care about.
 
@@ -8,14 +8,17 @@ An atomic gaming and development desktop built on Fedora Kinoite with the CachyO
 
 ## What it is
 
-Kyth is a custom [bootc](https://containers.github.io/bootc/) image. The entire OS is a container image built with Docker, installed to disk via the Anaconda WebUI installer, and updated atomically. Rolling back is one command.
+Kyth is a custom [bootc](https://containers.github.io/bootc/) image. The OS is a container image built with Docker, installed to disk via Anaconda WebUI, and updated atomically — rolling back is one command.
 
-**Base:** Fedora 43 KDE Plasma (`ublue-os/kinoite-main:43`)
-**Kernel:** CachyOS — BORE scheduler, sched-ext, BBRv3, NTSYNC, latency-tuned for gaming
-**GPU drivers:** Mesa-git (bleeding edge RADV/RADEONSI from `@mesa/mesa` COPR)
-**Display:** KDE Plasma on Wayland
-**Installer:** Anaconda WebUI (ostreecontainer — pulls the OS image from the registry at install time)
-**Theme:** Breeze Dark with Kyth branding, Plymouth boot splash, and Tokyo Night accent colors
+| | |
+|---|---|
+| **Base** | Fedora 43 KDE Plasma (`ublue-os/kinoite-main:43`) |
+| **Kernel** | CachyOS — BORE scheduler, sched-ext, BBRv3, NTSYNC, latency-tuned |
+| **GPU drivers** | Mesa-git (bleeding-edge RADV/RADEONSI from `@mesa/mesa` COPR) |
+| **Display** | KDE Plasma 6 on Wayland |
+| **Installer** | Anaconda WebUI — pulls OS image from the registry at install time |
+| **Theme** | Breeze Dark with Kyth branding, Plymouth boot splash |
+| **SELinux** | Permissive (Docker builds cannot preserve security xattrs) |
 
 ---
 
@@ -23,22 +26,33 @@ Kyth is a custom [bootc](https://containers.github.io/bootc/) image. The entire 
 
 ### Gaming
 
-- Steam, Lutris, GameMode, gamescope, MangoHud, vkBasalt
+- Steam (with first-run setup notification), Lutris, GameMode, gamescope, MangoHud, vkBasalt
 - umu-launcher, winetricks (pinned upstream release), libFAudio, OpenXR
+- OBS Studio + obs-vkcapture (GPU capture without display compositor overhead)
+- GE-Proton — pre-installed at build time, updated weekly via systemd timer
+- scx schedulers (scx_lavd / scx_rusty / scx_bpfland via scxd, auto-mode) — prioritises latency-sensitive threads during gaming
+- system76-scheduler — dynamically adjusts process priorities based on focused window
+- ananicy-cpp — static per-process CPU/IO priority rules
+- NTSYNC udev rules (faster Wine sync primitives, lower-latency than esync/fsync)
 - RADV_PERFTEST=gpl — Vulkan Graphics Pipeline Library enabled by default
-- NTSYNC udev rules (faster Wine sync primitives)
 - AMD GPU high-performance power profile during gameplay (GameMode)
-- `game-performance` and `zink-run` helper wrappers for quick launch testing/tuning
-- Weekly `duperemove` timer for reclaiming duplicate Steam/Wine data on supported filesystems
+- `game-performance` and `zink-run` helper wrappers
+- Weekly `duperemove` timer for reclaiming duplicate blocks on supported filesystems
+- input-remapper (remap controllers, mice, keyboards at the kernel level)
+- KDE Connect
 
 ### Development
 
-- Visual Studio Code, Brave browser
+- Visual Studio Code with the Claude Code extension pre-installed system-wide
+- Brave browser (replaces Firefox)
 - GitHub CLI (`gh`)
-- Homebrew (system-wide, wheel group owns `/home/linuxbrew`)
-- Cockpit (web-based system management)
-- libvirt / virt-manager / QEMU / incus + LXC
+- Homebrew — system-wide, wheel group owns `/home/linuxbrew`
+- topgrade (latest musl release, auto-updates all package managers)
 - Docker
+- distrobox (run any-distro containers alongside the immutable base)
+- libvirt / QEMU / incus + LXC
+- Cockpit (web-based system management)
+- NVIDIA kernel module support (akmod-nvidia pre-installed for on-demand build)
 
 ### Observability
 
@@ -46,14 +60,17 @@ Kyth is a custom [bootc](https://containers.github.io/bootc/) image. The entire 
 
 ### System tuning
 
-- vm.swappiness=10, THP=madvise, TCP BBRv3, zram (min(RAM/2, 8 GB) zstd)
-- GameMode CPU/GPU governor profiles
-- WiFi power-save disabled system-wide
-- spice-vdagent for automatic display resolution in VMs
-- PowerDevil DDC/CI monitor control disabled by default on Plasma sessions to reduce AMD display/power-management instability
-- `libddcutil` display-watch threads disabled system-wide
-- `kyth-kerver` and matching `ujust` recipes for quick system/tuning inspection
-- `ujust device-info`, `ujust install-lact`, and `ujust install-input-remapper`
+- **Memory:** vm.swappiness=10, THP=madvise, vm.max_map_count=2147483642 (Star Citizen etc.), vm.compaction_proactiveness=0
+- **Network:** TCP BBRv3, raised socket buffers (64 MB), TCP Fast Open
+- **Audio:** PipeWire at 48 kHz / 128-sample quantum (~2.7 ms latency), min-quantum=32
+- **Storage:** I/O scheduler per device type — `none` on NVMe, `mq-deadline` on SATA SSD, `bfq` on HDD
+- **Gaming:** split-lock mitigation disabled, kernel.sched_autogroup_enabled=1
+- **Wine/Proton:** PROTON_FORCE_LARGE_ADDRESS_AWARE + WINE_LARGE_ADDRESS_AWARE (full 4 GB address space for 32-bit games)
+- zram (min(RAM/2, 8 GB), zstd compression)
+- WiFi power-save disabled system-wide; Intel WiFi BT coexistence disabled
+- PowerDevil DDC/CI and libddcutil display-watch threads disabled (reduces AMD display instability)
+- spice-vdagent for automatic display resize in QEMU/KVM VMs
+- Automatic updates disabled (no surprise reboots) — update manually: `sudo bootc upgrade`
 
 ---
 
@@ -64,15 +81,12 @@ Kyth is a custom [bootc](https://containers.github.io/bootc/) image. The entire 
 | `main` | `:latest` | Stable (relatively speaking) |
 | `testing` | `:testing` | Active development — may be unstable |
 
-Both branches rebuild daily at 10:05 UTC to pick up the latest packages regardless of code changes.
+Both branches rebuild daily at 10:05 UTC and on every push.
 
-To switch between them on an installed system:
+Switch between them on an installed system:
 
 ```bash
-# Switch to testing
 sudo bootc switch ghcr.io/mrtrick37/kyth:testing
-
-# Switch back to stable
 sudo bootc switch ghcr.io/mrtrick37/kyth:latest
 ```
 
@@ -82,26 +96,24 @@ sudo bootc switch ghcr.io/mrtrick37/kyth:latest
 
 ### Live ISO (recommended)
 
-| Channel | Download | Description |
-|---------|----------|-------------|
-| **Stable** | [kyth-live-latest.iso](https://pub-9a3cc72972ea44c4ae7504ee7cda1fa6.r2.dev/kyth-live-latest.iso) | Built from `main` |
-| **Testing** | [kyth-live-testing.iso](https://pub-9a3cc72972ea44c4ae7504ee7cda1fa6.r2.dev/kyth-live-testing.iso) | Built from `testing` — may be unstable |
+| Channel | Download |
+|---------|----------|
+| **Stable** | [kyth-live-latest.iso](https://pub-9a3cc72972ea44c4ae7504ee7cda1fa6.r2.dev/kyth-live-latest.iso) |
+| **Testing** | [kyth-live-testing.iso](https://pub-9a3cc72972ea44c4ae7504ee7cda1fa6.r2.dev/kyth-live-testing.iso) |
 
-1. Flash the ISO to a USB drive (`dd`, Balena Etcher, Ventoy, etc.)
-2. Boot it — KDE Plasma loads automatically, no login required
+1. Flash to USB (`dd`, Balena Etcher, Ventoy, etc.)
+2. Boot — KDE Plasma autologins as `liveuser`, no password required
 3. Click **Install Kyth** on the desktop
-4. The Anaconda WebUI opens in Firefox — configure language, disk, timezone, and user account
-5. Click **Install** — the OS image is pulled from the container registry and written to disk
+4. The Anaconda WebUI opens in Brave — configure disk, locale, timezone, and user account
+5. Click **Install** — the OS image (~4 GB) is pulled from the container registry and written to disk
 6. Reboot into the installed system
 
-Minimum 8 GB RAM recommended for the live session and installer. An active network connection is required — the installer pulls the OS image (~4 GB) from the registry at install time.
-
-The live ISO autologins to the desktop as `liveuser`; no password is required.
+**Requirements:** 8 GB RAM minimum for the live session. Active network connection required (netinstall).
 
 ### Rebase from an existing Fedora atomic system
 
 ```bash
-bootc switch ghcr.io/mrtrick37/kyth:latest
+sudo bootc switch ghcr.io/mrtrick37/kyth:latest
 ```
 
 ---
@@ -112,55 +124,79 @@ bootc switch ghcr.io/mrtrick37/kyth:latest
 sudo bootc upgrade
 ```
 
-Kyth rebuilds and publishes a new image on every push to `main` and `testing`. Updates are atomic — the previous deployment is kept as a fallback and can be selected at the GRUB menu.
+Updates are atomic — the previous deployment is kept as a fallback and selectable at the GRUB menu. There is no package manager on the running system; all changes go through the image build.
+
+For user applications use Flatpak (via Discover) or Homebrew.
 
 ---
 
 ## Build locally
 
-**Requirements:** `docker`, `just`, `xorriso`, `squashfs-tools`, `mtools`, `dosfstools`, `grub2-tools-minimal`
+**Requirements:** `docker`, `just`
 
 ```bash
-# Install build tools
-sudo dnf install -y just xorriso squashfs-tools mtools dosfstools grub2-tools-minimal
+# Step 1 — build the base image (CachyOS kernel + Fedora Kinoite)
+just build-base
 
-# Step 1 — build the OS image
-sudo just build
+# Step 2 — build the full Kyth OS image
+just build
 
-# Step 2 — build the live ISO (Anaconda installer)
+# Step 3 — build the Anaconda live ISO
 just build-anaconda-iso
 
-# Boot the ISO in QEMU for testing
+# Boot the ISO in QEMU (native, SPICE window — better clipboard/copy-paste)
 just run-anaconda-iso-native
+
+# Or boot in a Docker-wrapped QEMU with noVNC at http://localhost:8006
+just run-anaconda-iso
 ```
 
-`sudo just build` produces `localhost/kyth:latest`. `just build-anaconda-iso` builds a separate, stable installer runtime image (default base: `ghcr.io/ublue-os/kinoite-main:43`) and assembles the bootable ISO. The installer still deploys Kyth from the registry (`ghcr.io/mrtrick37/kyth:<tag>`). The ISO is written to `output/live-iso/kyth-live-anaconda-latest.iso`.
+`just build` produces `localhost/kyth:latest`. The Anaconda ISO is written to `output/live-iso/kyth-live-anaconda-latest.iso`.
 
-To override installer runtime base explicitly:
-
-```bash
-INSTALLER_BASE_IMAGE=ghcr.io/ublue-os/kinoite-main:43 just rebuild-anaconda-iso
-```
-
-### Useful build recipes
+### Build recipes
 
 ```bash
-just rebuild-anaconda-iso          # Full rebuild (ignores cached container layer)
-just build-anaconda-iso testing    # Build from the testing image
-just run-anaconda-iso-native       # Boot ISO in QEMU with SPICE display
-just build-qcow2                   # Build QCOW2 VM image via Bootc Image Builder
-just clean                         # Remove build artifacts
-just purge                         # Reclaim max disk space
-just lint && just format           # Shellcheck + shfmt
+just build-base                           # Build kyth-base layer (CachyOS kernel)
+just build                                # Build full OS image on top of kyth-base
+just build-anaconda-iso                   # Build Anaconda live ISO (from :latest)
+just build-anaconda-iso testing           # Build ISO targeting the :testing image
+just rebuild-anaconda-iso                 # Full rebuild, ignores cached container layer
+just run-anaconda-iso                     # Boot ISO in Docker-wrapped QEMU (noVNC)
+just run-anaconda-iso-native              # Boot ISO in native QEMU + SPICE
+just build-qcow2                          # Build QCOW2 VM image via Bootc Image Builder
+just disk-usage                           # Show Docker + output/ disk usage
+just clean                                # Remove build output artefacts
+just clean-docker                         # Prune Docker build cache and dangling layers
+just clean-all                            # clean-output + clean-docker
+just prune-anaconda-dev                   # Reclaim space from Anaconda dev cycles
+just purge                                # Nuclear: reclaim maximum disk space
+just lint && just format                  # shellcheck + shfmt on all .sh files
 ```
 
 ### Feature flags
 
-Both are enabled by default. Pass `0` to skip them if the packages are unavailable:
+Both default to enabled. Pass `0` to skip:
 
 ```bash
-ENABLE_ANANICY=0 ENABLE_SCX=0 sudo just build
+ENABLE_ANANICY=0 ENABLE_SCX=0 just build
 ```
+
+### Docker group
+
+If you get a permission denied error on the Docker socket after being added to the `docker` group:
+
+```bash
+newgrp docker
+```
+
+---
+
+## CI
+
+| Workflow | Trigger | Output |
+|----------|---------|--------|
+| Build container image | Push to `main`/`testing`, daily at 10:05 UTC, PR | `ghcr.io/mrtrick37/kyth:latest` and `:testing` |
+| Build Anaconda Live ISO | Manual dispatch (choose `latest` or `testing`) | `kyth-live-latest.iso` / `kyth-live-testing.iso` on Cloudflare R2 |
 
 ---
 
@@ -171,50 +207,55 @@ Dockerfile                        Main OS image (layers on top of kyth-base)
 Justfile                          Build orchestration — all recipes
 
 build_base/
-  Dockerfile                      Pulls kinoite-main:43, runs build.sh
-  build.sh                        CachyOS kernel, initramfs, Plymouth, kargs, SDDM
+  Dockerfile                      Pulls kinoite-main:43, installs CachyOS kernel
+  build.sh                        Kernel, initramfs, Plymouth, kargs, SDDM
 
 build_files/
-  build.sh                        Packages, gaming tweaks, skel, icons, dev tools
   build-anaconda-iso.sh           Assembles squashfs + GRUB2 + UEFI/BIOS bootable ISO
-  Containerfile.anaconda          Stable installer runtime container (X11 autologin, Anaconda WebUI)
+  Containerfile.anaconda          Live session container (X11 autologin, Anaconda WebUI)
   anaconda/
     kyth.ks                       Kickstart — ostreecontainer source for :latest
     kyth-testing.ks               Kickstart — ostreecontainer source for :testing
-    kyth-launch-anaconda          Desktop launcher script (calls liveinst)
+    kyth-launch-anaconda          Desktop launcher (calls liveinst)
     kyth-anaconda-debug           Debug/log collection helper
   branding/
     kyth-logo.svg                 Kyth logo (with background and wordmark)
-    kyth-logo-transparent.svg     Kyth K mark (transparent, for Cockpit/WebUI)
-    cockpit-branding.css          Tokyo Night themed CSS for the Anaconda WebUI
+    kyth-logo-transparent.svg     Kyth K mark (transparent, for WebUI)
+    cockpit-branding.css          Themed CSS for the Anaconda WebUI
   scripts/
-    packages.sh                   RPM packages, repos, dnf upgrade
-    thirdparty.sh                 Third-party binaries (topgrade, winetricks, SCX)
-    sysconfig.sh                  System configuration (sysctl, audio, gaming tuning)
-    branding.sh                   Icons, themes, Plymouth, wallpaper, welcome app
-    ge-proton.sh                  GE-Proton installer
-    mesa-git.sh                   Bleeding-edge Mesa GPU drivers
+    packages.sh                   RPM packages, repos, dnf upgrade (Layer 1)
+    thirdparty.sh                 topgrade, winetricks, scx schedulers, Homebrew (Layer 2)
+    sysconfig.sh                  sysctl, audio, gaming tuning, env vars (Layer 3)
+    branding.sh                   Icons, themes, Plymouth, wallpaper, welcome app (Layer 4)
+    ge-proton.sh                  GE-Proton installer (Layer 5)
+    mesa-git.sh                   Mesa-git GPU drivers (Layer 6)
+  game-performance                CPU/GPU performance helper script
+  icons/                          App icons (Outlook PWA, etc.)
+  just/kyth.just                  ujust recipes shipped in the installed OS
+  kyth-welcome/                   First-boot welcome app (PyQt6)
+  MangoHud.conf                   System-wide MangoHud defaults
   plymouth/                       Boot splash theme (pulsating Kyth logo)
   wallpaper/                      Desktop wallpaper (SVG)
-  just/kyth.just                  ujust recipes shipped in the installed OS
-  kyth-welcome/                   First-boot welcome app
+  kyth-ge-proton-update           Weekly GE-Proton update script
+  kyth-duperemove                 Weekly deduplication script
+  kyth-performance-mode           Toggle system performance profile
+  kyth-kerver                     Print kernel/scheduler info
+  kyth-device-info                Print hardware summary
 
 disk_config/
-  disk.toml                       BIB config for qcow2/raw disk images
-  iso.toml                        BIB config for installer ISO builds
+  disk.toml                       BIB config for qcow2/raw images
+  iso.toml                        BIB config for installer ISO
 
 .github/workflows/
-  build.yml                       CI: builds and publishes OS image on push
-  build-anaconda-iso.yml          CI: builds and publishes Anaconda live ISO
+  build.yml                       CI: builds and publishes OS image
+  build-anaconda-iso.yml          CI: builds and publishes Anaconda live ISO (manual)
 ```
 
 ---
 
 ## How updates work
 
-Kyth uses [bootc](https://containers.github.io/bootc/) — the OS is a container image. On update, `bootc upgrade` pulls the new image, stages it, and makes it the default boot entry. The previous deployment stays on disk as a fallback. There is no package manager on the running system; all changes go through the image build.
-
-For user-installed applications use Flatpak (via Discover) or Homebrew.
+Kyth uses [bootc](https://containers.github.io/bootc/). On update, `bootc upgrade` pulls the new image, stages it, and makes it the default boot entry. The previous deployment stays on disk as a fallback. Automatic updates are intentionally disabled to prevent unexpected reboots.
 
 ---
 

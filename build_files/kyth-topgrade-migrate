@@ -1,26 +1,34 @@
 #!/usr/bin/env python3
-# kyth-topgrade-migrate — ensure all users have topgrade configured to use
-# bootc upgrade instead of rpm-ostree upgrade (which pulls from Kinoite).
+# kyth-topgrade-migrate — ensure all users have topgrade configured correctly
+# for a Kyth bootc system:
+#   • rpm-ostree disabled (pulls from Kinoite, not Kyth)
+#   • distrobox disabled (distrobox-upgrade fails without a PTY)
+#   • bootc upgrade used as the system update command (with sudo -n)
+#
+# v1 → v2: added distrobox to disable list and sudo -n to the custom command.
 #
 # Run once at boot via kyth-topgrade-migrate.service; state is tracked in
-# /var/lib/kyth/migrations/topgrade-v1.done so it never runs again.
+# /var/lib/kyth/migrations/topgrade-v2.done so it never runs again.
 
 import os
 import sys
 
 STATE_DIR = "/var/lib/kyth/migrations"
-STATE_FILE = os.path.join(STATE_DIR, "topgrade-v1.done")
+STATE_FILE = os.path.join(STATE_DIR, "topgrade-v2.done")
 
 SKEL_CONFIG = "/etc/skel/.config/topgrade.toml"
 
+# Full block written to configs that have no Kyth config at all.
 TOPGRADE_DISABLE_BLOCK = """
-# Added by kyth-topgrade-migrate: disable rpm-ostree step so topgrade
-# does not pull system updates from the upstream Kinoite ostree remote.
+# Added by kyth-topgrade-migrate.
 [misc]
-disable = ["rpm_ostree"]
+# rpm-ostree pulls from the base Kinoite ostree repo, not Kyth — disable it.
+# distrobox-upgrade fails without a PTY; update containers manually instead.
+disable = ["rpm_ostree", "distrobox"]
 
 [commands]
-"Kyth system update" = "sudo bootc upgrade"
+# -n makes sudo fail fast if NOPASSWD isn't working, rather than hanging.
+"Kyth system update" = "sudo -n bootc upgrade"
 """
 
 
@@ -29,20 +37,51 @@ def log(msg):
 
 
 def needs_patch(path):
-    """Return True if topgrade.toml exists but doesn't disable rpm_ostree."""
+    """Return True if topgrade.toml is missing any Kyth-required setting."""
     try:
         content = open(path).read()
     except OSError:
         return False
-    # Simple check: if rpm_ostree appears anywhere in a disable list, we're good.
-    return "rpm_ostree" not in content
+    return (
+        "rpm_ostree" not in content
+        or '"distrobox"' not in content
+        or "sudo -n bootc upgrade" not in content
+    )
 
 
 def patch_config(path):
-    """Append the disable block to an existing config that lacks it."""
-    with open(path, "a") as f:
-        f.write(TOPGRADE_DISABLE_BLOCK)
-    log(f"  patched {path}")
+    """Apply Kyth topgrade fixes in-place to an existing config."""
+    with open(path) as f:
+        content = f.read()
+
+    changed = False
+
+    # v1 config: has rpm_ostree disable but missing distrobox — insert it.
+    if "rpm_ostree" in content and '"distrobox"' not in content:
+        content = content.replace(
+            'disable = ["rpm_ostree"]',
+            'disable = ["rpm_ostree", "distrobox"]',
+        )
+        changed = True
+
+    # v1 config: custom command missing -n flag — add it.
+    if '"sudo bootc upgrade"' in content:
+        content = content.replace('"sudo bootc upgrade"', '"sudo -n bootc upgrade"')
+        changed = True
+
+    # Config predates v1: no rpm_ostree at all — append the full block.
+    if "rpm_ostree" not in content:
+        with open(path, "a") as f:
+            f.write(TOPGRADE_DISABLE_BLOCK)
+        log(f"  appended Kyth config block to {path}")
+        return
+
+    if changed:
+        with open(path, "w") as f:
+            f.write(content)
+        log(f"  patched {path}")
+    else:
+        log(f"  {path}: no changes needed")
 
 
 def write_default(path):
@@ -78,7 +117,6 @@ def main():
         if not os.path.exists(cfg):
             log(f"{home}: no topgrade.toml — writing default")
             write_default(cfg)
-            # Preserve ownership
             try:
                 st = os.stat(home)
                 os.chown(os.path.dirname(cfg), st.st_uid, st.st_gid)
@@ -86,10 +124,10 @@ def main():
             except OSError as e:
                 log(f"  warning: chown failed: {e}")
         elif needs_patch(cfg):
-            log(f"{home}: topgrade.toml missing rpm_ostree disable — patching")
+            log(f"{home}: topgrade.toml needs update — patching")
             patch_config(cfg)
         else:
-            log(f"{home}: topgrade.toml already correct — skipping")
+            log(f"{home}: topgrade.toml already correct — no changes needed")
 
     open(STATE_FILE, "w").close()
     log("done")
