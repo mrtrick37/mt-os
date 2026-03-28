@@ -597,6 +597,13 @@ def _bootc_image_reference() -> str | None:
         match = pattern.search(text)
         if match:
             return match.group(1)
+    # Fallback: rpm-ostree status (runs without root, works on ostree-managed systems)
+    rpmostree = _run_command(["rpm-ostree", "status"], timeout=10)
+    if rpmostree and rpmostree.returncode == 0:
+        pattern = re.compile(rf"({re.escape(REGISTRY)}(?::[A-Za-z0-9._-]+)?(?:@sha256:[a-fA-F0-9]+)?)")
+        match = pattern.search(rpmostree.stdout)
+        if match:
+            return match.group(1)
     return None
 
 
