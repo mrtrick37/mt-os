@@ -163,6 +163,16 @@ cat > /etc/xdg/plasma-org.kde.plasma.desktop-appletsrc <<'XDGPLASMAEOF'
 Image=/usr/share/wallpapers/kyth/contents/images/1920x1080.svg
 XDGPLASMAEOF
 
+# ── SDDM login screen background ─────────────────────────────────────────────
+# theme.conf.user overrides the breeze SDDM theme defaults without modifying
+# the upstream theme files. The wallpaper is already installed above.
+mkdir -p /usr/share/sddm/themes/breeze
+cat > /usr/share/sddm/themes/breeze/theme.conf.user <<'SDDMEOF'
+[General]
+type=image
+background=/usr/share/wallpapers/kyth/contents/images/1920x1080.svg
+SDDMEOF
+
 # ── Kyth logo as system icon ──────────────────────────────────────────────────
 # KDE Plasma 6 Kickoff looks up icons in this order:
 #   start-here-kde-plasma → start-here-kde → start-here
