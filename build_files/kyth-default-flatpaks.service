@@ -1,0 +1,21 @@
+[Unit]
+Description=Install default Flatpak applications
+Documentation=https://github.com/mrtrick37/kyth
+After=network-online.target kyth-flathub-setup.service
+Wants=network-online.target
+Requires=kyth-flathub-setup.service
+# Only runs until the sentinel is written; retries on next boot if install failed.
+ConditionPathExists=!/var/lib/kyth/default-flatpaks-done
+
+[Service]
+Type=oneshot
+# --system  : install for all users (consistent with kyth-flathub-setup.service)
+# --or-update: idempotent — updates if already present, installs if not
+ExecStart=/usr/bin/flatpak install -y --noninteractive --system --or-update flathub \
+    org.fedoraproject.MediaWriter
+ExecStartPost=/bin/mkdir -p /var/lib/kyth
+ExecStartPost=/bin/touch /var/lib/kyth/default-flatpaks-done
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
