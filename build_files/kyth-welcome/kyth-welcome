@@ -2310,6 +2310,11 @@ class CloudStoragePage(Page):
         od_layout.addWidget(self._od_status)
         od_btns = QHBoxLayout()
         od_btns.setSpacing(10)
+        self._od_install_btn = QPushButton("Install rclone")
+        self._od_install_btn.setObjectName("primary")
+        self._od_install_btn.hide()
+        self._od_install_btn.clicked.connect(self._install_rclone)
+        od_btns.addWidget(self._od_install_btn)
         self._od_configure_btn = QPushButton("Configure with rclone")
         self._od_configure_btn.clicked.connect(self._configure_onedrive)
         od_btns.addWidget(self._od_configure_btn)
@@ -2339,6 +2344,11 @@ class CloudStoragePage(Page):
         gd_layout.addWidget(self._gd_status)
         gd_btns = QHBoxLayout()
         gd_btns.setSpacing(10)
+        self._gd_install_btn = QPushButton("Install rclone")
+        self._gd_install_btn.setObjectName("primary")
+        self._gd_install_btn.hide()
+        self._gd_install_btn.clicked.connect(self._install_rclone)
+        gd_btns.addWidget(self._gd_install_btn)
         self._gd_configure_btn = QPushButton("Configure with rclone")
         self._gd_configure_btn.clicked.connect(self._configure_gdrive)
         gd_btns.addWidget(self._gd_configure_btn)
@@ -2422,34 +2432,50 @@ class CloudStoragePage(Page):
         db_installed = _is_flatpak_installed("com.dropbox.Client") or bool(shutil.which("dropbox"))
 
         if not rclone:
-            self._od_status.setText("rclone not found — install it to connect OneDrive.")
+            self._od_status.setText(
+                "rclone is not installed. Install it to connect OneDrive."
+            )
             self._od_status.setObjectName("status-warn")
-            self._od_configure_btn.setEnabled(False)
+            self._od_install_btn.show()
+            self._od_install_btn.setEnabled(True)
+            self._od_configure_btn.hide()
         elif od_ok:
             self._od_status.setText("OneDrive remote configured.")
             self._od_status.setObjectName("status-ok")
+            self._od_install_btn.hide()
             self._od_configure_btn.setText("Reconfigure")
+            self._od_configure_btn.show()
             self._od_configure_btn.setEnabled(True)
         else:
             self._od_status.setText("No OneDrive remote configured yet.")
             self._od_status.setObjectName("status-warn")
+            self._od_install_btn.hide()
             self._od_configure_btn.setText("Configure with rclone")
+            self._od_configure_btn.show()
             self._od_configure_btn.setEnabled(True)
         _restyle(self._od_status)
 
         if not rclone:
-            self._gd_status.setText("rclone not found — install it to connect Google Drive.")
+            self._gd_status.setText(
+                "rclone is not installed. Install it to connect Google Drive."
+            )
             self._gd_status.setObjectName("status-warn")
-            self._gd_configure_btn.setEnabled(False)
+            self._gd_install_btn.show()
+            self._gd_install_btn.setEnabled(True)
+            self._gd_configure_btn.hide()
         elif gd_ok:
             self._gd_status.setText("Google Drive remote configured.")
             self._gd_status.setObjectName("status-ok")
+            self._gd_install_btn.hide()
             self._gd_configure_btn.setText("Reconfigure")
+            self._gd_configure_btn.show()
             self._gd_configure_btn.setEnabled(True)
         else:
             self._gd_status.setText("No Google Drive remote configured yet.")
             self._gd_status.setObjectName("status-warn")
+            self._gd_install_btn.hide()
             self._gd_configure_btn.setText("Configure with rclone")
+            self._gd_configure_btn.show()
             self._gd_configure_btn.setEnabled(True)
         _restyle(self._gd_status)
 
@@ -2465,6 +2491,40 @@ class CloudStoragePage(Page):
             self._db_install_btn.setEnabled(True)
             self._db_launch_btn.hide()
         _restyle(self._db_status)
+
+    def _install_rclone(self):
+        self._od_install_btn.setEnabled(False)
+        self._gd_install_btn.setEnabled(False)
+        self._log.clear()
+        self._log.append("→ sudo rpm-ostree install rclone\n")
+        self._log.show()
+        self._progress.show()
+        self._op_status.setText("Installing rclone…")
+        self._op_status.setObjectName("subheading")
+        self._op_status.show()
+        _restyle(self._op_status)
+
+        self._worker = Worker(["sudo", "-A", "rpm-ostree", "install", "--idempotent", "rclone"])
+        self._worker.line.connect(self._on_line)
+        self._worker.done.connect(self._on_rclone_install_done)
+        self._worker.start()
+
+    def _on_rclone_install_done(self, code: int):
+        self._progress.hide()
+        _finish_worker(self)
+        if code == 0:
+            self._op_status.setText(
+                "rclone installed. Reboot to apply, then return here to configure your remotes."
+            )
+            self._op_status.setObjectName("status-ok")
+            self._log.append("\nDone. A reboot is required before rclone is available.")
+        else:
+            self._op_status.setText(f"Installation failed (exit code {code}).")
+            self._op_status.setObjectName("status-err")
+            self._od_install_btn.setEnabled(True)
+            self._gd_install_btn.setEnabled(True)
+        _restyle(self._op_status)
+        self._refresh_status()
 
     def _configure_onedrive(self):
         self._run_rclone_config()
