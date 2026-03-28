@@ -713,6 +713,38 @@ def _open_terminal_with_cmd(args: list[str], title: str = "") -> bool:
     return False
 
 
+def _mangohud_installed() -> bool:
+    return shutil.which("mangohud") is not None
+
+
+def _gamescope_installed() -> bool:
+    return shutil.which("gamescope") is not None
+
+
+def _vkbasalt_installed() -> bool:
+    return any(
+        os.path.exists(p) for p in (
+            "/usr/lib64/libvkbasalt.so",
+            "/usr/lib/libvkbasalt.so",
+        )
+    )
+
+
+def _ge_proton_version() -> str | None:
+    """Return the latest installed GE-Proton directory name, or None."""
+    for base in (
+        "/usr/share/steam/compatibilitytools.d",
+        "/var/lib/kyth/ge-proton",
+    ):
+        try:
+            entries = sorted(e for e in os.listdir(base) if e.startswith("GE-Proton"))
+            if entries:
+                return entries[-1]
+        except OSError:
+            pass
+    return None
+
+
 def _detect_nvidia() -> bool:
     try:
         r = subprocess.run(["lspci"], capture_output=True, text=True, timeout=5)
@@ -2332,6 +2364,252 @@ class RepairPage(Page):
             self._confirm_edit.clear()
 
 
+# ── Page: Gaming ─────────────────────────────────────────────────────────────
+class GamingPage(Page):
+    def __init__(self):
+        super().__init__()
+        self._ge_update_worker = None
+
+        self._heading("Gaming")
+        self._subheading(
+            "Kyth ships a full gaming stack. Everything below is pre-installed "
+            "and pre-configured — just add the right launch options in Steam."
+        )
+        self._divider()
+
+        # ── MangoHud ──────────────────────────────────────────────────────────
+        mh_card, mh_layout = _make_card()
+        mh_top = QHBoxLayout()
+        mh_title = QLabel("MangoHud — Performance Overlay")
+        mh_title.setObjectName("card-title")
+        mh_top.addWidget(mh_title)
+        mh_top.addStretch()
+        self._mh_badge = QLabel()
+        self._mh_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        mh_top.addWidget(self._mh_badge)
+        mh_layout.addLayout(mh_top)
+        mh_desc = QLabel(
+            "Shows FPS, frame time, GPU/CPU load and temperature as an in-game overlay. "
+            "Toggle on/off at any time with Shift R + F12."
+        )
+        mh_desc.setObjectName("card-copy")
+        mh_desc.setWordWrap(True)
+        mh_layout.addWidget(mh_desc)
+        mh_opts = QHBoxLayout()
+        mh_opts.setSpacing(10)
+        mh_opts.addWidget(_launch_opt_label("Steam launch option:"))
+        mh_opts.addWidget(_launch_opt_value("MANGOHUD=1 %command%"))
+        mh_copy = QPushButton("Copy")
+        mh_copy.clicked.connect(lambda: _copy_text("MANGOHUD=1 %command%"))
+        mh_opts.addWidget(mh_copy)
+        mh_opts.addStretch()
+        mh_layout.addLayout(mh_opts)
+        mh_cfg_row = QHBoxLayout()
+        mh_cfg_row.setSpacing(10)
+        mh_cfg_lbl = QLabel("Config: /etc/MangoHud/MangoHud.conf  ·  override: ~/.config/MangoHud/MangoHud.conf")
+        mh_cfg_lbl.setObjectName("card-copy")
+        mh_cfg_row.addWidget(mh_cfg_lbl)
+        mh_cfg_row.addStretch()
+        mh_layout.addLayout(mh_cfg_row)
+        self._add(mh_card)
+
+        # ── Gamescope ─────────────────────────────────────────────────────────
+        gs_card, gs_layout = _make_card()
+        gs_top = QHBoxLayout()
+        gs_title = QLabel("Gamescope — Game Compositor")
+        gs_title.setObjectName("card-title")
+        gs_top.addWidget(gs_title)
+        gs_top.addStretch()
+        self._gs_badge = QLabel()
+        self._gs_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        gs_top.addWidget(self._gs_badge)
+        gs_layout.addLayout(gs_top)
+        gs_desc = QLabel(
+            "Valve's micro-compositor for games: better frame pacing, VRR/adaptive sync, "
+            "FSR upscaling, and HDR. Runs the game inside its own compositor so the "
+            "desktop is unaffected. Using -e keeps Steam Input and overlay working."
+        )
+        gs_desc.setObjectName("card-copy")
+        gs_desc.setWordWrap(True)
+        gs_layout.addWidget(gs_desc)
+
+        for label, opt in (
+            ("Standard:",   "gamescope -e -- %command%"),
+            ("HDR display:", "gamescope -e --hdr-enabled --adaptive-sync -- %command%"),
+            ("ujust recipe:", "ujust gamescope -- %command%"),
+        ):
+            row = QHBoxLayout()
+            row.setSpacing(10)
+            row.addWidget(_launch_opt_label(label))
+            row.addWidget(_launch_opt_value(opt))
+            cp = QPushButton("Copy")
+            captured = opt
+            cp.clicked.connect(lambda _=False, t=captured: _copy_text(t))
+            row.addWidget(cp)
+            row.addStretch()
+            gs_layout.addLayout(row)
+        self._add(gs_card)
+
+        # ── GE-Proton ─────────────────────────────────────────────────────────
+        gp_card, gp_layout = _make_card()
+        gp_top = QHBoxLayout()
+        gp_title = QLabel("GE-Proton")
+        gp_title.setObjectName("card-title")
+        gp_top.addWidget(gp_title)
+        gp_top.addStretch()
+        self._gp_badge = QLabel()
+        self._gp_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        gp_top.addWidget(self._gp_badge)
+        gp_layout.addLayout(gp_top)
+        gp_desc = QLabel(
+            "Community Proton build with extra game patches, codec support, and "
+            "bleeding-edge Wine. Select it per-game in Steam → Properties → "
+            "Compatibility → Force the use of a specific Steam Play compatibility tool."
+        )
+        gp_desc.setObjectName("card-copy")
+        gp_desc.setWordWrap(True)
+        gp_layout.addWidget(gp_desc)
+        self._gp_version_lbl = QLabel()
+        self._gp_version_lbl.setObjectName("card-copy")
+        gp_layout.addWidget(self._gp_version_lbl)
+        gp_btns = QHBoxLayout()
+        gp_btns.setSpacing(10)
+        gp_update_btn = QPushButton("Update GE-Proton")
+        gp_update_btn.clicked.connect(self._update_ge_proton)
+        gp_btns.addWidget(gp_update_btn)
+        gp_btns.addStretch()
+        gp_layout.addLayout(gp_btns)
+        self._gp_op_status = QLabel()
+        self._gp_op_status.hide()
+        gp_layout.addWidget(self._gp_op_status)
+        self._gp_progress = QProgressBar()
+        self._gp_progress.setRange(0, 0)
+        self._gp_progress.hide()
+        gp_layout.addWidget(self._gp_progress)
+        self._add(gp_card)
+
+        # ── vkBasalt ──────────────────────────────────────────────────────────
+        vk_card, vk_layout = _make_card()
+        vk_top = QHBoxLayout()
+        vk_title = QLabel("vkBasalt — Vulkan Post-Processing")
+        vk_title.setObjectName("card-title")
+        vk_top.addWidget(vk_title)
+        vk_top.addStretch()
+        self._vk_badge = QLabel()
+        self._vk_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        vk_top.addWidget(self._vk_badge)
+        vk_layout.addLayout(vk_top)
+        vk_desc = QLabel(
+            "Adds post-processing to any Vulkan game: CAS sharpening (default), SMAA, "
+            "FXAA, or debanding. Only active when explicitly enabled per-game. "
+            "Config: /etc/vkBasalt.conf  ·  toggle key: Home."
+        )
+        vk_desc.setObjectName("card-copy")
+        vk_desc.setWordWrap(True)
+        vk_layout.addWidget(vk_desc)
+        vk_opts = QHBoxLayout()
+        vk_opts.setSpacing(10)
+        vk_opts.addWidget(_launch_opt_label("Steam launch option:"))
+        vk_opts.addWidget(_launch_opt_value("ENABLE_VKBASALT=1 %command%"))
+        vk_copy = QPushButton("Copy")
+        vk_copy.clicked.connect(lambda: _copy_text("ENABLE_VKBASALT=1 %command%"))
+        vk_opts.addWidget(vk_copy)
+        vk_opts.addStretch()
+        vk_layout.addLayout(vk_opts)
+        self._add(vk_card)
+
+        # ── Combos quick reference ────────────────────────────────────────────
+        self._divider()
+        combo_head = QLabel("Combining tools")
+        combo_head.setObjectName("card-title")
+        self._add(combo_head)
+        combo_sub = QLabel(
+            "These launch options can be stacked freely. "
+            "A good all-rounder for most games:"
+        )
+        combo_sub.setObjectName("card-copy")
+        combo_sub.setWordWrap(True)
+        self._add(combo_sub)
+        combo_txt = QTextEdit()
+        combo_txt.setReadOnly(True)
+        combo_txt.setMinimumHeight(160)
+        combo_txt.setPlainText(
+            "# All-rounder: MangoHud overlay + Gamescope compositor\n"
+            "MANGOHUD=1 gamescope -e -- %command%\n\n"
+            "# Same but with HDR (requires HDR display)\n"
+            "MANGOHUD=1 gamescope -e --hdr-enabled --adaptive-sync -- %command%\n\n"
+            "# Add CAS sharpening via vkBasalt\n"
+            "MANGOHUD=1 ENABLE_VKBASALT=1 gamescope -e -- %command%\n\n"
+            "# GameMode + performance profile (CPU/GPU governors, renice)\n"
+            "ujust game-performance -- %command%"
+        )
+        self._add(combo_txt)
+
+        self._stretch()
+        self._refresh_status()
+
+    def _refresh_status(self):
+        def badge(ok: bool) -> tuple[str, str]:
+            return ("#4dbb6f", "Installed") if ok else ("#e8a832", "Not Found")
+
+        for installed, lbl in (
+            (_mangohud_installed(), self._mh_badge),
+            (_gamescope_installed(), self._gs_badge),
+            (_vkbasalt_installed(), self._vk_badge),
+        ):
+            color, text = badge(installed)
+            lbl.setText(f"  {text}  ")
+            lbl.setStyleSheet(
+                f"background: {color}22; color: {color}; border: 1px solid {color}44; "
+                f"border-radius: 10px; padding: 3px 8px; font-size: 11px; font-weight: 700;"
+            )
+
+        gp_ver = _ge_proton_version()
+        if gp_ver:
+            color, text = "#4dbb6f", gp_ver
+            self._gp_version_lbl.setText(f"Installed: {gp_ver}")
+        else:
+            color, text = "#e8a832", "Not Found"
+            self._gp_version_lbl.setText("GE-Proton not found in compatibilitytools.d")
+        self._gp_badge.setText(f"  {text}  ")
+        self._gp_badge.setStyleSheet(
+            f"background: {color}22; color: {color}; border: 1px solid {color}44; "
+            f"border-radius: 10px; padding: 3px 8px; font-size: 11px; font-weight: 700;"
+        )
+
+    def _update_ge_proton(self):
+        if not _open_terminal_with_cmd(["ujust", "update-ge-proton"],
+                                       title="Update GE-Proton"):
+            self._gp_op_status.setText(
+                "Could not find a terminal. Run 'ujust update-ge-proton' manually."
+            )
+            self._gp_op_status.setObjectName("status-warn")
+            self._gp_op_status.show()
+            _restyle(self._gp_op_status)
+
+
+def _launch_opt_label(text: str) -> QLabel:
+    lbl = QLabel(text)
+    lbl.setStyleSheet("font-size: 12px; color: #888888; min-width: 130px;")
+    return lbl
+
+
+def _launch_opt_value(text: str) -> QLabel:
+    lbl = QLabel(text)
+    lbl.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+    lbl.setStyleSheet(
+        "font-family: 'Noto Mono', 'Cascadia Code', monospace; "
+        "font-size: 12px; color: #c0c0c0; "
+        "background: #060606; border: 1px solid #1e1e1e; "
+        "border-radius: 4px; padding: 3px 8px;"
+    )
+    return lbl
+
+
+def _copy_text(text: str):
+    QApplication.clipboard().setText(text)
+
+
 # ── rclone OAuth authorization worker ────────────────────────────────────────
 class RcloneAuthorizeWorker(QThread):
     """Runs `rclone authorize <type>` in the background; emits the token JSON on success."""
@@ -3221,6 +3499,7 @@ class MainWindow(QMainWindow):
             ("Firmware",       "Firmware"),
             ("Update",         "Update"),
             ("NVIDIA Drivers", "NVIDIA"),
+            ("Gaming",         "Gaming"),
             ("Cloud Storage",  "Cloud Storage"),
             ("Diagnostics",    "Diagnostics"),
             ("Branches",       "Branches"),
@@ -3246,6 +3525,7 @@ class MainWindow(QMainWindow):
             FirmwarePage(),
             UpdatePage(),
             NvidiaPage(),
+            GamingPage(),
             CloudStoragePage(),
             DiagnosticsPage(),
             BranchesPage(),

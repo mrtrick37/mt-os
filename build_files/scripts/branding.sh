@@ -254,6 +254,12 @@ PLASMADESKTOPEOF
 mkdir -p /etc/MangoHud
 install -m 0644 /ctx/MangoHud.conf /etc/MangoHud/MangoHud.conf
 
+# ── vkBasalt defaults ─────────────────────────────────────────────────────────
+# vkBasalt is inactive unless ENABLE_VKBASALT=1 is set per-game.
+# Ship a default config (CAS sharpening) so it works correctly when enabled.
+# Users can override with ~/.config/vkBasalt/vkBasalt.conf
+install -m 0644 /ctx/vkBasalt.conf /etc/vkBasalt.conf
+
 # ── Outlook PWA ───────────────────────────────────────────────────────────────
 # Adds Microsoft Outlook to the Internet section of the app launcher via a
 # .desktop file that opens it as a Brave PWA (no browser chrome).

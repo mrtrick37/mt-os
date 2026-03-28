@@ -771,6 +771,12 @@ dnf5 install -y python3-pyqt6
 mkdir -p /etc/MangoHud
 install -m 0644 /ctx/MangoHud.conf /etc/MangoHud/MangoHud.conf
 
+# ── vkBasalt defaults ─────────────────────────────────────────────────────────
+# vkBasalt is inactive unless ENABLE_VKBASALT=1 is set per-game.
+# Ship a default config (CAS sharpening) so it works correctly when enabled.
+# Users can override with ~/.config/vkBasalt/vkBasalt.conf
+install -m 0644 /ctx/vkBasalt.conf /etc/vkBasalt.conf
+
 install -m 0755 /ctx/kyth-welcome/kyth-welcome /usr/bin/kyth-welcome
 install -m 0644 /ctx/kyth-welcome/kyth-welcome.desktop \
     /usr/share/applications/kyth-welcome.desktop
