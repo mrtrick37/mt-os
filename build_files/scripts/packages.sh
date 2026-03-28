@@ -29,12 +29,6 @@ dnf5 install -y --skip-unavailable \
     mozilla-openh264 \
     mpv
 
-# Always upgrade all packages (except kernel/gamescope) before graphics/mesa installs
-dnf5 upgrade -y --exclude='kernel*' --exclude='gamescope*'
-
-# Mesa-git upgrade is handled in a separate image layer (build_files/scripts/mesa-git.sh)
-# so daily mesa updates only re-download that small layer, not this entire layer.
-
 # Install all required packages
 dnf5 install -y --skip-unavailable \
     p7zip \
@@ -178,8 +172,6 @@ dnf5 install -y --skip-unavailable \
     mesa-va-drivers \
     mesa-vdpau-drivers \
     radeontop
-dnf5 upgrade -y libdrm
-
 dnf5 install -y libclc
 
 # Brave Browser — replaces Firefox
@@ -244,6 +236,3 @@ dnf5 install -y spice-vdagent kscreen
 # corrupt RPM files in the persistent DNF cache. Remove once mirror stabilises.
 dnf5 clean packages
 dnf5 install -y --nogpgcheck gcc glibc-devel libxcrypt-compat patch ruby
-
-# Purge dnf package cache — not needed at runtime and adds ~200 MB to the image.
-dnf5 clean all

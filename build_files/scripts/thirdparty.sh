@@ -143,8 +143,13 @@ fi
 # Owned by a dedicated non-root 'linuxbrew' system user so topgrade does not invoke
 # brew via sudo (which brew refuses). Wheel group gets write access so any wheel
 # user can install/update formulae without privilege escalation.
+#
+# Pinned to a release tag so the thirdparty layer hash stays stable between daily
+# CI builds. Bump HOMEBREW_TAG when you want to ship a newer Homebrew version.
+HOMEBREW_TAG="5.1.1"
 useradd -r -d /home/linuxbrew -M -s /sbin/nologin linuxbrew
-git clone https://github.com/Homebrew/brew /home/linuxbrew/.linuxbrew \
+git clone --depth 1 --branch "${HOMEBREW_TAG}" \
+    https://github.com/Homebrew/brew /home/linuxbrew/.linuxbrew \
     || { echo "ERROR: Homebrew git clone failed"; exit 1; }
 [ -f /home/linuxbrew/.linuxbrew/bin/brew ] \
     || { echo "ERROR: Homebrew clone appears empty"; exit 1; }

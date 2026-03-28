@@ -20,41 +20,49 @@ LABEL org.osbuild.branding.release="Kyth 43"
 ARG ENABLE_ANANICY=1
 ARG ENABLE_SCX=1
 
-# Layer 1: All RPM packages, repos, and dnf upgrade (~2-3 GB).
-# Re-downloaded only when packages are added/removed or upstream RPMs update.
+# Layer 1: All RPM package installs (~2-3 GB).
+# Stable — only re-downloaded when packages are explicitly added/removed.
 RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
     --mount=type=cache,dst=/var/cache \
     --mount=type=cache,dst=/var/log \
     --mount=type=tmpfs,dst=/tmp \
     ENABLE_ANANICY=${ENABLE_ANANICY} /ctx/scripts/packages.sh
 
-# Layer 2: Third-party binaries — topgrade, winetricks, SCX schedulers, Homebrew (~400 MB).
-# Re-downloaded when upstream projects cut new releases.
+# Layer 2: Upstream RPM upgrades (~50-500 MB daily delta).
+# Isolated so daily package updates don't invalidate the full install layer above.
+RUN --mount=type=cache,dst=/var/cache \
+    --mount=type=tmpfs,dst=/tmp \
+    dnf5 upgrade -y --exclude='kernel*' --exclude='gamescope*' && \
+    dnf5 upgrade -y libdrm && \
+    dnf5 clean all
+
+# Layer 3: Third-party binaries — topgrade, winetricks, SCX schedulers, Homebrew (~400 MB).
+# Stable — re-downloaded only when upstream projects cut new releases or pins are bumped.
 RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
     --mount=type=cache,dst=/var/cache \
     --mount=type=tmpfs,dst=/tmp \
     ENABLE_SCX=${ENABLE_SCX} /ctx/scripts/thirdparty.sh
 
-# Layer 3: System configuration — sysctl, audio, gaming tuning, env vars (~few KB).
+# Layer 4: System configuration — sysctl, audio, gaming tuning, env vars (~few KB).
 # Re-downloaded only when tuning values change.
 RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
     --mount=type=tmpfs,dst=/tmp \
     /ctx/scripts/sysconfig.sh
 
-# Layer 4: Branding, theming, helper app, Plymouth (~10 MB).
+# Layer 5: Branding, theming, helper app, Plymouth (~10 MB).
 # Re-downloaded on Kyth version bumps or welcome app updates.
 RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
     --mount=type=cache,dst=/var/cache \
     --mount=type=tmpfs,dst=/tmp \
     /ctx/scripts/branding.sh
 
-# Layer 5: GE-Proton (~700 MB). Only re-downloaded when GE_PROTON_VER is bumped.
+# Layer 6: GE-Proton (~700 MB). Only re-downloaded when GE_PROTON_VER is bumped.
 RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
     --mount=type=cache,dst=/var/cache \
     --mount=type=tmpfs,dst=/tmp \
     /ctx/scripts/ge-proton.sh
 
-# Layer 6: Mesa-git (~300-500 MB). Re-downloaded on daily CI builds.
+# Layer 7: Mesa-git (~300-500 MB). Re-downloaded on daily CI builds.
 RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
     --mount=type=cache,dst=/var/cache \
     --mount=type=tmpfs,dst=/tmp \
