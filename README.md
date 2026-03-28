@@ -80,12 +80,7 @@ sudo bootc switch ghcr.io/mrtrick37/kyth:latest
 
 ## Install
 
-### Live ISO (recommended)
-
-| Channel | Download | Description |
-|---------|----------|-------------|
-| **Stable** | [kyth-live-latest.iso](https://pub-9a3cc72972ea44c4ae7504ee7cda1fa6.r2.dev/kyth-live-latest.iso) | Built from `main` |
-| **Testing** | [kyth-live-testing.iso](https://pub-9a3cc72972ea44c4ae7504ee7cda1fa6.r2.dev/kyth-live-testing.iso) | Built from `testing` — may be unstable |
+### Download Latest Live ISO from Releases
 
 1. Flash the ISO to a USB drive (`dd`, Balena Etcher, Ventoy, etc.)
 2. Boot it — KDE Plasma loads automatically, no login required
