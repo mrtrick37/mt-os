@@ -19,7 +19,7 @@ from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLabel, QTextEdit, QStackedWidget, QProgressBar,
     QFrame, QScrollArea, QFileDialog, QMessageBox, QLineEdit,
-    QSizePolicy,
+    QSizePolicy, QDialog, QCheckBox,
 )
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer, QUrl
 from PyQt6.QtGui import QDesktopServices, QIcon
@@ -364,6 +364,30 @@ QLineEdit {
 QLineEdit:focus {
     border-color: #5b9cf6;
 }
+
+/* ── Checkbox ────────────────────────────────────────────────────────────── */
+QCheckBox {
+    color: #d0d0d0;
+    spacing: 8px;
+}
+
+QCheckBox::indicator {
+    width: 16px;
+    height: 16px;
+    background: #1a1a1a;
+    border: 2px solid #333333;
+    border-radius: 4px;
+}
+
+QCheckBox::indicator:checked {
+    background: #5b9cf6;
+    border-color: #5b9cf6;
+    image: none;
+}
+
+QCheckBox::indicator:hover {
+    border-color: #5b9cf6;
+}
 """
 
 
@@ -639,26 +663,53 @@ def _rclone_available() -> bool:
     return shutil.which("rclone") is not None
 
 
-def _rclone_has_remote_type(remote_type: str) -> bool:
+def _rclone_list_remotes() -> list[tuple[str, str]]:
+    """Return [(name, type), …] for every configured rclone remote."""
     result = _run_command(["rclone", "listremotes", "--long"], timeout=5)
     if result is None or result.returncode != 0:
-        return False
-    return any(
-        remote_type.lower() in col.lower()
-        for line in result.stdout.splitlines()
-        for col in line.split()
-    )
+        return []
+    remotes: list[tuple[str, str]] = []
+    for line in result.stdout.splitlines():
+        parts = line.split()
+        if len(parts) >= 2:
+            remotes.append((parts[0].rstrip(":"), parts[1].lower()))
+    return remotes
 
 
-def _open_rclone_terminal() -> bool:
-    for term, flag in (("konsole", "-e"), ("xterm", "-e")):
-        if not shutil.which(term):
-            continue
+def _rclone_has_remote_type(remote_type: str) -> bool:
+    """Return True only when a remote whose type is *exactly* remote_type exists."""
+    return any(rtype == remote_type.lower() for _, rtype in _rclone_list_remotes())
+
+
+def _open_terminal_with_cmd(args: list[str], title: str = "") -> bool:
+    """Launch args inside a terminal window; try several emulators. Returns True on success."""
+    # xdg-terminal-exec is the XDG standard launcher (installed on Kyth)
+    if shutil.which("xdg-terminal-exec"):
         try:
-            subprocess.Popen([term, flag, "rclone", "config"])
+            subprocess.Popen(["xdg-terminal-exec"] + args)
             return True
         except OSError:
-            continue
+            pass
+    # Konsole — --hold keeps the window open after the command exits
+    if shutil.which("konsole"):
+        try:
+            opts = ["konsole", "--hold"]
+            if title:
+                opts += ["--title", title]
+            subprocess.Popen(opts + ["-e"] + args)
+            return True
+        except OSError:
+            pass
+    # xterm fallback
+    if shutil.which("xterm"):
+        try:
+            opts = ["xterm", "-hold"]
+            if title:
+                opts += ["-T", title]
+            subprocess.Popen(opts + ["-e"] + args)
+            return True
+        except OSError:
+            pass
     return False
 
 
@@ -2281,6 +2332,547 @@ class RepairPage(Page):
             self._confirm_edit.clear()
 
 
+# ── rclone OAuth authorization worker ────────────────────────────────────────
+class RcloneAuthorizeWorker(QThread):
+    """Runs `rclone authorize <type>` in the background; emits the token JSON on success."""
+    token_ready = pyqtSignal(str)
+    failed = pyqtSignal(str)
+
+    def __init__(self, remote_type: str):
+        super().__init__()
+        self._remote_type = remote_type
+        self._proc = None
+
+    def run(self):
+        try:
+            self._proc = subprocess.Popen(
+                ["rclone", "authorize", self._remote_type],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            stdout, stderr = self._proc.communicate(timeout=300)
+            if self._proc.returncode != 0 and not stdout.strip():
+                self.failed.emit(
+                    f"rclone authorize exited with code {self._proc.returncode}.\n\n"
+                    f"{stderr.strip()[:400]}"
+                )
+                return
+            token = self._extract_token(stdout) or self._extract_token(stderr)
+            if token:
+                self.token_ready.emit(token)
+            else:
+                combined = (stdout + stderr).strip()
+                self.failed.emit(
+                    "Authorization completed but could not parse the token.\n\n"
+                    f"Output:\n{combined[:600]}"
+                )
+        except subprocess.TimeoutExpired:
+            if self._proc:
+                self._proc.kill()
+            self.failed.emit("Authorization timed out after 5 minutes.")
+        except Exception as exc:
+            self.failed.emit(str(exc))
+
+    @staticmethod
+    def _extract_token(text: str) -> str | None:
+        start_marker = "Paste the following into your remote machine --->"
+        end_marker = "<---End paste"
+        if start_marker in text and end_marker in text:
+            start = text.index(start_marker) + len(start_marker)
+            end = text.index(end_marker, start)
+            candidate = text[start:end].strip()
+            if candidate.startswith("{"):
+                return candidate
+        m = re.search(r'\{"access_token"[^<>]*\}', text, re.DOTALL)
+        if m:
+            return m.group(0)
+        return None
+
+    def cancel(self):
+        if self._proc and self._proc.poll() is None:
+            self._proc.terminate()
+
+
+# ── rclone setup wizard dialog ────────────────────────────────────────────────
+class RcloneSetupWizard(QDialog):
+    """Four-step wizard: choose service → name/folder → browser OAuth → done."""
+
+    finished_ok = pyqtSignal(str, str, str)  # (remote_name, remote_type, local_folder)
+
+    _SERVICES: dict[str, dict] = {
+        "onedrive": {
+            "label": "Microsoft OneDrive",
+            "description": "Personal or business OneDrive via Microsoft OAuth.",
+            "default_name": "onedrive",
+            "default_folder": os.path.expanduser("~/OneDrive"),
+            "docs_url": "https://rclone.org/onedrive/",
+        },
+        "drive": {
+            "label": "Google Drive",
+            "description": "Google Drive via Google OAuth. Includes Shared Drives.",
+            "default_name": "gdrive",
+            "default_folder": os.path.expanduser("~/GoogleDrive"),
+            "docs_url": "https://rclone.org/drive/",
+        },
+    }
+
+    def __init__(self, parent=None, preselect: str = "onedrive"):
+        super().__init__(parent)
+        self.setWindowTitle("Cloud Storage Setup — Kyth")
+        self.setMinimumSize(600, 500)
+        self.resize(640, 540)
+        self.setModal(True)
+
+        self._auth_worker: RcloneAuthorizeWorker | None = None
+        self._token = ""
+        self._selected_service = preselect if preselect in self._SERVICES else "onedrive"
+        self._local_folder_for_open = ""
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+
+        # ── Header ─────────────────────────────────────────────────────────────
+        header = QWidget()
+        header.setStyleSheet(
+            "QWidget { background: #080808; border-bottom: 1px solid #1c1c1c; }"
+        )
+        hdr_layout = QHBoxLayout(header)
+        hdr_layout.setContentsMargins(28, 16, 28, 16)
+        title_lbl = QLabel("Cloud Storage Setup")
+        title_lbl.setStyleSheet("font-size: 16px; font-weight: 700; color: #ffffff;")
+        hdr_layout.addWidget(title_lbl)
+        hdr_layout.addStretch()
+        self._step_label = QLabel()
+        self._step_label.setStyleSheet("font-size: 12px; color: #555555;")
+        hdr_layout.addWidget(self._step_label)
+        root.addWidget(header)
+
+        # ── Page stack ─────────────────────────────────────────────────────────
+        self._stack = QStackedWidget()
+        self._stack.addWidget(self._build_service_page())   # 0
+        self._stack.addWidget(self._build_remote_page())    # 1
+        self._stack.addWidget(self._build_auth_page())      # 2
+        self._stack.addWidget(self._build_done_page())      # 3
+        root.addWidget(self._stack, 1)
+
+        # ── Footer ─────────────────────────────────────────────────────────────
+        footer = QWidget()
+        footer.setStyleSheet(
+            "QWidget { background: #080808; border-top: 1px solid #1c1c1c; }"
+        )
+        ftr_layout = QHBoxLayout(footer)
+        ftr_layout.setContentsMargins(28, 14, 28, 14)
+        ftr_layout.setSpacing(10)
+        self._back_btn = QPushButton("← Back")
+        self._back_btn.clicked.connect(self._go_back)
+        ftr_layout.addWidget(self._back_btn)
+        ftr_layout.addStretch()
+        self._next_btn = QPushButton("Next →")
+        self._next_btn.setObjectName("primary")
+        self._next_btn.clicked.connect(self._go_next)
+        ftr_layout.addWidget(self._next_btn)
+        self._cancel_btn = QPushButton("Cancel")
+        self._cancel_btn.clicked.connect(self.reject)
+        ftr_layout.addWidget(self._cancel_btn)
+        root.addWidget(footer)
+
+        self._update_nav()
+
+    # ── Page builders ──────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _page_container() -> tuple[QWidget, QVBoxLayout]:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(32, 28, 32, 24)
+        layout.setSpacing(18)
+        return page, layout
+
+    def _build_service_page(self) -> QWidget:
+        page, layout = self._page_container()
+
+        heading = QLabel("Choose your cloud storage service")
+        heading.setStyleSheet("font-size: 17px; font-weight: 700; color: #f0f0f0;")
+        layout.addWidget(heading)
+
+        sub = QLabel(
+            "Select the service you want to connect. "
+            "You can run the wizard again to add more services later."
+        )
+        sub.setObjectName("card-copy")
+        sub.setWordWrap(True)
+        layout.addWidget(sub)
+
+        cards_row = QHBoxLayout()
+        cards_row.setSpacing(14)
+        self._service_btns: dict[str, QPushButton] = {}
+        for svc_id, info in self._SERVICES.items():
+            btn = QPushButton()
+            btn.setCheckable(True)
+            btn.setMinimumHeight(96)
+            btn.setStyleSheet("QPushButton { text-align: left; border-radius: 8px; }")
+            inner = QVBoxLayout(btn)
+            inner.setContentsMargins(16, 14, 16, 14)
+            inner.setSpacing(6)
+            name_lbl = QLabel(info["label"])
+            name_lbl.setStyleSheet(
+                "font-size: 14px; font-weight: 700; background: transparent; border: none;"
+            )
+            inner.addWidget(name_lbl)
+            desc_lbl = QLabel(info["description"])
+            desc_lbl.setWordWrap(True)
+            desc_lbl.setStyleSheet(
+                "font-size: 12px; color: #888888; background: transparent; border: none;"
+            )
+            inner.addWidget(desc_lbl)
+            btn.clicked.connect(lambda _checked, s=svc_id: self._select_service(s))
+            self._service_btns[svc_id] = btn
+            cards_row.addWidget(btn)
+
+        layout.addLayout(cards_row)
+        layout.addStretch()
+        self._select_service(self._selected_service)
+        return page
+
+    def _build_remote_page(self) -> QWidget:
+        page, layout = self._page_container()
+
+        heading = QLabel("Name and local folder")
+        heading.setStyleSheet("font-size: 17px; font-weight: 700; color: #f0f0f0;")
+        layout.addWidget(heading)
+
+        sub = QLabel(
+            "The remote name is used in rclone commands (e.g. rclone sync myname: ~/Folder). "
+            "The local folder is where your files will appear on this machine."
+        )
+        sub.setObjectName("card-copy")
+        sub.setWordWrap(True)
+        layout.addWidget(sub)
+
+        form_card, form_layout = _make_card()
+        form_layout.setSpacing(10)
+
+        name_lbl = QLabel("Remote name")
+        name_lbl.setStyleSheet("font-weight: 600; color: #cccccc;")
+        form_layout.addWidget(name_lbl)
+        self._name_edit = QLineEdit()
+        self._name_edit.setPlaceholderText("e.g. onedrive")
+        form_layout.addWidget(self._name_edit)
+        form_layout.addWidget(
+            _hint_label("Letters, digits, hyphens and underscores only. No spaces.")
+        )
+
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.HLine)
+        sep.setStyleSheet("background: #1c1c1c; max-height: 1px; border: none;")
+        form_layout.addWidget(sep)
+
+        folder_lbl = QLabel("Local sync folder")
+        folder_lbl.setStyleSheet("font-weight: 600; color: #cccccc;")
+        form_layout.addWidget(folder_lbl)
+        folder_row = QHBoxLayout()
+        folder_row.setSpacing(8)
+        self._folder_edit = QLineEdit()
+        self._folder_edit.setPlaceholderText("e.g. /home/user/OneDrive")
+        folder_row.addWidget(self._folder_edit, 1)
+        browse_btn = QPushButton("Browse…")
+        browse_btn.clicked.connect(self._browse_folder)
+        folder_row.addWidget(browse_btn)
+        form_layout.addLayout(folder_row)
+        form_layout.addWidget(
+            _hint_label("Folder will be created automatically if it does not exist.")
+        )
+
+        layout.addWidget(form_card)
+        layout.addStretch()
+        return page
+
+    def _build_auth_page(self) -> QWidget:
+        page, layout = self._page_container()
+
+        self._auth_heading = QLabel("Authorize access")
+        self._auth_heading.setStyleSheet(
+            "font-size: 17px; font-weight: 700; color: #f0f0f0;"
+        )
+        layout.addWidget(self._auth_heading)
+
+        self._auth_sub = QLabel(
+            "Click the button below to open your browser and sign in. "
+            "This window will update automatically once authorization is complete — "
+            "you don't need to do anything else here while the browser is open."
+        )
+        self._auth_sub.setObjectName("card-copy")
+        self._auth_sub.setWordWrap(True)
+        layout.addWidget(self._auth_sub)
+
+        auth_card, auth_card_layout = _make_card()
+        auth_card_layout.setSpacing(14)
+
+        self._auth_status_lbl = QLabel("Ready — click the button below to begin.")
+        self._auth_status_lbl.setWordWrap(True)
+        auth_card_layout.addWidget(self._auth_status_lbl)
+
+        self._auth_progress = QProgressBar()
+        self._auth_progress.setRange(0, 0)
+        self._auth_progress.hide()
+        auth_card_layout.addWidget(self._auth_progress)
+
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(10)
+        self._auth_start_btn = QPushButton("Open Browser & Authorize")
+        self._auth_start_btn.setObjectName("primary")
+        self._auth_start_btn.clicked.connect(self._start_auth)
+        btn_row.addWidget(self._auth_start_btn)
+        self._auth_cancel_btn = QPushButton("Cancel")
+        self._auth_cancel_btn.hide()
+        self._auth_cancel_btn.clicked.connect(self._cancel_auth)
+        btn_row.addWidget(self._auth_cancel_btn)
+        btn_row.addStretch()
+        auth_card_layout.addLayout(btn_row)
+
+        layout.addWidget(auth_card)
+        layout.addStretch()
+        return page
+
+    def _build_done_page(self) -> QWidget:
+        page, layout = self._page_container()
+
+        done_heading = QLabel("All set!")
+        done_heading.setStyleSheet(
+            "font-size: 22px; font-weight: 700; color: #4dbb6f;"
+        )
+        layout.addWidget(done_heading)
+
+        self._done_sub = QLabel("")
+        self._done_sub.setObjectName("card-copy")
+        self._done_sub.setWordWrap(True)
+        layout.addWidget(self._done_sub)
+
+        done_card, done_card_layout = _make_card()
+        done_card_layout.setSpacing(12)
+
+        self._done_summary = QLabel("")
+        self._done_summary.setWordWrap(True)
+        self._done_summary.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+        )
+        done_card_layout.addWidget(self._done_summary)
+
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.HLine)
+        sep.setStyleSheet("background: #1c1c1c; max-height: 1px; border: none;")
+        done_card_layout.addWidget(sep)
+
+        cmds_lbl = QLabel("Useful commands:")
+        cmds_lbl.setStyleSheet("font-weight: 600; color: #cccccc; font-size: 13px;")
+        done_card_layout.addWidget(cmds_lbl)
+
+        self._done_cmds = QTextEdit()
+        self._done_cmds.setReadOnly(True)
+        self._done_cmds.setMaximumHeight(110)
+        done_card_layout.addWidget(self._done_cmds)
+
+        open_row = QHBoxLayout()
+        self._open_folder_btn = QPushButton("Open Folder in Files")
+        self._open_folder_btn.clicked.connect(self._open_local_folder)
+        open_row.addWidget(self._open_folder_btn)
+        open_row.addStretch()
+        done_card_layout.addLayout(open_row)
+
+        layout.addWidget(done_card)
+        layout.addStretch()
+        return page
+
+    # ── Navigation ─────────────────────────────────────────────────────────────
+
+    def _go_next(self):
+        step = self._stack.currentIndex()
+        if step == 0:
+            info = self._SERVICES[self._selected_service]
+            self._name_edit.setText(info["default_name"])
+            self._folder_edit.setText(info["default_folder"])
+            self._auth_heading.setText(f"Authorize {info['label']}")
+            self._stack.setCurrentIndex(1)
+        elif step == 1:
+            if not self._validate_remote_page():
+                return
+            self._stack.setCurrentIndex(2)
+        elif step == 2:
+            if not self._token:
+                QMessageBox.warning(
+                    self, "Authorization Required",
+                    "Please complete browser authorization before continuing."
+                )
+                return
+            self._apply_config()
+        elif step == 3:
+            self.accept()
+        self._update_nav()
+
+    def _go_back(self):
+        step = self._stack.currentIndex()
+        if step == 2:
+            self._cancel_auth()
+        if step > 0:
+            self._stack.setCurrentIndex(step - 1)
+            self._update_nav()
+
+    def _update_nav(self):
+        step = self._stack.currentIndex()
+        self._step_label.setText(f"Step {step + 1} of 4")
+        self._back_btn.setVisible(0 < step < 3)
+        self._cancel_btn.setVisible(step < 3)
+        if step == 2:
+            self._next_btn.setVisible(bool(self._token))
+            self._next_btn.setText("Next →")
+        elif step == 3:
+            self._next_btn.setVisible(True)
+            self._next_btn.setText("Close")
+        else:
+            self._next_btn.setVisible(True)
+            self._next_btn.setText("Next →")
+
+    # ── Service selection ──────────────────────────────────────────────────────
+
+    def _select_service(self, svc_id: str):
+        self._selected_service = svc_id
+        for sid, btn in self._service_btns.items():
+            if sid == svc_id:
+                btn.setChecked(True)
+                btn.setStyleSheet(
+                    "QPushButton { background: #0f2044; border: 2px solid #3d70e8; "
+                    "border-radius: 8px; text-align: left; }"
+                )
+            else:
+                btn.setChecked(False)
+                btn.setStyleSheet(
+                    "QPushButton { background: #111111; border: 1px solid #222222; "
+                    "border-radius: 8px; text-align: left; }"
+                )
+
+    # ── Remote page ────────────────────────────────────────────────────────────
+
+    def _validate_remote_page(self) -> bool:
+        name = self._name_edit.text().strip()
+        if not name or not re.match(r'^[A-Za-z0-9_-]+$', name):
+            QMessageBox.warning(
+                self, "Invalid Name",
+                "Remote name must contain only letters, digits, hyphens, and underscores."
+            )
+            return False
+        folder = self._folder_edit.text().strip()
+        if not folder:
+            QMessageBox.warning(self, "No Folder", "Please enter a local sync folder path.")
+            return False
+        return True
+
+    def _browse_folder(self):
+        current = self._folder_edit.text().strip() or os.path.expanduser("~")
+        chosen = QFileDialog.getExistingDirectory(self, "Select Sync Folder", current)
+        if chosen:
+            self._folder_edit.setText(chosen)
+
+    # ── Authorization flow ─────────────────────────────────────────────────────
+
+    def _start_auth(self):
+        self._auth_start_btn.setEnabled(False)
+        self._auth_cancel_btn.show()
+        self._auth_progress.show()
+        self._auth_status_lbl.setText(
+            "Browser opened — please sign in and grant access, then return here."
+        )
+        self._auth_status_lbl.setObjectName("subheading")
+        _restyle(self._auth_status_lbl)
+
+        self._auth_worker = RcloneAuthorizeWorker(self._selected_service)
+        self._auth_worker.token_ready.connect(self._on_auth_success)
+        self._auth_worker.failed.connect(self._on_auth_failed)
+        self._auth_worker.start()
+
+    def _cancel_auth(self):
+        if self._auth_worker and self._auth_worker.isRunning():
+            self._auth_worker.cancel()
+            self._auth_worker.wait(2000)
+        self._auth_start_btn.setEnabled(True)
+        self._auth_cancel_btn.hide()
+        self._auth_progress.hide()
+        self._auth_status_lbl.setText("Ready — click the button below to begin.")
+        self._auth_status_lbl.setObjectName("")
+        _restyle(self._auth_status_lbl)
+
+    def _on_auth_success(self, token: str):
+        self._token = token
+        self._auth_progress.hide()
+        self._auth_cancel_btn.hide()
+        self._auth_status_lbl.setText("Authorization successful! Click Next to continue.")
+        self._auth_status_lbl.setObjectName("status-ok")
+        _restyle(self._auth_status_lbl)
+        self._update_nav()  # reveals Next button
+
+    def _on_auth_failed(self, error: str):
+        self._auth_start_btn.setEnabled(True)
+        self._auth_cancel_btn.hide()
+        self._auth_progress.hide()
+        self._auth_status_lbl.setText(f"Authorization failed — {error[:200]}")
+        self._auth_status_lbl.setObjectName("status-err")
+        _restyle(self._auth_status_lbl)
+
+    # ── Config creation + done page ────────────────────────────────────────────
+
+    def _apply_config(self):
+        name = self._name_edit.text().strip()
+        svc = self._selected_service
+        folder = self._folder_edit.text().strip()
+
+        try:
+            os.makedirs(folder, exist_ok=True)
+        except OSError as exc:
+            QMessageBox.critical(self, "Folder Error", f"Could not create folder:\n{exc}")
+            return
+
+        result = subprocess.run(
+            ["rclone", "config", "create", name, svc, "token", self._token],
+            capture_output=True, text=True, timeout=15,
+        )
+        if result.returncode != 0:
+            QMessageBox.critical(
+                self, "Config Error",
+                f"Failed to write rclone config:\n{result.stderr.strip()[:300]}"
+            )
+            return
+
+        info = self._SERVICES[svc]
+        self._done_sub.setText(f"Your {info['label']} is configured and ready to use.")
+        self._done_summary.setText(
+            f"Remote name:   {name}\n"
+            f"Service:            {info['label']}\n"
+            f"Local folder:    {folder}"
+        )
+        self._done_cmds.setPlainText(
+            f"# Sync cloud → local (one-shot):\n"
+            f"rclone sync {name}: {folder} --progress\n\n"
+            f"# Mount as a virtual drive (stays open until unmounted):\n"
+            f"rclone mount {name}: {folder} --daemon --vfs-cache-mode full"
+        )
+        self._local_folder_for_open = folder
+        self._stack.setCurrentIndex(3)
+        self._update_nav()
+        self.finished_ok.emit(name, svc, folder)
+
+    def _open_local_folder(self):
+        if self._local_folder_for_open and os.path.isdir(self._local_folder_for_open):
+            QDesktopServices.openUrl(QUrl.fromLocalFile(self._local_folder_for_open))
+
+
+def _hint_label(text: str) -> QLabel:
+    lbl = QLabel(text)
+    lbl.setObjectName("card-copy")
+    lbl.setWordWrap(True)
+    return lbl
+
+
 # ── Page: Cloud Storage ───────────────────────────────────────────────────────
 class CloudStoragePage(Page):
     def __init__(self):
@@ -2295,12 +2887,13 @@ class CloudStoragePage(Page):
 
         # ── OneDrive card ─────────────────────────────────────────────────────
         od_card, od_layout = _make_card()
-        od_title = QLabel("OneDrive")
+        od_title = QLabel("Microsoft OneDrive")
         od_title.setObjectName("card-title")
         od_layout.addWidget(od_title)
         od_desc = QLabel(
-            "Microsoft OneDrive via rclone. Run the setup wizard to authorize your account, "
-            "then use rclone sync or rclone mount to access your files."
+            "Sync or mount your OneDrive via rclone. "
+            "The setup wizard will open your browser to authorize access and "
+            "help you choose a local folder."
         )
         od_desc.setObjectName("card-copy")
         od_desc.setWordWrap(True)
@@ -2310,19 +2903,15 @@ class CloudStoragePage(Page):
         od_layout.addWidget(self._od_status)
         od_btns = QHBoxLayout()
         od_btns.setSpacing(10)
-        self._od_install_btn = QPushButton("Install rclone")
+        self._od_install_btn = QPushButton("Install rclone first")
         self._od_install_btn.setObjectName("primary")
         self._od_install_btn.hide()
         self._od_install_btn.clicked.connect(self._install_rclone)
         od_btns.addWidget(self._od_install_btn)
-        self._od_configure_btn = QPushButton("Configure with rclone")
-        self._od_configure_btn.clicked.connect(self._configure_onedrive)
-        od_btns.addWidget(self._od_configure_btn)
-        od_docs_btn = QPushButton("rclone Docs")
-        od_docs_btn.clicked.connect(
-            lambda: QDesktopServices.openUrl(QUrl("https://rclone.org/onedrive/"))
-        )
-        od_btns.addWidget(od_docs_btn)
+        self._od_wizard_btn = QPushButton("Setup Wizard…")
+        self._od_wizard_btn.setObjectName("primary")
+        self._od_wizard_btn.clicked.connect(lambda: self._open_wizard("onedrive"))
+        od_btns.addWidget(self._od_wizard_btn)
         od_btns.addStretch()
         od_layout.addLayout(od_btns)
         self._add(od_card)
@@ -2333,8 +2922,8 @@ class CloudStoragePage(Page):
         gd_title.setObjectName("card-title")
         gd_layout.addWidget(gd_title)
         gd_desc = QLabel(
-            "Google Drive via rclone, or via KDE Online Accounts for native Dolphin integration. "
-            "The rclone path works without any desktop-environment dependencies."
+            "Sync or mount your Google Drive via rclone. "
+            "The setup wizard handles browser OAuth — no terminal required."
         )
         gd_desc.setObjectName("card-copy")
         gd_desc.setWordWrap(True)
@@ -2344,24 +2933,20 @@ class CloudStoragePage(Page):
         gd_layout.addWidget(self._gd_status)
         gd_btns = QHBoxLayout()
         gd_btns.setSpacing(10)
-        self._gd_install_btn = QPushButton("Install rclone")
+        self._gd_install_btn = QPushButton("Install rclone first")
         self._gd_install_btn.setObjectName("primary")
         self._gd_install_btn.hide()
         self._gd_install_btn.clicked.connect(self._install_rclone)
         gd_btns.addWidget(self._gd_install_btn)
-        self._gd_configure_btn = QPushButton("Configure with rclone")
-        self._gd_configure_btn.clicked.connect(self._configure_gdrive)
-        gd_btns.addWidget(self._gd_configure_btn)
+        self._gd_wizard_btn = QPushButton("Setup Wizard…")
+        self._gd_wizard_btn.setObjectName("primary")
+        self._gd_wizard_btn.clicked.connect(lambda: self._open_wizard("drive"))
+        gd_btns.addWidget(self._gd_wizard_btn)
         gd_kde_btn = QPushButton("KDE Online Accounts")
         gd_kde_btn.clicked.connect(
             lambda: subprocess.Popen(["kcmshell6", "kcm_kaccounts"])
         )
         gd_btns.addWidget(gd_kde_btn)
-        gd_docs_btn = QPushButton("rclone Docs")
-        gd_docs_btn.clicked.connect(
-            lambda: QDesktopServices.openUrl(QUrl("https://rclone.org/drive/"))
-        )
-        gd_btns.addWidget(gd_docs_btn)
         gd_btns.addStretch()
         gd_layout.addLayout(gd_btns)
         self._add(gd_card)
@@ -2372,8 +2957,8 @@ class CloudStoragePage(Page):
         db_title.setObjectName("card-title")
         db_layout.addWidget(db_title)
         db_desc = QLabel(
-            "Official Dropbox client. Syncs ~/Dropbox automatically in the background "
-            "and adds a system tray icon."
+            "Official Dropbox client via Flatpak. Syncs ~/Dropbox automatically "
+            "in the background and adds a system tray icon."
         )
         db_desc.setObjectName("card-copy")
         db_desc.setWordWrap(True)
@@ -2396,26 +2981,23 @@ class CloudStoragePage(Page):
 
         self._divider()
 
-        # ── Refresh button ────────────────────────────────────────────────────
         refresh_row = QHBoxLayout()
         refresh_row.setSpacing(10)
-        self._refresh_btn = QPushButton("Refresh Status")
-        self._refresh_btn.clicked.connect(self._refresh_status)
-        refresh_row.addWidget(self._refresh_btn)
+        refresh_btn = QPushButton("Refresh Status")
+        refresh_btn.clicked.connect(self._refresh_status)
+        refresh_row.addWidget(refresh_btn)
         refresh_row.addStretch()
         self._add_layout(refresh_row)
 
-        # ── Shared operation area ─────────────────────────────────────────────
+        # ── Install progress area ─────────────────────────────────────────────
         self._op_status = QLabel()
         self._op_status.setObjectName("subheading")
         self._op_status.hide()
         self._add(self._op_status)
-
         self._progress = QProgressBar()
         self._progress.setRange(0, 0)
         self._progress.hide()
         self._add(self._progress)
-
         self._log = QTextEdit()
         self._log.setReadOnly(True)
         self._log.setMinimumHeight(150)
@@ -2425,60 +3007,60 @@ class CloudStoragePage(Page):
         self._stretch()
         self._refresh_status()
 
+    # ── Status ─────────────────────────────────────────────────────────────────
+
     def _refresh_status(self):
         rclone = _rclone_available()
-        od_ok = rclone and _rclone_has_remote_type("onedrive")
-        gd_ok = rclone and _rclone_has_remote_type("drive")
+        remotes = _rclone_list_remotes() if rclone else []
+        od_remotes = [n for n, t in remotes if t == "onedrive"]
+        gd_remotes = [n for n, t in remotes if t == "drive"]
         db_installed = _is_flatpak_installed("com.dropbox.Client") or bool(shutil.which("dropbox"))
 
+        # OneDrive
         if not rclone:
-            self._od_status.setText(
-                "rclone is not installed. Install it to connect OneDrive."
-            )
+            self._od_status.setText("rclone is not installed. Install it to use OneDrive.")
             self._od_status.setObjectName("status-warn")
             self._od_install_btn.show()
             self._od_install_btn.setEnabled(True)
-            self._od_configure_btn.hide()
-        elif od_ok:
-            self._od_status.setText("OneDrive remote configured.")
+            self._od_wizard_btn.hide()
+        elif od_remotes:
+            names = ", ".join(od_remotes)
+            self._od_status.setText(f"Configured: {names}")
             self._od_status.setObjectName("status-ok")
             self._od_install_btn.hide()
-            self._od_configure_btn.setText("Reconfigure")
-            self._od_configure_btn.show()
-            self._od_configure_btn.setEnabled(True)
+            self._od_wizard_btn.setText("Add / Reconfigure…")
+            self._od_wizard_btn.show()
         else:
             self._od_status.setText("No OneDrive remote configured yet.")
             self._od_status.setObjectName("status-warn")
             self._od_install_btn.hide()
-            self._od_configure_btn.setText("Configure with rclone")
-            self._od_configure_btn.show()
-            self._od_configure_btn.setEnabled(True)
+            self._od_wizard_btn.setText("Setup Wizard…")
+            self._od_wizard_btn.show()
         _restyle(self._od_status)
 
+        # Google Drive
         if not rclone:
-            self._gd_status.setText(
-                "rclone is not installed. Install it to connect Google Drive."
-            )
+            self._gd_status.setText("rclone is not installed. Install it to use Google Drive.")
             self._gd_status.setObjectName("status-warn")
             self._gd_install_btn.show()
             self._gd_install_btn.setEnabled(True)
-            self._gd_configure_btn.hide()
-        elif gd_ok:
-            self._gd_status.setText("Google Drive remote configured.")
+            self._gd_wizard_btn.hide()
+        elif gd_remotes:
+            names = ", ".join(gd_remotes)
+            self._gd_status.setText(f"Configured: {names}")
             self._gd_status.setObjectName("status-ok")
             self._gd_install_btn.hide()
-            self._gd_configure_btn.setText("Reconfigure")
-            self._gd_configure_btn.show()
-            self._gd_configure_btn.setEnabled(True)
+            self._gd_wizard_btn.setText("Add / Reconfigure…")
+            self._gd_wizard_btn.show()
         else:
             self._gd_status.setText("No Google Drive remote configured yet.")
             self._gd_status.setObjectName("status-warn")
             self._gd_install_btn.hide()
-            self._gd_configure_btn.setText("Configure with rclone")
-            self._gd_configure_btn.show()
-            self._gd_configure_btn.setEnabled(True)
+            self._gd_wizard_btn.setText("Setup Wizard…")
+            self._gd_wizard_btn.show()
         _restyle(self._gd_status)
 
+        # Dropbox
         if db_installed:
             self._db_status.setText("Dropbox is installed.")
             self._db_status.setObjectName("status-ok")
@@ -2492,6 +3074,15 @@ class CloudStoragePage(Page):
             self._db_launch_btn.hide()
         _restyle(self._db_status)
 
+    # ── Wizard launcher ────────────────────────────────────────────────────────
+
+    def _open_wizard(self, preselect: str):
+        wizard = RcloneSetupWizard(self, preselect=preselect)
+        wizard.finished_ok.connect(lambda _n, _t, _f: self._refresh_status())
+        wizard.exec()
+
+    # ── rclone install ─────────────────────────────────────────────────────────
+
     def _install_rclone(self):
         self._od_install_btn.setEnabled(False)
         self._gd_install_btn.setEnabled(False)
@@ -2503,7 +3094,6 @@ class CloudStoragePage(Page):
         self._op_status.setObjectName("subheading")
         self._op_status.show()
         _restyle(self._op_status)
-
         self._worker = Worker(["sudo", "-A", "rpm-ostree", "install", "--idempotent", "rclone"])
         self._worker.line.connect(self._on_line)
         self._worker.done.connect(self._on_rclone_install_done)
@@ -2514,10 +3104,11 @@ class CloudStoragePage(Page):
         _finish_worker(self)
         if code == 0:
             self._op_status.setText(
-                "rclone installed. Reboot to apply, then return here to configure your remotes."
+                "rclone installed. A reboot is required before it is available — "
+                "reboot and then use the Setup Wizard to connect your accounts."
             )
             self._op_status.setObjectName("status-ok")
-            self._log.append("\nDone. A reboot is required before rclone is available.")
+            self._log.append("\nDone. Reboot required.")
         else:
             self._op_status.setText(f"Installation failed (exit code {code}).")
             self._op_status.setObjectName("status-err")
@@ -2526,27 +3117,7 @@ class CloudStoragePage(Page):
         _restyle(self._op_status)
         self._refresh_status()
 
-    def _configure_onedrive(self):
-        self._run_rclone_config()
-
-    def _configure_gdrive(self):
-        self._run_rclone_config()
-
-    def _run_rclone_config(self):
-        if not _open_rclone_terminal():
-            self._op_status.setText(
-                "Could not find a terminal emulator. Run 'rclone config' manually in a terminal."
-            )
-            self._op_status.setObjectName("status-warn")
-            self._op_status.show()
-            _restyle(self._op_status)
-        else:
-            self._op_status.setText(
-                "rclone config opened in a terminal. Return here and click Refresh Status when done."
-            )
-            self._op_status.setObjectName("subheading")
-            self._op_status.show()
-            _restyle(self._op_status)
+    # ── Dropbox ────────────────────────────────────────────────────────────────
 
     def _install_dropbox(self):
         self._db_install_btn.setEnabled(False)
@@ -2558,23 +3129,12 @@ class CloudStoragePage(Page):
         self._op_status.setObjectName("subheading")
         self._op_status.show()
         _restyle(self._op_status)
-
         self._worker = Worker(["flatpak", "install", "-y", "flathub", "com.dropbox.Client"])
         self._worker.line.connect(self._on_line)
-        self._worker.done.connect(self._on_install_done)
+        self._worker.done.connect(self._on_dropbox_install_done)
         self._worker.start()
 
-    def _launch_dropbox(self):
-        if shutil.which("dropbox"):
-            subprocess.Popen(["dropbox"])
-        else:
-            subprocess.Popen(["flatpak", "run", "com.dropbox.Client"])
-
-    def _on_line(self, text: str):
-        self._log.append(text)
-        self._log.ensureCursorVisible()
-
-    def _on_install_done(self, code: int):
+    def _on_dropbox_install_done(self, code: int):
         self._progress.hide()
         _finish_worker(self)
         if code == 0:
@@ -2586,6 +3146,16 @@ class CloudStoragePage(Page):
             self._op_status.setObjectName("status-err")
         _restyle(self._op_status)
         self._refresh_status()
+
+    def _launch_dropbox(self):
+        if shutil.which("dropbox"):
+            subprocess.Popen(["dropbox"])
+        else:
+            subprocess.Popen(["flatpak", "run", "com.dropbox.Client"])
+
+    def _on_line(self, text: str):
+        self._log.append(text)
+        self._log.ensureCursorVisible()
 
 
 # ── Sidebar nav button ─────────────────────────────────────────────────────────
