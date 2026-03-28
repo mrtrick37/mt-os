@@ -100,6 +100,20 @@ install-lact:
     echo "Launch it from the app launcher."
     echo "If you want overclocking/undervolting on AMD, review the official LACT Atomic guidance first."
 
+# Install BoxBuddy (distrobox GUI) from Flathub.
+[group('Kyth')]
+install-boxbuddy:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if ! command -v flatpak >/dev/null 2>&1; then
+        echo "flatpak is not available on this system." >&2
+        exit 1
+    fi
+    flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+    flatpak install -y flathub io.github.dvlv.boxbuddyrs
+    echo
+    echo "BoxBuddy installed. Launch it from the app launcher to manage your distrobox containers."
+
 # Download and install the latest GE-Proton to /var/lib/kyth/ge-proton/.
 [group('Kyth')]
 update-ge-proton:
