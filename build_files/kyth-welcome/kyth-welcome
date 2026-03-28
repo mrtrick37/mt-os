@@ -784,6 +784,8 @@ def _gamescope_installed() -> bool:
 def _vkbasalt_installed() -> bool:
     return any(
         os.path.exists(p) for p in (
+            "/usr/lib64/vkbasalt/libvkbasalt.so",
+            "/usr/lib/vkbasalt/libvkbasalt.so",
             "/usr/lib64/libvkbasalt.so",
             "/usr/lib/libvkbasalt.so",
         )
