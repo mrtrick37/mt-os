@@ -150,6 +150,7 @@ def _run_install() -> None:
     # Layer progress state shared across run_cmd calls (used by bootc phase)
     _layers_total: list[int] = [0]
     _layers_done:  list[int] = [0]
+    _frac_floor:   list[float] = [0.0]  # prevents backwards jump when layer count first arrives
 
     def run_cmd(cmd: list[str], pct_start: int, pct_end: int) -> None:
         full_cmd = _as_root(cmd)
@@ -166,9 +167,12 @@ def _run_install() -> None:
             # Parse bootc layer totals: "layers already present: X; layers needed: Y"
             if "layers needed:" in stripped:
                 try:
-                    _layers_total[0] = int(
-                        stripped.split("layers needed:")[1].split()[0].rstrip(",)")
-                    )
+                    n = int(stripped.split("layers needed:")[1].split()[0].rstrip(",)"))
+                    if _layers_total[0] == 0:
+                        # Record time-based frac as floor so progress doesn't snap back to 5%
+                        elapsed = time.monotonic() - t0
+                        _frac_floor[0] = min(0.95, elapsed / (elapsed + 300.0))
+                    _layers_total[0] = n
                 except Exception:
                     pass
             # Count each blob/config copy as one completed unit
@@ -176,10 +180,12 @@ def _run_install() -> None:
                 _layers_done[0] += 1
             # Real progress when we have a layer count; time-based fallback otherwise
             if _layers_total[0] > 0:
-                frac = min(0.95, _layers_done[0] / _layers_total[0])
+                layer_frac = _layers_done[0] / _layers_total[0]
+                frac = min(0.95, max(_frac_floor[0], layer_frac))
             else:
                 elapsed = time.monotonic() - t0
                 frac = min(0.95, elapsed / (elapsed + 300.0))
+                _frac_floor[0] = frac
             progress(int(pct_start + frac * pct_range))
         proc.wait()
         if proc.returncode != 0:
@@ -209,10 +215,12 @@ def _run_install() -> None:
         ], 5, 90)
 
         log("── Phase 3: Configuring system ────────────────────────────────")
+        progress(91)
         root_part = get_root_partition(disk)
         mount = "/var/tmp/kyth-install-root"
         Path(mount).mkdir(parents=True, exist_ok=True)
         subprocess.run(_as_root(["mount", root_part, mount]), check=True)
+        progress(93)
         try:
             etc = find_deploy_etc(mount)
             if etc:
@@ -230,6 +238,7 @@ def _run_install() -> None:
                     check=True,
                 )
                 log(f"Timezone set: {_state['timezone']}")
+                progress(95)
 
                 # ── User account ──────────────────────────────────────────────
                 username = _state.get("username", "").strip()
@@ -322,6 +331,7 @@ def _run_install() -> None:
                             )
 
                         log(f"User '{username}' created (uid={uid})")
+                        progress(97)
                     except Exception as ue:
                         log(f"Warning: user creation failed: {ue}")
                         log("Create a user after first boot: sudo useradd -m -G wheel USERNAME")
@@ -329,6 +339,7 @@ def _run_install() -> None:
                 log("Warning: deploy/etc not found — skipping configuration")
         finally:
             subprocess.run(_as_root(["sync"]), check=False)
+            progress(99)
             subprocess.run(_as_root(["umount", mount]), check=False)
 
         progress(100)
