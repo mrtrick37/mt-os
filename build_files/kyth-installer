@@ -1315,7 +1315,10 @@ function listenSSE() {
   log.innerHTML = '';
 
   let layersTotal = 0, layersDone = 0, totalSizeStr = '';
-  let layerCopyStart = null;
+  let downloadStartTime = null;   // when "layers needed" was first seen
+  let copyStartTime     = null;   // when first "Copying" line arrived
+  let downloadTimer     = null;   // interval driving bar during download
+  let frontendOwnsBar   = false;  // true once we have layer data
 
   // Elapsed time ticker — reassures user the page is alive
   const startTime = Date.now();
@@ -1324,6 +1327,43 @@ function listenSSE() {
     const m = Math.floor(s / 60), sec = s % 60;
     elapsed.textContent = m > 0 ? `${m}m ${sec}s elapsed` : `${sec}s elapsed`;
   }, 1000);
+
+  function setBar(v) {
+    fill.style.width = v + '%';
+    pct.textContent  = v + '%';
+    if (v > 5) fill.classList.remove('pulsing');
+  }
+
+  function updateDownloadBar() {
+    if (!layersTotal) return;
+    let barPct, phaseText, statText;
+    if (layersDone > 0) {
+      // Real layer-count progress mapped to 5–90%
+      const frac = layersDone / layersTotal;
+      barPct = Math.round(5 + frac * 85);
+      let etaStr = '';
+      if (copyStartTime && layersDone > 2) {
+        const secSinceCopy = (Date.now() - copyStartTime) / 1000;
+        const layersPerSec = layersDone / secSinceCopy;
+        const remaining = Math.ceil((layersTotal - layersDone) / layersPerSec);
+        etaStr = remaining > 60
+          ? `  ·  ~${Math.ceil(remaining / 60)}m remaining`
+          : `  ·  ~${remaining}s remaining`;
+      }
+      phaseText = `Downloading layer ${layersDone} / ${layersTotal}  (${totalSizeStr})${etaStr}`;
+      statText  = `${layersDone} of ${layersTotal} layers  ·  ${Math.round(frac * 100)}%${etaStr}`;
+    } else {
+      // Waiting for first layer — slow time-based nudge so bar isn't frozen
+      const secWaiting = (Date.now() - downloadStartTime) / 1000;
+      const timeFrac = Math.min(0.08, secWaiting / (secWaiting + 90.0));
+      barPct = Math.round(5 + timeFrac * 85);
+      phaseText = `Preparing to download ${layersTotal} layers  (${totalSizeStr})…`;
+      statText  = `Fetching ${layersTotal} layers (${totalSizeStr}) — starting download…`;
+    }
+    setBar(barPct);
+    phase.textContent    = phaseText;
+    layerStat.textContent = statText;
+  }
 
   const es = new EventSource('/api/stream');
   es.onmessage = e => {
@@ -1338,55 +1378,52 @@ function listenSSE() {
       log.appendChild(line);
       log.scrollTop = log.scrollHeight;
 
-      // Parse "layers needed: N (X.X GB)"
+      // Parse "layers needed: N (X.X GB)" — frontend takes over the bar from here
       const mTotal = t.match(/layers needed:\s*(\d+)\s*\(([^)]+)\)/);
       if (mTotal) {
-        layersTotal  = parseInt(mTotal[1]);
-        totalSizeStr = mTotal[2];
-        layerStat.textContent = `Fetching ${layersTotal} layers (${totalSizeStr}) — this will take several minutes…`;
+        layersTotal       = parseInt(mTotal[1]);
+        totalSizeStr      = mTotal[2];
+        downloadStartTime = Date.now();
+        frontendOwnsBar   = true;
+        if (downloadTimer) clearInterval(downloadTimer);
+        downloadTimer = setInterval(updateDownloadBar, 1500);
+        updateDownloadBar();
       }
 
       if (t.startsWith('Copying ')) {
-        if (!layerCopyStart) layerCopyStart = Date.now();
+        if (!copyStartTime) copyStartTime = Date.now();
         layersDone++;
-        if (layersTotal > 0) {
-          const pctLayers = ((layersDone / layersTotal) * 100).toFixed(0);
-          // Rough speed estimate once we have a few samples
-          let speedStr = '';
-          if (layerCopyStart && layersDone > 2) {
-            const secSinceCopy = (Date.now() - layerCopyStart) / 1000;
-            const layersPerSec = layersDone / secSinceCopy;
-            const remaining = Math.ceil((layersTotal - layersDone) / layersPerSec);
-            speedStr = remaining > 60
-              ? `  ·  ~${Math.ceil(remaining/60)}m remaining`
-              : `  ·  ~${remaining}s remaining`;
-          }
-          layerStat.textContent = `Layer ${layersDone} / ${layersTotal}  (${pctLayers}%)${speedStr}`;
-        }
+        updateDownloadBar();
       }
 
-      // Phase transitions
-      if (t.includes('Initializing ostree'))                   layerStat.textContent = 'Initializing ostree layout on disk…';
-      if (t.includes('Deploying'))                             layerStat.textContent = 'Deploying OS tree to disk…';
+      // Post-download phase transitions — hand bar back to backend progress events
+      if (t.includes('Deploying')) {
+        if (downloadTimer) { clearInterval(downloadTimer); downloadTimer = null; }
+        layerStat.textContent = 'Deploying OS tree to disk…';
+      }
       if (t.includes('Installing bootloader') || t.includes('bootupd'))
                                                                layerStat.textContent = 'Installing bootloader…';
       if (t.includes('Creating user'))                         layerStat.textContent = 'Creating user account…';
       if (t.includes('Hostname set'))                          layerStat.textContent = 'Applying system configuration…';
 
     } else if (d.type === 'progress') {
-      const v = d.value;
-      fill.style.width = v + '%';
-      pct.textContent  = v + '%';
-      if (v > 5) fill.classList.remove('pulsing');
-      if (v < 90)       phase.textContent = `Downloading & writing OS image…  ${v}%`;
-      else if (v < 100) phase.textContent = `Configuring system…  ${v}%`;
-      else              phase.textContent = 'Complete!';
+      // Frontend owns the bar during download; backend drives Phase 3 (≥90%)
+      if (!frontendOwnsBar || d.value >= 90) {
+        if (downloadTimer) { clearInterval(downloadTimer); downloadTimer = null; }
+        const v = d.value;
+        setBar(v);
+        if (v < 90)       phase.textContent = `Downloading & writing OS image…  ${v}%`;
+        else if (v < 100) phase.textContent = `Configuring system…  ${v}%`;
+        else              phase.textContent = 'Complete!';
+      }
     } else if (d.type === 'done') {
       clearInterval(ticker);
+      if (downloadTimer) clearInterval(downloadTimer);
       es.close();
       goto('done');
     } else if (d.type === 'error') {
       clearInterval(ticker);
+      if (downloadTimer) clearInterval(downloadTimer);
       es.close();
       document.getElementById('err-msg').textContent = d.message;
       goto('error');
