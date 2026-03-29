@@ -223,7 +223,7 @@ sudo mksquashfs "${ROOTFS}" "${ISO_DIR}/LiveOS/squashfs.img" \
 
 # ── 5a. GRUB config + dark theme ─────────────────────────────────────────────
 echo "==> Writing GRUB config and theme"
-LIVE_ARGS="quiet rhgb rd.plymouth=1 plymouth.enable=1 plymouth.ignore-serial-consoles root=live:CDLABEL=${VOLID} rd.live.image enforcing=0 systemd.crash_reboot=0 inst.nokill console=ttyS0,115200 console=tty0"
+LIVE_ARGS="quiet rhgb rd.plymouth=1 plymouth.enable=1 plymouth.ignore-serial-consoles root=live:CDLABEL=${VOLID} rd.live.image rd.retry=60 enforcing=0 systemd.crash_reboot=0 inst.nokill console=ttyS0,115200 console=tty0"
 
 cat > "${ISO_DIR}/boot/grub2/themes/kyth/theme.txt" <<THEMEEOF
 # Kyth GRUB2 dark theme
@@ -314,6 +314,11 @@ menuentry "Try Kyth Live" --class fedora --class gnu-linux --class os {
 
 menuentry "Try Kyth Live (Hardware GL Test)" --class fedora --class gnu-linux --class os {
     linux /images/pxeboot/vmlinuz ${LIVE_ARGS} kyth.live.hwgl=1 kyth.installer.hwgl=1
+    initrd /images/pxeboot/initrd.img
+}
+
+menuentry "Try Kyth Live (Debug — verbose boot)" --class fedora --class gnu-linux --class os {
+    linux /images/pxeboot/vmlinuz rd.plymouth=0 plymouth.enable=0 root=live:CDLABEL=${VOLID} rd.live.image rd.retry=60 enforcing=0 systemd.crash_reboot=0 rd.debug loglevel=7 console=ttyS0,115200 console=tty0
     initrd /images/pxeboot/initrd.img
 }
 
