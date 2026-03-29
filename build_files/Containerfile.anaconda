@@ -133,6 +133,7 @@ RUN groupadd -r autologin 2>/dev/null || true \
     && useradd -c "Live User" -G autologin liveuser \
     && passwd -d liveuser \
     && printf '%s\n' \
+        'Defaults:liveuser !requiretty' \
         'Defaults:liveuser env_keep += "DISPLAY XAUTHORITY WAYLAND_DISPLAY DBUS_SESSION_BUS_ADDRESS XDG_RUNTIME_DIR XDG_SESSION_TYPE LIBGL_ALWAYS_SOFTWARE GALLIUM_DRIVER QT_QUICK_BACKEND QML_XHR_ALLOW_FILE_READ"' \
         'liveuser ALL=(ALL) NOPASSWD: ALL' \
         > /etc/sudoers.d/liveuser \
