@@ -933,17 +933,25 @@ select { cursor: pointer; background-image: url("data:image/svg+xml,%3Csvg xmlns
 }
 .progress-fill.pulsing { animation: progress-pulse 1.6s ease-in-out infinite; }
 
-.layer-status {
-  font-size: 12px;
-  color: var(--muted);
-  margin-top: 6px;
-  min-height: 1.4em;
-  font-family: var(--mono);
-}
-
 /* ── Log terminal ──────────────────────────────────────────────────── */
+.log-toggle {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 8px 0 4px;
+  text-align: left;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.log-toggle:hover { color: var(--fg); }
+.log-toggle .arrow { display: inline-block; transition: transform 0.2s; }
+.log-toggle.open .arrow { transform: rotate(90deg); }
+
 .log-wrap {
-  flex: 1;
+  display: none;
   background: #080808;
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -956,6 +964,7 @@ select { cursor: pointer; background-image: url("data:image/svg+xml,%3Csvg xmlns
   min-height: 220px;
   max-height: 320px;
 }
+.log-wrap.visible { display: block; }
 
 .log-wrap .log-sep   { color: var(--accent-lo); }
 .log-wrap .log-cmd   { color: #b8b8e8; }
@@ -1128,8 +1137,10 @@ select { cursor: pointer; background-image: url("data:image/svg+xml,%3Csvg xmlns
           <div class="progress-bar">
             <div class="progress-fill pulsing" id="progress-fill"></div>
           </div>
-          <div class="layer-status" id="layer-status"></div>
         </div>
+        <button class="log-toggle" id="log-toggle" onclick="toggleLog()">
+          <span class="arrow">▶</span> Show install log
+        </button>
         <div class="log-wrap" id="log-wrap"></div>
       </div>
     </div>
@@ -1362,13 +1373,22 @@ function startInstall() {
   }).then(() => listenSSE());
 }
 
+function toggleLog() {
+  const btn  = document.getElementById('log-toggle');
+  const wrap = document.getElementById('log-wrap');
+  const open = wrap.classList.toggle('visible');
+  btn.classList.toggle('open', open);
+  btn.querySelector('.arrow').textContent = open ? '▶' : '▶';
+  btn.childNodes[1].textContent = open ? ' Hide install log' : ' Show install log';
+  if (open) wrap.scrollTop = wrap.scrollHeight;
+}
+
 function listenSSE() {
-  const log       = document.getElementById('log-wrap');
-  const fill      = document.getElementById('progress-fill');
-  const pct       = document.getElementById('install-pct');
-  const phase     = document.getElementById('install-phase');
-  const layerStat = document.getElementById('layer-status');
-  const elapsed   = document.getElementById('install-elapsed');
+  const log    = document.getElementById('log-wrap');
+  const fill   = document.getElementById('progress-fill');
+  const pct    = document.getElementById('install-pct');
+  const phase  = document.getElementById('install-phase');
+  const elapsed = document.getElementById('install-elapsed');
   log.innerHTML = '';
 
   function humanBytes(b) {
@@ -1406,17 +1426,14 @@ function listenSSE() {
       log.appendChild(line);
       log.scrollTop = log.scrollHeight;
 
-      // Surface key phase transitions in the status line
+      // Surface key phase transitions in the phase line
       const mTotal = t.match(/layers needed:\s*(\d+)\s*\(([^)]+)\)/);
-      if (mTotal) {
-        layerStat.textContent = `Downloading ${mTotal[1]} layers  (${mTotal[2]})  —  measuring speed…`;
-        phase.textContent     = `Downloading ${mTotal[1]} layers  (${mTotal[2]})`;
-      }
-      if (t.includes('Deploying'))                             layerStat.textContent = 'Deploying OS tree to disk…';
+      if (mTotal) phase.textContent = `Downloading ${mTotal[1]} layers  (${mTotal[2]})`;
+      if (t.includes('Deploying'))                             phase.textContent = 'Writing OS image to disk…';
       if (t.includes('Installing bootloader') || t.includes('bootupd'))
-                                                               layerStat.textContent = 'Installing bootloader…';
-      if (t.includes('Creating user'))                         layerStat.textContent = 'Creating user account…';
-      if (t.includes('Hostname set'))                          layerStat.textContent = 'Applying system configuration…';
+                                                               phase.textContent = 'Installing bootloader…';
+      if (t.includes('Creating user'))                         phase.textContent = 'Creating user account…';
+      if (t.includes('Hostname set'))                          phase.textContent = 'Applying system configuration…';
 
     } else if (d.type === 'stats') {
       // Real-time download stats from the backend network monitor.
@@ -1426,16 +1443,14 @@ function listenSSE() {
       // Detect transition: download done, bootc is now writing/deploying to disk.
       // Speed drops to near-zero once all bytes are received.
       if (d.downloaded >= d.total * 0.95 && d.speed < 1024 * 1024) {
-        phase.textContent     = 'Writing OS image to disk…';
-        layerStat.textContent = `Download complete  (${totStr})  —  writing OS tree to disk…`;
+        phase.textContent = 'Writing OS image to disk…';
       } else {
         const dlStr    = humanBytes(d.downloaded);
         const speedStr = humanBytes(d.speed) + '/s';
         let etaStr = '';
         if (d.eta_sec > 60)      etaStr = `  ·  ~${Math.ceil(d.eta_sec / 60)}m remaining`;
         else if (d.eta_sec > 0)  etaStr = `  ·  ~${d.eta_sec}s remaining`;
-        phase.textContent     = `Downloading  ${dlStr} / ${totStr}  ·  ${speedStr}${etaStr}`;
-        layerStat.textContent = `${dlStr} of ${totStr} downloaded  ·  ${speedStr}${etaStr}`;
+        phase.textContent = `Downloading  ${dlStr} / ${totStr}  ·  ${speedStr}${etaStr}`;
       }
 
     } else if (d.type === 'progress') {
