@@ -1139,7 +1139,7 @@ select { cursor: pointer; background-image: url("data:image/svg+xml,%3Csvg xmlns
           </div>
         </div>
         <button class="log-toggle" id="log-toggle" onclick="toggleLog()">
-          <span class="arrow">▶</span> Show install log
+          <span class="arrow">▶</span><span class="log-label"> Show install log</span>
         </button>
         <div class="log-wrap" id="log-wrap"></div>
       </div>
@@ -1378,8 +1378,7 @@ function toggleLog() {
   const wrap = document.getElementById('log-wrap');
   const open = wrap.classList.toggle('visible');
   btn.classList.toggle('open', open);
-  btn.querySelector('.arrow').textContent = open ? '▶' : '▶';
-  btn.childNodes[1].textContent = open ? ' Hide install log' : ' Show install log';
+  btn.querySelector('.log-label').textContent = open ? ' Hide install log' : ' Show install log';
   if (open) wrap.scrollTop = wrap.scrollHeight;
 }
 
