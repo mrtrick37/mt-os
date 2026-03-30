@@ -425,6 +425,45 @@ class Worker(QThread):
             self.done.emit(1)
 
 
+class DownloadMonitor(QThread):
+    """Polls /proc/net/dev every second to track download speed and progress."""
+    # downloaded, total, speed_bps, eta_sec
+    stats = pyqtSignal(int, int, int, int)
+
+    def __init__(self, total_bytes: int, rx_start: int):
+        super().__init__()
+        self._total = total_bytes
+        self._rx_start = rx_start
+        self._stop = False
+
+    def stop(self):
+        self._stop = True
+
+    def run(self):
+        rx_prev = 0
+        t_prev = time.monotonic()
+        speed_samples: list[float] = []
+
+        while not self._stop:
+            time.sleep(1)
+            rx_now = _get_rx_bytes()
+            t_now = time.monotonic()
+            downloaded = min(self._total, max(0, rx_now - self._rx_start))
+
+            dt = t_now - t_prev
+            if dt > 0 and rx_prev > 0:
+                speed_samples.append((rx_now - rx_prev) / dt)
+                if len(speed_samples) > 5:
+                    speed_samples.pop(0)
+            rx_prev = rx_now
+            t_prev = t_now
+
+            avg_speed = int(sum(speed_samples) / len(speed_samples)) if speed_samples else 0
+            remaining = max(0, self._total - downloaded)
+            eta_sec = int(remaining / avg_speed) if avg_speed > 0 else 0
+            self.stats.emit(downloaded, self._total, avg_speed, eta_sec)
+
+
 # ── Hardware probe dataclass + worker ─────────────────────────────────────────
 @dataclass
 class HardwareProbe:
@@ -580,6 +619,43 @@ def _default_phase(mode: str) -> str:
         "topgrade": "Running full system update…",
         "rollback": "Staging rollback deployment…",
     }.get(mode, "Operation in progress…")
+
+
+def _get_rx_bytes() -> int:
+    """Sum RX bytes across all non-loopback interfaces from /proc/net/dev."""
+    try:
+        total = 0
+        with open("/proc/net/dev") as f:
+            for line in f:
+                if ":" not in line:
+                    continue
+                iface, data = line.split(":", 1)
+                if iface.strip() == "lo":
+                    continue
+                total += int(data.split()[0])
+        return total
+    except Exception:
+        return 0
+
+
+def _parse_size_bytes(size_str: str) -> int:
+    """Parse '8.3 GB' or '500 MB' to bytes. Returns 0 on failure."""
+    try:
+        parts = size_str.strip().split()
+        value = float(parts[0])
+        unit = parts[1].upper().rstrip("B") if len(parts) > 1 else ""
+        mult = {"": 1, "K": 1024, "M": 1024**2, "G": 1024**3, "T": 1024**4}
+        return int(value * mult.get(unit, 0))
+    except Exception:
+        return 0
+
+
+def _human_bytes(n: int) -> str:
+    """Format bytes as a human-readable string."""
+    for unit, threshold in (("GB", 1024**3), ("MB", 1024**2), ("KB", 1024)):
+        if n >= threshold:
+            return f"{n / threshold:.1f} {unit}"
+    return f"{n} B"
 
 
 def _parse_update_phase(line: str, mode: str) -> str | None:
@@ -1655,6 +1731,11 @@ class UpdatePage(Page):
     def __init__(self):
         super().__init__()
         self._worker = None
+        self._dl_monitor = None
+        self._dl_total = 0
+        self._dl_downloaded = 0
+        self._dl_speed = 0
+        self._dl_eta = 0
         self._mode = "topgrade"
         self._last_output_ts = 0.0
         self._op_start_ts = 0.0
@@ -1784,12 +1865,18 @@ class UpdatePage(Page):
         self._rollback_btn.setEnabled(enabled and _has_rollback_deployment())
 
     def _start_operation(self, mode: str, label: str, cmd: list[str], inhibit_reason: str):
+        self._stop_dl_monitor()
+        self._dl_total = 0
+        self._dl_downloaded = 0
+        self._dl_speed = 0
+        self._dl_eta = 0
         self._mode = mode
         self._last_output_ts = time.monotonic()
         self._op_start_ts = time.monotonic()
         self._current_phase = ""
         self._log.clear()
         self._log.show()
+        self._progress.setRange(0, 0)
         self._progress.show()
         self._status_lbl.setText(label)
         self._status_lbl.setObjectName("subheading")
@@ -1838,12 +1925,55 @@ class UpdatePage(Page):
             self._current_phase = phase
             self._status_lbl.setText(phase)
             _restyle(self._status_lbl)
+        # Start network monitor when bootc tells us how much to download
+        if "layers needed:" in text and self._dl_monitor is None:
+            try:
+                m = text.split("layers needed:")[1]
+                size_str = m.split("(")[1].rstrip(")") if "(" in m else ""
+                total = _parse_size_bytes(size_str)
+                if total > 0:
+                    self._dl_total = total
+                    self._progress.setRange(0, 1000)
+                    self._dl_monitor = DownloadMonitor(total, _get_rx_bytes())
+                    self._dl_monitor.stats.connect(self._on_dl_stats)
+                    self._dl_monitor.start()
+            except Exception:
+                pass
         self._log.append(text)
         self._log.ensureCursorVisible()
 
+    def _stop_dl_monitor(self):
+        if self._dl_monitor is not None:
+            self._dl_monitor.stop()
+            self._dl_monitor.wait()
+            self._dl_monitor.deleteLater()
+            self._dl_monitor = None
+
+    def _on_dl_stats(self, downloaded: int, total: int, speed_bps: int, eta_sec: int):
+        self._dl_downloaded = downloaded
+        self._dl_speed = speed_bps
+        self._dl_eta = eta_sec
+        if total > 0:
+            self._progress.setValue(int(min(downloaded / total, 1.0) * 1000))
+        # Only show download stats while actively transferring (>100 KB/s)
+        if speed_bps > 100_000:
+            dl_str = f"{_human_bytes(downloaded)} / {_human_bytes(total)}"
+            speed_str = f"{_human_bytes(speed_bps)}/s"
+            if eta_sec > 60:
+                eta_mins, eta_secs = divmod(eta_sec, 60)
+                eta_str = f"~{eta_mins}m {eta_secs:02d}s remaining"
+            elif eta_sec > 0:
+                eta_str = f"~{eta_sec}s remaining"
+            else:
+                eta_str = ""
+            parts = [dl_str, speed_str]
+            if eta_str:
+                parts.append(eta_str)
+            self._activity_lbl.setText("  ·  ".join(parts))
+            self._activity_lbl.show()
+
     def _update_activity(self):
-        active = _active_bootc_operation()
-        if not active:
+        if not _active_bootc_operation() and self._worker is None:
             self._activity_lbl.hide()
             return
         phase = self._current_phase or _default_phase(self._mode)
@@ -1862,6 +1992,7 @@ class UpdatePage(Page):
 
     def _on_done(self, code: int):
         self._heartbeat.stop()
+        self._stop_dl_monitor()
         self._progress.hide()
         _finish_worker(self)
         _set_session_inhibit(self, None)
