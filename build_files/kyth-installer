@@ -819,6 +819,70 @@ def _run_alongside(log, progress, run_cmd) -> None:
             progress(99)
             subprocess.run(_as_root(["umount", root_mnt]), check=False)
 
+        # ── Phase 3: GRUB dual-boot entries for other OSes ────────────────
+        log("── Phase 3: Updating GRUB for dual-boot ──────────────────────")
+        if efi_part:
+            efi_scan_mnt = "/var/tmp/kyth-efi-scan"
+            Path(efi_scan_mnt).mkdir(parents=True, exist_ok=True)
+            subprocess.run(_as_root(["mount", efi_part, efi_scan_mnt]), check=False)
+            try:
+                efi_dir = Path(efi_scan_mnt) / "EFI"
+                # Kyth uses EFI/fedora; skip that and the standard fallback dir.
+                skip_dirs = {"fedora", "BOOT", "boot"}
+                other_loaders: list[tuple[str, str]] = []
+                if efi_dir.exists():
+                    for d in sorted(efi_dir.iterdir()):
+                        if not d.is_dir() or d.name in skip_dirs:
+                            continue
+                        for loader in ("shimx64.efi", "grubx64.efi",
+                                       "bootmgfw.efi", "bootx64.efi"):
+                            if (d / loader).exists():
+                                other_loaders.append((d.name, loader))
+                                break
+
+                if other_loaders:
+                    uuid_r = subprocess.run(
+                        _as_root(["blkid", "-s", "UUID", "-o", "value", efi_part]),
+                        capture_output=True, text=True,
+                    )
+                    efi_uuid = uuid_r.stdout.strip()
+
+                    custom = ""
+                    for dir_name, loader_file in other_loaders:
+                        if dir_name.lower() == "microsoft":
+                            label = "Windows Boot Manager"
+                        else:
+                            label = f"{dir_name} (chainload)"
+                        efi_path = f"/EFI/{dir_name}/{loader_file}"
+                        custom += (
+                            f'\nmenuentry "{label}" {{\n'
+                            f'    insmod fat\n'
+                            f'    insmod chain\n'
+                            f'    search --no-floppy --set=root --fs-uuid {efi_uuid}\n'
+                            f'    chainloader {efi_path}\n'
+                            f'}}\n'
+                        )
+                        log(f"Adding GRUB entry: {label} → {efi_path}")
+
+                    subprocess.run(_as_root(["mount", new_dev, root_mnt]), check=False)
+                    try:
+                        grub_cfg = Path(root_mnt) / "boot/grub2/grub.cfg"
+                        if grub_cfg.exists():
+                            subprocess.run(
+                                _as_root(["tee", "-a", str(grub_cfg)]),
+                                input=custom, text=True,
+                                stdout=subprocess.DEVNULL, check=True,
+                            )
+                            log(f"Added {len(other_loaders)} dual-boot entry/entries to grub.cfg")
+                        else:
+                            log(f"Warning: {grub_cfg} not found — skipping dual-boot entries")
+                    finally:
+                        subprocess.run(_as_root(["umount", root_mnt]), check=False)
+                else:
+                    log("No other EFI loaders found — single-boot")
+            finally:
+                subprocess.run(_as_root(["umount", efi_scan_mnt]), check=False)
+
         progress(100)
         _push({"type": "done"})
 
