@@ -161,8 +161,18 @@ RUN mkdir -p \
         > /home/liveuser/.config/autostart/steam.desktop \
     && printf '[Desktop Entry]\nType=Application\nName=Kyth Welcome\nHidden=true\n' \
         > /home/liveuser/.config/autostart/kyth-welcome.desktop \
+    && printf '[Desktop Entry]\nType=Application\nName=Accessibility\nHidden=true\n' \
+        > /home/liveuser/.config/autostart/org.kde.kaccess.desktop \
+    && printf '[Desktop Entry]\nType=Application\nName=KDE Global Menu Proxy\nHidden=true\n' \
+        > /home/liveuser/.config/autostart/org.kde.gmenudbusmenuproxy.desktop \
+    && printf '[Desktop Entry]\nType=Application\nName=KDE Legacy Tray Proxy\nHidden=true\n' \
+        > /home/liveuser/.config/autostart/org.kde.plasma-xembedsniproxy.desktop \
+    && printf '[Desktop Entry]\nType=Application\nName=KDE Legacy Tray Proxy\nHidden=true\n' \
+        > /home/liveuser/.config/autostart/xembedsniproxy.desktop \
     && printf '[Desktop Entry]\nType=Application\nName=SPICE Agent\nExec=/usr/bin/spice-vdagent\nOnlyShowIn=KDE;\nX-KDE-autostart-phase=1\n' \
         > /home/liveuser/.config/autostart/spice-vdagent.desktop \
+    && printf '[Module-kscreen]\nautoload=false\n' \
+        > /home/liveuser/.config/kded6rc \
     && printf '[Compositing]\nEnabled=false\n' \
         > /home/liveuser/.config/kwinrc \
     && printf '[General]\nColorScheme=BreezeDark\n\n[KDE]\nLookAndFeelPackage=org.kde.breezedark.desktop\n' \
