@@ -113,6 +113,16 @@ cat > /etc/skel/.config/plasmarc <<'PLASMAEOF'
 name=breeze-dark
 PLASMAEOF
 
+# ── Kickoff favorites ─────────────────────────────────────────────────────────
+# Pre-populate the Kickoff launcher favorites for new users.
+# Discord is listed here even though it installs via kyth-default-flatpaks.service
+# at first boot — KDE silently omits entries whose desktop files don't exist yet
+# and shows them automatically once the flatpak finishes installing.
+cat > /etc/skel/.config/kickoffrc <<'KICKOFFEOF'
+[Favorites]
+FavoriteURLs=applications:steam.desktop,applications:brave-browser.desktop,applications:com.discordapp.Discord.desktop,applications:kyth-welcome.desktop,applications:org.kde.dolphin.desktop,applications:org.kde.konsole.desktop,applications:systemsettings.desktop
+KICKOFFEOF
+
 # ── Plasma / PowerDevil hardening ─────────────────────────────────────────────
 # KDE documents POWERDEVIL_NO_DDCUTIL=1 as a supported workaround when
 # PowerDevil's DDC/CI monitor integration causes instability. On Kyth's AMD
@@ -389,19 +399,28 @@ systemctl enable kyth-default-flatpaks.service 2>/dev/null || true
 systemctl enable kyth-nvidia-setup.service 2>/dev/null || true
 
 # ── Steam first-run notification ─────────────────────────────────────────────
-# Wrap the Steam launcher so that on the very first launch, a passive kdialog
-# popup appears telling the user setup may take a few minutes.  A flag file
-# (~/.local/share/kyth-steam-initialized) is created immediately so the
-# message only ever appears once.
+# Wrap the Steam launcher so that on the very first launch, a passive popup
+# appears telling the user setup may take a few minutes.  The flag file is
+# written only after the notification attempt completes so a silent failure
+# doesn't permanently suppress the message on the next launch attempt.
+# To reset: rm ~/.local/share/kyth-steam-initialized
 cat > /usr/bin/kyth-steam <<'STEAMEOF'
 #!/bin/bash
 FLAG="${HOME}/.local/share/kyth-steam-initialized"
 if [[ ! -f "${FLAG}" ]]; then
     mkdir -p "$(dirname "${FLAG}")"
-    touch "${FLAG}"
-    kdialog --passivepopup \
-        "Steam is setting up for the first time. This may take a few minutes — please be patient." \
-        30 &
+    (
+        if command -v kdialog &>/dev/null; then
+            kdialog --title "Kyth" --passivepopup \
+                "Steam is setting up for the first time. This may take a few minutes — please be patient." \
+                30
+        elif command -v notify-send &>/dev/null; then
+            notify-send --urgency=normal --expire-time=30000 \
+                "Steam First Start" \
+                "Steam is setting up for the first time. This may take a few minutes — please be patient."
+        fi
+        touch "${FLAG}"
+    ) &
 fi
 exec /usr/bin/steam "$@"
 STEAMEOF
@@ -416,7 +435,7 @@ for desktop in \
     /usr/share/applications/steam.desktop \
     /usr/local/share/applications/steam.desktop; do
     if [[ -f "${desktop}" ]]; then
-        sed -i 's|^Exec=steam|Exec=/usr/bin/kyth-steam|g' "${desktop}"
+        sed -i 's|^Exec=/usr/bin/steam|Exec=/usr/bin/kyth-steam|g' "${desktop}"
     fi
 done
 
