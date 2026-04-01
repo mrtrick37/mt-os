@@ -467,8 +467,8 @@ class Worker(QThread):
 
 class DownloadMonitor(QThread):
     """Polls /proc/net/dev every second to track download speed and progress."""
-    # downloaded, total, speed_bps, eta_sec
-    stats = pyqtSignal(int, int, int, int)
+    # downloaded, total, speed_bps, eta_sec  (object keeps Python int — avoids 32-bit overflow)
+    stats = pyqtSignal(object, object, object, object)
 
     def __init__(self, total_bytes: int, rx_start: int):
         super().__init__()
@@ -693,9 +693,17 @@ def _parse_size_bytes(size_str: str) -> int:
 def _human_bytes(n: int) -> str:
     """Format bytes as a human-readable string."""
     for unit, threshold in (("GB", 1024**3), ("MB", 1024**2), ("KB", 1024)):
-        if n >= threshold:
+        if abs(n) >= threshold:
             return f"{n / threshold:.1f} {unit}"
     return f"{n} B"
+
+
+def _human_bytes_pair(downloaded: int, total: int) -> tuple[str, str]:
+    """Format a downloaded/total pair using the same unit, anchored to total."""
+    for unit, threshold in (("GB", 1024**3), ("MB", 1024**2), ("KB", 1024)):
+        if abs(total) >= threshold:
+            return f"{downloaded / threshold:.1f}", f"{total / threshold:.1f} {unit}"
+    return str(downloaded), f"{total} B"
 
 
 def _parse_update_phase(line: str, mode: str) -> str | None:
@@ -2049,7 +2057,8 @@ class UpdatePage(Page):
             _restyle(self._status_lbl)
         # Only show download stats while actively transferring (>100 KB/s)
         if speed_bps > 100_000:
-            dl_str = f"{_human_bytes(downloaded)} / {_human_bytes(total)}"
+            dl_dl, dl_total = _human_bytes_pair(downloaded, total)
+            dl_str = f"{dl_dl} / {dl_total}"
             speed_str = f"{_human_bytes(speed_bps)}/s"
             if eta_sec > 60:
                 eta_mins, eta_secs = divmod(eta_sec, 60)
@@ -2315,7 +2324,8 @@ class BranchesPage(Page):
         if total > 0:
             self._progress.setValue(int(min(downloaded / total, 1.0) * 1000))
         if speed_bps > 100_000:
-            dl_str = f"{_human_bytes(downloaded)} / {_human_bytes(total)}"
+            dl_dl, dl_total = _human_bytes_pair(downloaded, total)
+            dl_str = f"{dl_dl} / {dl_total}"
             speed_str = f"{_human_bytes(speed_bps)}/s"
             if eta_sec > 60:
                 eta_mins, eta_secs = divmod(eta_sec, 60)
