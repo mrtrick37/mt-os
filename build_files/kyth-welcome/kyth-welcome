@@ -2005,18 +2005,24 @@ class UpdatePage(Page):
             self._current_phase = phase
             self._status_lbl.setText(phase)
             _restyle(self._status_lbl)
-        # Start network monitor when bootc tells us how much to download
-        if "layers needed:" in text and self._dl_monitor is None:
+        # Start or update network monitor when bootc tells us how much to download
+        if "layers needed:" in text:
             try:
                 m = text.split("layers needed:")[1]
                 size_str = m.split("(")[1].rstrip(")") if "(" in m else ""
                 total = _parse_size_bytes(size_str)
                 if total > 0:
-                    self._dl_total = total
-                    self._progress.setRange(0, 1000)
-                    self._dl_monitor = DownloadMonitor(total, _get_rx_bytes())
-                    self._dl_monitor.stats.connect(self._on_dl_stats)
-                    self._dl_monitor.start()
+                    if self._dl_monitor is None:
+                        self._dl_total = total
+                        self._progress.setRange(0, 1000)
+                        self._dl_monitor = DownloadMonitor(total, _get_rx_bytes())
+                        self._dl_monitor.stats.connect(self._on_dl_stats)
+                        self._dl_monitor.start()
+                    elif total > self._dl_total:
+                        # A later phase reports a larger download — update in place
+                        self._dl_total = total
+                        self._dl_monitor._total = total
+                        self._progress.setRange(0, 1000)
             except Exception:
                 pass
         self._log.append(text)
@@ -2035,6 +2041,12 @@ class UpdatePage(Page):
         self._dl_eta = eta_sec
         if total > 0:
             self._progress.setValue(int(min(downloaded / total, 1.0) * 1000))
+        # While actively transferring, update the phase label to reflect the download
+        if speed_bps > 100_000 and downloaded < total:
+            dl_phase = "Downloading image layers…"
+            self._current_phase = dl_phase
+            self._status_lbl.setText(dl_phase)
+            _restyle(self._status_lbl)
         # Only show download stats while actively transferring (>100 KB/s)
         if speed_bps > 100_000:
             dl_str = f"{_human_bytes(downloaded)} / {_human_bytes(total)}"
@@ -2108,14 +2120,21 @@ class UpdatePage(Page):
 
     def _refresh_summary(self):
         branch = _branch_display_name(_current_branch())
-        staged = _has_staged_update()
-        rollback = _has_rollback_deployment()
         booted_ts = _bootc_image_timestamp("booted")
-        staged_ts = _bootc_image_timestamp("staged") if staged else None
 
         parts = [f"Branch: {branch}"]
         if booted_ts:
             parts.append(f"Running image built: {booted_ts}")
+        if self._worker is not None:
+            parts.append("Update in progress…")
+            self._summary_lbl.setText("\n".join(parts))
+            self._rollback_btn.setEnabled(False)
+            return
+
+        staged = _has_staged_update()
+        rollback = _has_rollback_deployment()
+        staged_ts = _bootc_image_timestamp("staged") if staged else None
+
         if staged:
             if staged_ts:
                 parts.append(f"Staged image built: {staged_ts} — reboot to apply.")
