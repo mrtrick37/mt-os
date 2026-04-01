@@ -626,6 +626,11 @@ cat > /etc/skel/.config/plasmarc <<'PLASMAEOF'
 name=breeze-dark
 PLASMAEOF
 
+cat > /etc/skel/.config/plasma-welcomerc <<'WELCOMERCEOF'
+[General]
+ShowWelcomeWizard=false
+WELCOMERCEOF
+
 # ── Plasma / PowerDevil hardening ─────────────────────────────────────────────
 # KDE documents POWERDEVIL_NO_DDCUTIL=1 as a supported workaround when
 # PowerDevil's DDC/CI monitor integration causes instability. On Kyth's AMD
