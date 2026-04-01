@@ -120,7 +120,7 @@ PLASMAEOF
 # and shows them automatically once the flatpak finishes installing.
 cat > /etc/skel/.config/kickoffrc <<'KICKOFFEOF'
 [Favorites]
-FavoriteURLs=applications:steam.desktop,applications:brave-browser.desktop,applications:com.discordapp.Discord.desktop,applications:kyth-welcome.desktop,applications:org.kde.dolphin.desktop,applications:org.kde.konsole.desktop,applications:systemsettings.desktop
+FavoriteURLs=applications:steam.desktop,applications:brave-browser.desktop,applications:com.discordapp.Discord.desktop,applications:kyth-welcome.desktop,applications:org.kde.konsole.desktop
 KICKOFFEOF
 
 # ── Plasma / PowerDevil hardening ─────────────────────────────────────────────
