@@ -415,6 +415,7 @@ class Worker(QThread):
                 text=True,
                 bufsize=1,
                 env=env,
+                cwd="/tmp",
             )
             for ln in proc.stdout:
                 self.line.emit(ln.rstrip())
