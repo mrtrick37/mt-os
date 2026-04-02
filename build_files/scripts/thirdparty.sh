@@ -149,23 +149,33 @@ fi
 # Pinned to a release tag so the thirdparty layer hash stays stable between daily
 # CI builds. Bump HOMEBREW_TAG when you want to ship a newer Homebrew version.
 HOMEBREW_TAG="5.1.1"
-# Ensure parent/target directories exist before clone (some base images don't
-# include /home/linuxbrew yet).
-mkdir -p /home/linuxbrew
+LINUXBREW_HOME="/var/home/linuxbrew"
+# Use /var/home explicitly on ostree/bootc roots; /home may be a symlink that
+# some useradd implementations attempt to re-create and fail on.
+mkdir -p "${LINUXBREW_HOME}"
 if ! id -u linuxbrew >/dev/null 2>&1; then
-    useradd -r -d /home/linuxbrew -M -s /sbin/nologin linuxbrew
+    useradd -r -d "${LINUXBREW_HOME}" -M -s /sbin/nologin linuxbrew
 fi
-git clone --depth 1 --branch "${HOMEBREW_TAG}" \
-    https://github.com/Homebrew/brew /home/linuxbrew/.linuxbrew \
-    || { echo "ERROR: Homebrew git clone failed"; exit 1; }
-[ -f /home/linuxbrew/.linuxbrew/bin/brew ] \
+if [ -d "${LINUXBREW_HOME}/.linuxbrew/.git" ]; then
+    git -C "${LINUXBREW_HOME}/.linuxbrew" fetch --depth 1 origin "refs/tags/${HOMEBREW_TAG}:refs/tags/${HOMEBREW_TAG}" \
+        || { echo "ERROR: Homebrew git fetch failed"; exit 1; }
+    git -C "${LINUXBREW_HOME}/.linuxbrew" checkout -f "${HOMEBREW_TAG}" \
+        || { echo "ERROR: Homebrew checkout failed"; exit 1; }
+else
+    git clone --depth 1 --branch "${HOMEBREW_TAG}" \
+        https://github.com/Homebrew/brew "${LINUXBREW_HOME}/.linuxbrew" \
+        || { echo "ERROR: Homebrew git clone failed"; exit 1; }
+fi
+[ -f "${LINUXBREW_HOME}/.linuxbrew/bin/brew" ] \
     || { echo "ERROR: Homebrew clone appears empty"; exit 1; }
-chown -R linuxbrew:wheel /home/linuxbrew
-chmod -R g+w /home/linuxbrew
-find /home/linuxbrew -type d -exec chmod g+s {} \;
+chown -R linuxbrew:wheel "${LINUXBREW_HOME}"
+chmod -R g+w "${LINUXBREW_HOME}"
+find "${LINUXBREW_HOME}" -type d -exec chmod g+s {} \;
 # Add brew to PATH for all login shells
 cat > /etc/profile.d/homebrew.sh <<'BREWEOF'
-if [ -d /home/linuxbrew/.linuxbrew ]; then
+if [ -d /var/home/linuxbrew/.linuxbrew ]; then
+    eval "$(/var/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+elif [ -d /home/linuxbrew/.linuxbrew ]; then
     eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
 fi
 BREWEOF
