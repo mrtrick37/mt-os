@@ -10,7 +10,7 @@
     </filter>
   </defs>
 
-  <!-- Kyth K mark — transparent background, centred -->
+  <!-- KythOS K mark — transparent background, centred -->
   <g transform="translate(12, 18) scale(1.15)" filter="url(#logo-glow)">
     <line x1="54.6" y1="140.6" x2="54.6" y2="27.5"
           stroke="#7aa2f7" stroke-width="16.9" stroke-linecap="round"/>

@@ -1,6 +1,6 @@
 [Plymouth Theme]
-Name=Kyth
-Description=Kyth boot splash — three figures, one moment
+Name=KythOS
+Description=KythOS boot splash — three figures, one moment
 ModuleName=script
 
 [script]

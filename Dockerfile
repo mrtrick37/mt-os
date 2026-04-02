@@ -5,16 +5,16 @@ COPY build_files /
 # Base Image
 FROM localhost/kyth-base:stable
 
-# Override upstream OCI labels so downstream tooling (lorax/bootc) sees Kyth product metadata
-LABEL org.opencontainers.image.title="Kyth"
+# Override upstream OCI labels so downstream tooling (lorax/bootc) sees KythOS product metadata
+LABEL org.opencontainers.image.title="KythOS"
 LABEL org.opencontainers.image.version="43"
-LABEL org.opencontainers.image.description="Kyth — atomic gaming and dev workstation built on Fedora Kinoite"
+LABEL org.opencontainers.image.description="KythOS — atomic gaming and dev workstation built on Fedora Kinoite"
 LABEL org.opencontainers.image.licenses="Apache-2.0"
 LABEL org.opencontainers.image.source="https://github.com/mrtrick37/kyth"
 LABEL org.opencontainers.image.documentation="https://github.com/mrtrick37/kyth"
-LABEL org.osbuild.product="Kyth"
+LABEL org.osbuild.product="KythOS"
 LABEL org.osbuild.version="43"
-LABEL org.osbuild.branding.release="Kyth 43"
+LABEL org.osbuild.branding.release="KythOS 43"
 
 ### MODIFICATIONS
 ARG ENABLE_ANANICY=1
@@ -32,7 +32,23 @@ RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
 # Isolated so daily package updates don't invalidate the full install layer above.
 RUN --mount=type=cache,dst=/var/cache \
     --mount=type=tmpfs,dst=/tmp \
-    dnf5 upgrade -y --exclude='kernel*' --exclude='gamescope*' && \
+    set -euo pipefail; \
+    _drv_ver=$(rpm -q --qf '%{version}' xorg-x11-drv-nvidia 2>/dev/null || true); \
+    _common_ver=$(dnf5 repoquery --available --qf '%{version}' nvidia-kmod-common 2>/dev/null | sort -V | tail -1 || true); \
+    if [ -n "${_drv_ver}" ] && [ -n "${_common_ver}" ] && [ "${_drv_ver}" = "${_common_ver}" ]; then \
+        echo "NVIDIA packages consistent (${_drv_ver}); upgrading freely."; \
+        dnf5 upgrade -y --exclude='kernel*' --exclude='gamescope*' \
+            --exclude='gstreamer1-plugins-bad' \
+            --exclude='gstreamer1-plugins-bad.i686'; \
+    else \
+        echo "NVIDIA version mismatch (installed xorg-x11-drv-nvidia=${_drv_ver}, available nvidia-kmod-common=${_common_ver}); holding NVIDIA packages."; \
+        dnf5 upgrade -y --exclude='kernel*' --exclude='gamescope*' \
+            --exclude='gstreamer1-plugins-bad' \
+            --exclude='gstreamer1-plugins-bad.i686' \
+            --exclude='nvidia-kmod-common' \
+            --exclude='akmod-nvidia*' \
+            --exclude='xorg-x11-drv-nvidia*'; \
+    fi && \
     dnf5 upgrade -y libdrm && \
     dnf5 clean all
 
@@ -50,7 +66,7 @@ RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
     /ctx/scripts/sysconfig.sh
 
 # Layer 5: Branding, theming, helper app, Plymouth (~10 MB).
-# Re-downloaded on Kyth version bumps or welcome app updates.
+# Re-downloaded on KythOS version bumps or welcome app updates.
 RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
     --mount=type=cache,dst=/var/cache \
     --mount=type=tmpfs,dst=/tmp \

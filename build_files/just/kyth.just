@@ -1,12 +1,12 @@
 # Upgrade the OS and Flatpak apps.
-# Pulls the latest Kyth image via bootc and updates all Flatpak apps.
+# Pulls the latest KythOS image via bootc and updates all Flatpak apps.
 # The OS update is staged — a reboot is required to activate it.
-[group('Kyth')]
+[group('KythOS')]
 upgrade:
     #!/usr/bin/env bash
     set -euo pipefail
 
-    echo "━━━ Kyth upgrade ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "━━━ KythOS upgrade ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo
 
     # ── Check for rpm-ostree layers ───────────────────────────────────────────
@@ -76,7 +76,7 @@ except Exception:
         echo "  Everything is up to date."
     fi
 
-# Rebase to a different Kyth image.
+# Rebase to a different KythOS image.
 # Usage:
 #   ujust rebase kyth:stable
 #   ujust rebase kyth:testing
@@ -86,7 +86,7 @@ except Exception:
 # Short form "kyth:<tag>" is expanded to ghcr.io/mrtrick37/kyth:<tag>.
 # A full image reference (containing '/') is used as-is.
 
-[group('Kyth')]
+[group('KythOS')]
 rebase image_ref="kyth:latest":
     #!/usr/bin/env bash
     set -euo pipefail
@@ -104,7 +104,7 @@ rebase image_ref="kyth:latest":
     sudo bootc switch "${ref}"
 
 # Run a game or app with the temporary performance profile wrapper.
-[group('Kyth')]
+[group('KythOS')]
 game-performance +args:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -113,14 +113,14 @@ game-performance +args:
 # Set desktop/system performance mode.
 
 # Modes: gaming, performance, balanced, powersave, status
-[group('Kyth')]
+[group('KythOS')]
 performance-mode mode="status":
     #!/usr/bin/env bash
     set -euo pipefail
     /usr/bin/kyth-performance-mode "{{ mode }}"
 
 # Run a command with a named temporary profile.
-[group('Kyth')]
+[group('KythOS')]
 game-performance-profile profile +args:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -131,7 +131,7 @@ game-performance-profile profile +args:
 # Usage: ujust gamescope -- %command%
 #        ujust gamescope -W 2560 -H 1440 -r 165 -- %command%
 # Extra gamescope flags can be passed before the -- separator.
-[group('Kyth')]
+[group('KythOS')]
 gamescope +args:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -146,7 +146,7 @@ gamescope +args:
 #       ujust game-hdr --hdr-itm-enable -- %command%
 # Usage: ujust game-hdr -- %command%
 #        ujust game-hdr -W 2560 -H 1440 -- %command%
-[group('Kyth')]
+[group('KythOS')]
 game-hdr +args:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -156,28 +156,28 @@ game-hdr +args:
         {{ args }}
 
 # Run an OpenGL app through Zink.
-[group('Kyth')]
+[group('KythOS')]
 zink-run +args:
     #!/usr/bin/env bash
     set -euo pipefail
     /usr/bin/zink-run {{ args }}
 
-# Print a short Kyth system/kernel tuning summary.
-[group('Kyth')]
+# Print a short KythOS system/kernel tuning summary.
+[group('KythOS')]
 kerver:
     #!/usr/bin/env bash
     set -euo pipefail
     /usr/bin/kyth-kerver
 
 # Print a paste-friendly system support snapshot.
-[group('Kyth')]
+[group('KythOS')]
 device-info:
     #!/usr/bin/env bash
     set -euo pipefail
     /usr/bin/kyth-device-info
 
 # Install LACT from Flathub on an immutable system.
-[group('Kyth')]
+[group('KythOS')]
 install-lact:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -193,7 +193,7 @@ install-lact:
     echo "If you want overclocking/undervolting on AMD, review the official LACT Atomic guidance first."
 
 # Install BoxBuddy (distrobox GUI) from Flathub.
-[group('Kyth')]
+[group('KythOS')]
 install-boxbuddy:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -207,13 +207,13 @@ install-boxbuddy:
     echo "BoxBuddy installed. Launch it from the app launcher to manage your distrobox containers."
 
 # Download and install the latest GE-Proton to /var/lib/kyth/ge-proton/.
-[group('Kyth')]
+[group('KythOS')]
 update-ge-proton:
     #!/usr/bin/env bash
     set -euo pipefail
     sudo /usr/bin/kyth-ge-proton-update
 
-# Set up Waydroid (Android in a container) on Kyth.
+# Set up Waydroid (Android in a container) on KythOS.
 #
 # First run:  installs the waydroid package via rpm-ostree, then prompts for a reboot.
 # Second run: downloads the Android system image and starts the container service.
@@ -221,7 +221,7 @@ update-ge-proton:
 # Usage:
 #   ujust setup-waydroid            # vanilla AOSP (no Google Play)
 #   ujust setup-waydroid microg     # with MicroG (open-source Play Services substitute)
-[group('Kyth')]
+[group('KythOS')]
 setup-waydroid image="vanilla":
     #!/usr/bin/env bash
     set -euo pipefail
@@ -293,7 +293,7 @@ setup-waydroid image="vanilla":
     fi
 
 # Install Heroic Games Launcher — Epic Games, GOG and Amazon Games library.
-[group('Kyth')]
+[group('KythOS')]
 install-heroic:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -303,7 +303,7 @@ install-heroic:
     echo "Heroic installed. Launch it from the app menu."
 
 # Install OBS Studio — screen recording and live streaming.
-[group('Kyth')]
+[group('KythOS')]
 install-obs:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -314,7 +314,7 @@ install-obs:
     echo "Tip: run OBS under Wayland with: OBS_USE_EGL=1 obs"
 
 # Install the Itch.io desktop app — indie game store and library manager.
-[group('Kyth')]
+[group('KythOS')]
 install-itch:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -324,7 +324,7 @@ install-itch:
     echo "Itch.io installed. Launch it from the app menu."
 
 # Install RetroArch — multi-system emulator frontend (NES, SNES, PS1, N64, ...).
-[group('Kyth')]
+[group('KythOS')]
 install-retroarch:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -336,7 +336,7 @@ install-retroarch:
 
 # Install Piper — GUI for configuring gaming mice (DPI, buttons, LEDs).
 # Uses the Flatpak which bundles ratbagd — no rpm-ostree layering required.
-[group('Kyth')]
+[group('KythOS')]
 install-piper:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -350,7 +350,7 @@ install-piper:
 # Note: SMBus/i2c access (RAM RGB, some motherboard headers) may need the i2c
 # kernel modules loaded. If devices are missing, run:
 #   sudo modprobe i2c-dev i2c-piix4    (or the appropriate module for your board)
-[group('Kyth')]
+[group('KythOS')]
 install-openrgb:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -364,7 +364,7 @@ install-openrgb:
     echo "  sudo modprobe i2c-dev i2c-piix4"
 
 # Check for and apply firmware updates via fwupd.
-[group('Kyth')]
+[group('KythOS')]
 firmware-update:
     #!/usr/bin/env bash
     set -euo pipefail

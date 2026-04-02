@@ -1,5 +1,5 @@
 [Unit]
-Description=Kyth migration: configure topgrade for Kyth (v3: system step, containers)
+Description=KythOS migration: configure topgrade for KythOS (v3: system step, containers)
 After=local-fs.target
 ConditionPathExists=!/var/lib/kyth/migrations/topgrade-v3.done
 

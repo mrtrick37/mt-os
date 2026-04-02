@@ -1,4 +1,4 @@
-# Pull the upstream Fedora bootc base and apply Kyth branding.
+# Pull the upstream Fedora bootc base and apply KythOS branding.
 # Build with: docker build -t localhost/kyth-base:stable build_base/
 # Override the base via: docker build --build-arg BASE_IMAGE=ghcr.io/ublue-os/kinoite-main:43 build_base/
 ARG BASE_IMAGE=ghcr.io/ublue-os/kinoite-main:43

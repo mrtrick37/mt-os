@@ -1,5 +1,5 @@
 #!/bin/bash
-# kyth-launch-installer — desktop launcher for the Kyth graphical installer.
+# kyth-launch-installer — desktop launcher for the KythOS graphical installer.
 #
 # Loads the source image URL baked in at ISO build time, then launches
 # kyth-installer (PySide6 GUI). The app re-execs itself under sudo if needed.
@@ -23,7 +23,7 @@ export KYTH_SOURCE_IMAGE="${KYTH_SOURCE_IMAGE:-ghcr.io/mrtrick37/kyth:latest}"
 export KYTH_TARGET_IMAGE="${KYTH_TARGET_IMAGE:-${KYTH_SOURCE_IMAGE}}"
 
 if ! /usr/bin/kyth-installer "$@" >> "${LAUNCH_LOG}" 2>&1; then
-	msg="Kyth installer failed to launch. See /tmp/kyth-installer-launch.log"
+	msg="KythOS installer failed to launch. See /tmp/kyth-installer-launch.log"
 	command -v kdialog >/dev/null 2>&1 && kdialog --error "${msg}" || true
 	command -v zenity  >/dev/null 2>&1 && zenity --error --text "${msg}" || true
 	exit 1

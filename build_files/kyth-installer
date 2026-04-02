@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-kyth-installer — Web-based graphical installer for Kyth OS
+kyth-installer — Web-based graphical installer for KythOS OS
 
 Starts a local HTTP server, serves a polished single-page installer UI,
 and launches a browser in kiosk/app mode to display it.
@@ -481,7 +481,7 @@ def _run_install() -> None:
 
 
 def _run_alongside(log, progress, run_cmd) -> None:
-    """Install Kyth alongside an existing OS by shrinking the largest partition."""
+    """Install KythOS alongside an existing OS by shrinking the largest partition."""
     try:
         disk = _state["disk"]
         log(f"Source image : {SOURCE_IMAGE}")
@@ -500,7 +500,7 @@ def _run_alongside(log, progress, run_cmd) -> None:
 
         # Read partition table once — sfdisk gives us start positions so we can
         # ignore any partition already sitting in the second half of the disk
-        # (which would be a Kyth partition from a prior attempt).
+        # (which would be a KythOS partition from a prior attempt).
         sfdisk_raw = subprocess.check_output(
             _as_root(["sfdisk", "--json", disk]),
             text=True, stderr=subprocess.DEVNULL,
@@ -827,7 +827,7 @@ def _run_alongside(log, progress, run_cmd) -> None:
             subprocess.run(_as_root(["mount", efi_part, efi_scan_mnt]), check=False)
             try:
                 efi_dir = Path(efi_scan_mnt) / "EFI"
-                # Kyth uses EFI/fedora; skip that and the standard fallback dir.
+                # KythOS uses EFI/fedora; skip that and the standard fallback dir.
                 skip_dirs = {"fedora", "BOOT", "boot"}
                 other_loaders: list[tuple[str, str]] = []
                 if efi_dir.exists():
@@ -1031,7 +1031,7 @@ _HTML = r"""<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Kyth Installer</title>
+<title>KythOS Installer</title>
 <style>
 /* ── Reset & Base ─────────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -1590,7 +1590,7 @@ select { cursor: pointer; background-image: url("data:image/svg+xml,%3Csvg xmlns
 
   <!-- Sidebar -->
   <nav id="sidebar">
-    <div class="logo">Kyth</div>
+    <div class="logo">KythOS</div>
     <div class="steps" id="steps">
       <div class="step" data-step="welcome">
         <div class="step-num">1</div>
@@ -1626,16 +1626,16 @@ select { cursor: pointer; background-image: url("data:image/svg+xml,%3Csvg xmlns
     <!-- Welcome -->
     <div class="page active" id="page-welcome">
       <div class="card">
-        <div class="card-title">Welcome to Kyth</div>
+        <div class="card-title">Welcome to KythOS</div>
         <div class="card-sub">Immutable gaming &amp; development desktop — Fedora Kinoite + CachyOS kernel</div>
         <div class="divider"></div>
         <p style="color:var(--muted);font-size:14px;line-height:1.75">
-          This installer will guide you through installing Kyth on your computer.<br><br>
+          This installer will guide you through installing KythOS on your computer.<br><br>
           <span style="color:var(--text)">What will happen:</span><br>
           &nbsp;  1. Verify your network connection<br>
           &nbsp;  2. Select an installation disk<br>
           &nbsp;  3. Choose hostname and timezone<br>
-          &nbsp;  4. Download and write Kyth to disk<br><br>
+          &nbsp;  4. Download and write KythOS to disk<br><br>
           <span style="color:var(--amber)">⚠&nbsp; The selected disk will be completely erased.</span><br>
           Make sure you have backups before continuing.
         </p>
@@ -1649,7 +1649,7 @@ select { cursor: pointer; background-image: url("data:image/svg+xml,%3Csvg xmlns
     <div class="page" id="page-network">
       <div class="card">
         <div class="card-title">Network Check</div>
-        <div class="card-sub">Verifying connectivity to the Kyth container registry at ghcr.io</div>
+        <div class="card-sub">Verifying connectivity to the KythOS container registry at ghcr.io</div>
         <div class="divider"></div>
         <div class="status-box status-info" id="net-status">Checking connection…</div>
         <div class="btn-row">
@@ -1664,7 +1664,7 @@ select { cursor: pointer; background-image: url("data:image/svg+xml,%3Csvg xmlns
     <div class="page" id="page-disk">
       <div class="card">
         <div class="card-title">Select Installation Disk</div>
-        <div class="card-sub">Choose a disk and how Kyth should be installed on it</div>
+        <div class="card-sub">Choose a disk and how KythOS should be installed on it</div>
         <div class="divider"></div>
         <div class="disk-grid" id="disk-grid">
           <div class="status-box status-info">Loading disks…</div>
@@ -1677,7 +1677,7 @@ select { cursor: pointer; background-image: url("data:image/svg+xml,%3Csvg xmlns
             <div class="mode-radio"></div>
             <div class="mode-body">
               <div class="mode-title">Erase disk and install</div>
-              <div class="mode-desc">Wipe the selected disk and install Kyth on the full disk. All existing data will be lost.</div>
+              <div class="mode-desc">Wipe the selected disk and install KythOS on the full disk. All existing data will be lost.</div>
             </div>
           </div>
           <div class="mode-card disabled" id="mode-alongside" onclick="selectMode('alongside')">
@@ -1694,7 +1694,7 @@ select { cursor: pointer; background-image: url("data:image/svg+xml,%3Csvg xmlns
           <div id="alongside-detail"></div>
           <div class="preview-bar">
             <div class="bar-existing" id="bar-existing">Existing OS (50%)</div>
-            <div class="bar-kyth">Kyth (50%)</div>
+            <div class="bar-kyth">KythOS (50%)</div>
           </div>
           <div id="alongside-sizes" style="font-size:12px;color:var(--muted)"></div>
         </div>
@@ -1752,7 +1752,7 @@ select { cursor: pointer; background-image: url("data:image/svg+xml,%3Csvg xmlns
     <!-- Install -->
     <div class="page" id="page-install">
       <div class="card" style="max-width:800px">
-        <div class="card-title" id="install-title">Installing Kyth…</div>
+        <div class="card-title" id="install-title">Installing KythOS…</div>
         <div class="progress-wrap">
           <div class="progress-label">
             <span id="install-phase">Preparing…</span>
@@ -1776,7 +1776,7 @@ select { cursor: pointer; background-image: url("data:image/svg+xml,%3Csvg xmlns
         <span class="hero-icon">✓</span>
         <div class="done-title">Installation Complete</div>
         <p class="hero-body">
-          Kyth has been installed successfully.<br>
+          KythOS has been installed successfully.<br>
           Remove the installation media and reboot to start your new system.
         </p>
         <div class="btn-row" style="justify-content:center;margin-top:36px">
@@ -1849,7 +1849,7 @@ function checkNetwork() {
   setStatus('net-status', 'info', 'Checking connection to ghcr.io…');
   fetch('/api/network').then(r => r.json()).then(d => {
     if (d.ok) {
-      setStatus('net-status', 'ok', '✓  Connected — ready to download Kyth');
+      setStatus('net-status', 'ok', '✓  Connected — ready to download KythOS');
       document.getElementById('net-next').disabled = false;
     } else {
       setStatus('net-status', 'err',
@@ -1924,7 +1924,7 @@ function selectDisk(idx) {
         const l = d.largest;
         const halfStr = humanBytesJS(d.disk_bytes / 2);
         document.getElementById('alongside-desc').textContent =
-          `Shrink "${l.name}" (${l.size}, ${l.fstype || 'unknown FS'}) to 50% and install Kyth on the freed space.`;
+          `Shrink "${l.name}" (${l.size}, ${l.fstype || 'unknown FS'}) to 50% and install KythOS on the freed space.`;
         modeAlong.classList.remove('disabled');
       } else {
         document.getElementById('alongside-desc').textContent =
@@ -1958,9 +1958,9 @@ function selectMode(mode) {
     const halfStr  = humanBytesJS(S.alongsideInfo.disk_bytes / 2);
     document.getElementById('alongside-detail').textContent =
       `The partition ${l.name} (${l.size}) will be shrunk to ~${halfStr}. ` +
-      `Kyth will be installed in the freed space (~${halfStr}).`;
+      `KythOS will be installed in the freed space (~${halfStr}).`;
     document.getElementById('alongside-sizes').textContent =
-      `Existing OS: ~${halfStr}  ·  Kyth: ~${halfStr}`;
+      `Existing OS: ~${halfStr}  ·  KythOS: ~${halfStr}`;
     document.getElementById('bar-existing').textContent = `Existing OS (~${halfStr})`;
     warnBox.innerHTML = '⚠&nbsp; The existing partition will be resized. Back up important data first.';
     warnBox.style.color = 'var(--amber)';
@@ -1978,9 +1978,9 @@ function confirmDisk() {
     const l = S.alongsideInfo.largest;
     const halfStr = humanBytesJS(S.alongsideInfo.disk_bytes / 2);
     if (confirm(
-      `Install Kyth alongside the existing OS on ${S.disk.name}?\n\n` +
+      `Install KythOS alongside the existing OS on ${S.disk.name}?\n\n` +
       `  • ${l.name} (${l.size}) will be shrunk to ~${halfStr}\n` +
-      `  • A new ~${halfStr} partition will be created for Kyth\n\n` +
+      `  • A new ~${halfStr} partition will be created for KythOS\n\n` +
       `Back up your data before continuing. This cannot be undone.`
     )) goto('config');
   } else {
@@ -2332,7 +2332,7 @@ def main() -> None:
       f.write("\n=== Installer launch failure ===\n")
       f.write(tb)
     _show_launch_error(
-      "Kyth installer failed to launch.\n"
+      "KythOS installer failed to launch.\n"
       "See /var/tmp/kyth-installer.log for details."
     )
     raise

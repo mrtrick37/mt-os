@@ -13,7 +13,7 @@
   <!-- Pure black background -->
   <rect width="1920" height="1080" fill="#000000"/>
 
-  <!-- Kyth logo — centered at (960, 490), scaled 1.5× -->
+  <!-- KythOS logo — centered at (960, 490), scaled 1.5× -->
   <g transform="translate(840, 367) scale(1.5)" filter="url(#logo-glow)">
     <line x1="54.6" y1="140.6" x2="54.6" y2="27.5"
           stroke="#7aa2f7" stroke-width="16.9" stroke-linecap="round"/>
@@ -32,7 +32,7 @@
     <circle cx="54.6" cy="82.0" r="5.6" fill="#e0af68"/>
   </g>
 
-  <!-- "kyth" wordmark -->
+  <!-- "KythOS" wordmark -->
   <text x="960" y="670"
         font-family="'DejaVu Sans', 'Liberation Sans', sans-serif"
         font-size="42"
@@ -40,5 +40,5 @@
         letter-spacing="20"
         fill="#a9b1d6"
         opacity="0.8"
-        text-anchor="middle">kyth</text>
+        text-anchor="middle">KythOS</text>
 </svg>

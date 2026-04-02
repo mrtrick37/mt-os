@@ -1,5 +1,5 @@
 [Unit]
-Description=Kyth Steam/Wine dedupe pass
+Description=KythOS Steam/Wine dedupe pass
 Documentation=https://github.com/mrtrick37/kyth
 After=local-fs.target
 

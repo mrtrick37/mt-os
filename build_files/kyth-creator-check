@@ -10,7 +10,7 @@ safe_cmd() {
     "$@" 2>/dev/null || true
 }
 
-echo "Kyth Creator Check"
+echo "KythOS Creator Check"
 echo "Generated: $(date -Is)"
 
 section "Session"

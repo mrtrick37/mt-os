@@ -1,10 +1,10 @@
 #!/usr/bin/bash
-# kyth-install — Live ISO installer for Kyth
+# kyth-install — Live ISO installer for KythOS
 #
-# Uses 'bootc install to-disk' to write Kyth to the selected disk.
+# Uses 'bootc install to-disk' to write KythOS to the selected disk.
 # Pulls the final image from ghcr.io/mrtrick37/kyth:latest (requires network).
 #
-# Runs via the "Install Kyth" desktop icon on the live ISO.
+# Runs via the "Install KythOS" desktop icon on the live ISO.
 
 set -euo pipefail
 
@@ -24,7 +24,7 @@ mapfile -t DISKS < <(lsblk -dpno NAME,SIZE,MODEL \
 
 if [[ ${#DISKS[@]} -eq 0 ]]; then
     if command -v kdialog &>/dev/null; then
-        kdialog --title "Install Kyth" --error "No suitable disks found."
+        kdialog --title "Install KythOS" --error "No suitable disks found."
     else
         echo "ERROR: No suitable disks found." >&2
     fi
@@ -41,18 +41,18 @@ if command -v kdialog &>/dev/null; then
     done
 
     SELECTED=$(kdialog \
-        --title "Install Kyth" \
-        --menu "Select the disk to install Kyth onto.\n\nWARNING: ALL DATA on the selected disk will be erased." \
+        --title "Install KythOS" \
+        --menu "Select the disk to install KythOS onto.\n\nWARNING: ALL DATA on the selected disk will be erased." \
         "${MENU_ARGS[@]}") || exit 0
 
     kdialog \
-        --title "Install Kyth" \
-        --warningyesno "ERASE ALL DATA on ${SELECTED} and install Kyth?\n\nThis cannot be undone." \
+        --title "Install KythOS" \
+        --warningyesno "ERASE ALL DATA on ${SELECTED} and install KythOS?\n\nThis cannot be undone." \
         || exit 0
 else
     # Fallback: plain terminal UI
     echo ""
-    echo "=== Install Kyth ==="
+    echo "=== Install KythOS ==="
     echo ""
     echo "Available disks:"
     for entry in "${DISKS[@]}"; do
@@ -76,7 +76,7 @@ while IFS= read -r part; do
 done < <(lsblk -lnpo NAME "${SELECTED}" | tail -n +2)
 
 # ── Install ───────────────────────────────────────────────────────────────────
-echo "Installing Kyth to ${SELECTED} from ${TARGET_IMGREF} ..."
+echo "Installing KythOS to ${SELECTED} from ${TARGET_IMGREF} ..."
 echo "This will take a while depending on your internet connection."
 echo ""
 
@@ -88,10 +88,10 @@ bootc install to-disk \
     "${SELECTED}"
 
 echo ""
-echo "Installation complete. You can now reboot into Kyth."
+echo "Installation complete. You can now reboot into KythOS."
 
 if command -v kdialog &>/dev/null; then
     kdialog \
-        --title "Install Kyth" \
-        --msgbox "Installation complete!\n\nRemove the live USB and reboot to start Kyth."
+        --title "Install KythOS" \
+        --msgbox "Installation complete!\n\nRemove the live USB and reboot to start KythOS."
 fi

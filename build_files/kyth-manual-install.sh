@@ -1,5 +1,5 @@
 #!/usr/bin/bash
-# kyth-manual-install.sh — Manual installer for Kyth from a live ISO session.
+# kyth-manual-install.sh — Manual installer for KythOS from a live ISO session.
 #
 # Use this when the graphical installer is unavailable (e.g. broken Wayland).
 # This is the CLI equivalent of the graphical install path: it calls
@@ -24,21 +24,21 @@ TARGET_IMGREF="ghcr.io/mrtrick37/kyth:latest"
 [[ -b "$TARGET" ]] || { echo "ERROR: $TARGET is not a block device."; exit 1; }
 
 if ! command -v bootc &>/dev/null; then
-    echo "ERROR: 'bootc' not found. Run this script from the Kyth live ISO."
+    echo "ERROR: 'bootc' not found. Run this script from the KythOS live ISO."
     exit 1
 fi
 
 BUNDLED_PATH="${BUNDLED_IMGREF#oci:}"
 if [[ ! -d "$BUNDLED_PATH" ]]; then
     echo "ERROR: Bundled OS image not found at $BUNDLED_PATH."
-    echo "       This script must be run from the Kyth live ISO."
+    echo "       This script must be run from the KythOS live ISO."
     exit 1
 fi
 
 # ── Summary ───────────────────────────────────────────────────────────────────
 
 echo ""
-echo "=== Kyth Manual Installer ==="
+echo "=== KythOS Manual Installer ==="
 echo ""
 echo "  Install to : $TARGET"
 echo "  Source     : $BUNDLED_IMGREF  (bundled in live ISO — no download needed)"
@@ -57,7 +57,7 @@ read -r -p "Type 'yes' to continue: " CONFIRM
 # ── Install ───────────────────────────────────────────────────────────────────
 
 echo ""
-echo "==> Installing Kyth to $TARGET..."
+echo "==> Installing KythOS to $TARGET..."
 echo ""
 
 bootc install to-disk            \
@@ -72,5 +72,5 @@ bootc install to-disk            \
 echo ""
 echo "Installation complete!"
 echo ""
-echo "Remove the live media and reboot to start Kyth."
+echo "Remove the live media and reboot to start KythOS."
 echo ""

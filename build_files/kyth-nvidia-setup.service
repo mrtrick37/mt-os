@@ -1,5 +1,5 @@
 [Unit]
-Description=Kyth NVIDIA driver first-boot setup
+Description=KythOS NVIDIA driver first-boot setup
 Documentation=https://github.com/mrtrick37/kyth
 # Run after the filesystem is ready but don't block the display manager —
 # akmods can take 5-15 min and we don't want to stall the first login screen.

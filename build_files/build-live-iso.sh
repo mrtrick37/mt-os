@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# build-live-iso.sh — Build a live desktop ISO for Kyth with the web installer.
+# build-live-iso.sh — Build a live desktop ISO for KythOS with the web installer.
 #
 # Flow:
 #   1. Build Containerfile.live (stable live environment + Chromium + kyth-installer)
@@ -61,7 +61,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 OUTPUT_DIR="${REPO_ROOT}/output/live-iso"
 ISO_NAME="kyth-live-${SOURCE_TAG}.iso"
-VOLID="Kyth-43-Live"
+VOLID="KythOS-43-Live"
 
 # Hash relevant installer sources so cached container rebuilds when these files
 # change (even if the base image timestamp does not).
@@ -226,7 +226,7 @@ echo "==> Writing GRUB config and theme"
 LIVE_ARGS="quiet rhgb rd.plymouth=1 plymouth.enable=1 plymouth.ignore-serial-consoles root=live:CDLABEL=${VOLID} rd.live.image rd.retry=60 enforcing=0 systemd.crash_reboot=0 inst.nokill console=ttyS0,115200 console=tty0"
 
 cat > "${ISO_DIR}/boot/grub2/themes/kyth/theme.txt" <<THEMEEOF
-# Kyth GRUB2 dark theme
+# KythOS GRUB2 dark theme
 
 title-text: ""
 desktop-color: "#0d1117"
@@ -307,17 +307,17 @@ else
 fi
 
 # ── Boot entries ───────────────────────────────────────────────────────────────
-menuentry "Try Kyth Live" --class fedora --class gnu-linux --class os {
+menuentry "Try KythOS Live" --class fedora --class gnu-linux --class os {
     linux /images/pxeboot/vmlinuz ${LIVE_ARGS}
     initrd /images/pxeboot/initrd.img
 }
 
-menuentry "Try Kyth Live (Hardware GL Test)" --class fedora --class gnu-linux --class os {
+menuentry "Try KythOS Live (Hardware GL Test)" --class fedora --class gnu-linux --class os {
     linux /images/pxeboot/vmlinuz ${LIVE_ARGS} kyth.live.hwgl=1 kyth.installer.hwgl=1
     initrd /images/pxeboot/initrd.img
 }
 
-menuentry "Try Kyth Live (Debug — verbose boot)" --class fedora --class gnu-linux --class os {
+menuentry "Try KythOS Live (Debug — verbose boot)" --class fedora --class gnu-linux --class os {
     linux /images/pxeboot/vmlinuz rd.plymouth=0 plymouth.enable=0 root=live:CDLABEL=${VOLID} rd.live.image rd.retry=60 enforcing=0 systemd.crash_reboot=0 rd.debug loglevel=7 console=ttyS0,115200 console=tty0
     initrd /images/pxeboot/initrd.img
 }
@@ -338,7 +338,7 @@ fi
 if [[ -d "${GRUB_X64_MODS}" ]] && command -v grub2-mkimage &>/dev/null; then
     GRUB_EMBED_CFG="${WORK}/grub-efi-embed.cfg"
     cat > "${GRUB_EMBED_CFG}" << 'EMBEDEOF'
-search --no-floppy --label --set=root Kyth-43-Live
+search --no-floppy --label --set=root KythOS-43-Live
 set prefix=($root)/boot/grub2
 source ($root)/boot/grub2/grub.cfg
 EMBEDEOF
@@ -400,7 +400,7 @@ mcopy -i "${EFI_IMG}" "${ISO_DIR}/EFI/BOOT/grub.cfg" ::/EFI/BOOT/grub.cfg
 
 cat > "${ISO_DIR}/startup.nsh" << 'NSHEOF'
 @echo -off
-echo Booting Kyth...
+echo Booting KythOS...
 fs0:\EFI\BOOT\BOOTX64.EFI
 NSHEOF
 
@@ -439,7 +439,7 @@ if ! "${HAVE_BIOS_GRUB}" && sudo test -f "${ISOLINUX_BIN}"; then
     cat > "${ISO_DIR}/isolinux/isolinux.cfg" << ISOLINUXEOF
 default vesamenu.c32
 timeout 100
-menu title Kyth 43 Live
+menu title KythOS 43 Live
 
 menu color screen     37;40    #a0000000 #00000000 std
 menu color border     30;44    #00000000 #00000000 std
@@ -460,12 +460,12 @@ menu tabmsgrow 18
 menu helpmsgrow 20
 
 label live
-  menu label Try Kyth Live
+  menu label Try KythOS Live
   kernel /images/pxeboot/vmlinuz
   append initrd=/images/pxeboot/initrd.img ${LIVE_ARGS}
 
 label hwgl
-  menu label Try Kyth Live (Hardware GL Test)
+  menu label Try KythOS Live (Hardware GL Test)
   kernel /images/pxeboot/vmlinuz
   append initrd=/images/pxeboot/initrd.img ${LIVE_ARGS} kyth.live.hwgl=1 kyth.installer.hwgl=1
 
@@ -516,5 +516,5 @@ sudo chown "$(id -u):$(id -g)" "${OUTPUT_DIR}/${ISO_NAME}"
 ISO_SIZE=$(du -sh "${OUTPUT_DIR}/${ISO_NAME}" | cut -f1)
 ISO_PATH=$(readlink -f "${OUTPUT_DIR}/${ISO_NAME}")
 echo ""
-echo "==> Kyth live ISO ready"
+echo "==> KythOS live ISO ready"
 echo "    ${ISO_PATH} (${ISO_SIZE})"
