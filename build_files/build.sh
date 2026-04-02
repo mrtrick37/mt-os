@@ -62,7 +62,6 @@ dnf5 install -y --skip-unavailable \
     tiptop \
     trace-cmd \
     util-linux-script \
-    virt-viewer \
     gnome-boxes \
     ydotool \
     tmux \
@@ -148,7 +147,6 @@ dnf5 install -y --skip-unavailable --exclude=libde265.i686 \
 
 # KDE-specific gaming integrations
 dnf5 install -y \
-    kdeconnectd \
     kdeplasma-addons \
     rom-properties-kf6 \
     input-remapper

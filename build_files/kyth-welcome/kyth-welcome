@@ -390,6 +390,45 @@ QCheckBox::indicator:checked {
 QCheckBox::indicator:hover {
     border-color: #5b9cf6;
 }
+
+/* ── Getting-started step items ──────────────────────────────────────────── */
+QFrame#step-item {
+    background: #111111;
+    border: 1px solid #222222;
+    border-radius: 8px;
+}
+
+QFrame#step-item:hover {
+    background: #161616;
+    border: 1px solid #2e2e2e;
+}
+
+QLabel#step-number {
+    background: #162040;
+    color: #6da4f8;
+    border-radius: 14px;
+    font-size: 13px;
+    font-weight: 700;
+}
+
+QLabel#step-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: #f0f0f0;
+}
+
+/* ── Update alert card ───────────────────────────────────────────────────── */
+QFrame#card-update {
+    background: #071628;
+    border: 1px solid #1a3f70;
+    border-radius: 10px;
+}
+
+QLabel#card-title-update {
+    font-size: 15px;
+    font-weight: 700;
+    color: #6da4f8;
+}
 """
 
 
@@ -428,8 +467,8 @@ class Worker(QThread):
 
 class DownloadMonitor(QThread):
     """Polls /proc/net/dev every second to track download speed and progress."""
-    # downloaded, total, speed_bps, eta_sec
-    stats = pyqtSignal(int, int, int, int)
+    # downloaded, total, speed_bps, eta_sec  (object keeps Python int — avoids 32-bit overflow)
+    stats = pyqtSignal(object, object, object, object)
 
     def __init__(self, total_bytes: int, rx_start: int):
         super().__init__()
@@ -654,9 +693,17 @@ def _parse_size_bytes(size_str: str) -> int:
 def _human_bytes(n: int) -> str:
     """Format bytes as a human-readable string."""
     for unit, threshold in (("GB", 1024**3), ("MB", 1024**2), ("KB", 1024)):
-        if n >= threshold:
+        if abs(n) >= threshold:
             return f"{n / threshold:.1f} {unit}"
     return f"{n} B"
+
+
+def _human_bytes_pair(downloaded: int, total: int) -> tuple[str, str]:
+    """Format a downloaded/total pair using the same unit, anchored to total."""
+    for unit, threshold in (("GB", 1024**3), ("MB", 1024**2), ("KB", 1024)):
+        if abs(total) >= threshold:
+            return f"{downloaded / threshold:.1f}", f"{total / threshold:.1f} {unit}"
+    return str(downloaded), f"{total} B"
 
 
 def _parse_update_phase(line: str, mode: str) -> str | None:
@@ -679,11 +726,13 @@ def _parse_update_phase(line: str, mode: str) -> str | None:
         return "Already on the latest image — nothing to download."
     if "queued" in lo and "boot" in lo:
         return "Staged — new image ready for next reboot."
-    # topgrade section headers look like "[section] ..."
-    if mode == "topgrade" and line.startswith("[") and "]" in line:
-        section = line[1 : line.index("]")].strip()
-        if section:
-            return f"Updating {section}…"
+    # topgrade section headers look like "―― HH:MM:SS - Section Name ――"
+    if mode == "topgrade" and line.startswith("――"):
+        m = re.match(r"――\s*[\d:]+\s*-\s*(.+?)\s*――", line)
+        if m:
+            section = m.group(1).strip()
+            if section:
+                return f"Updating {section}…"
     return None
 
 
@@ -1413,8 +1462,9 @@ class Page(QWidget):
 
 # ── Page: Welcome ─────────────────────────────────────────────────────────────
 class WelcomePage(Page):
-    def __init__(self):
+    def __init__(self, navigate=None):
         super().__init__()
+        self._navigate = navigate or (lambda _: None)
 
         self._heading("Welcome to Kyth")
         self._subheading("A fast, atomic desktop built for gaming and development.")
@@ -1432,9 +1482,9 @@ class WelcomePage(Page):
         self._branch_tile = StatTile("Branch", branch)
         tiles_row.addWidget(self._branch_tile)
 
-        staged_val = "Ready" if staged else "Up to date"
+        staged_val = "Staged" if staged else "Up to date"
         staged_style = "stat-value-warn" if staged else "stat-value-ok"
-        self._update_tile = StatTile("Next Boot", staged_val, staged_style)
+        self._update_tile = StatTile("System", staged_val, staged_style)
         tiles_row.addWidget(self._update_tile)
 
         rollback_val = "Available" if rollback else "None"
@@ -1445,61 +1495,69 @@ class WelcomePage(Page):
         self._kernel_tile = StatTile("Kernel", kernel)
         tiles_row.addWidget(self._kernel_tile)
 
-        steam_flag = os.path.expanduser("~/.local/share/kyth-steam-initialized")
-        steam_dir = os.path.expanduser("~/.local/share/Steam")
-        steam_ready = os.path.exists(steam_flag) or os.path.isdir(steam_dir)
-        steam_val = "Ready" if steam_ready else "Not launched"
-        steam_style = "stat-value-ok" if steam_ready else "stat-value-warn"
-        self._steam_tile = StatTile("Steam", steam_val, steam_style)
-        tiles_row.addWidget(self._steam_tile)
-
         self._add_layout(tiles_row)
 
-        # Getting started card
-        card, card_layout = _make_card()
-        card_title = QLabel("Getting started")
-        card_title.setObjectName("card-title")
-        card_layout.addWidget(card_title)
+        # Staged update banner
+        if staged:
+            alert, alert_layout = _make_card("card-update")
+            alert_title = QLabel("Update staged — reboot to apply")
+            alert_title.setObjectName("card-title-update")
+            alert_layout.addWidget(alert_title)
+            alert_body = QLabel(
+                "A new Kyth OS image has been downloaded and is waiting. "
+                "Reboot at any time to switch to the updated system."
+            )
+            alert_body.setObjectName("card-copy")
+            alert_body.setWordWrap(True)
+            alert_layout.addWidget(alert_body)
+            alert_btn_row = QHBoxLayout()
+            reboot_btn = QPushButton("Reboot Now")
+            reboot_btn.setObjectName("primary")
+            reboot_btn.clicked.connect(lambda: subprocess.Popen(["systemctl", "reboot"]))
+            alert_btn_row.addWidget(reboot_btn)
+            alert_btn_row.addStretch()
+            alert_layout.addLayout(alert_btn_row)
+            self._add(alert)
 
+        # Getting started section
+        section_lbl = QLabel("Getting started")
+        section_lbl.setObjectName("card-title")
+        self._add(section_lbl)
+
+        # Page indices match new nav order: 0=Welcome 1=Update 2=Hardware
+        # 3=Firmware 4=Software 5=Gaming 6=NVIDIA 7=Cloud 8=Branches 9=Diagnostics 10=Repair
         steps = [
-            "1.  Open Hardware — confirm graphics, audio, and wireless are healthy.",
-            "2.  Open Firmware — check for device firmware updates.",
-            "3.  Open Update — run a full system update with topgrade.",
-            "4.  Open NVIDIA Drivers — if this machine uses an NVIDIA GPU.",
-            "5.  Keep your personal files in /home backed up somewhere safe.",
+            (1, "Run a system update",      "Start with the latest packages and OS image.",            1),
+            (2, "Check your hardware",       "Confirm graphics, audio, and wireless are working.",      2),
+            (3, "Update device firmware",    "Check for BIOS and peripheral firmware updates.",         3),
+            (4, "Set up gaming",             "Configure Steam, Proton, and performance tools.",         5),
+            (5, "Learn how to install apps", "Flatpak, Homebrew, and Distrobox explained.",             4),
         ]
-        for step in steps:
-            lbl = QLabel(step)
-            lbl.setObjectName("card-copy")
-            lbl.setWordWrap(True)
-            card_layout.addWidget(lbl)
-        self._add(card)
+        for num, title, desc, page_idx in steps:
+            self._add(self._make_step(num, title, desc, page_idx))
+
+        self._divider()
 
         # Backup card
         backup_card, backup_layout = _make_card()
-        backup_title = QLabel("Backup your personal files")
+        backup_title = QLabel("Back up your personal files")
         backup_title.setObjectName("card-title")
         backup_layout.addWidget(backup_title)
-
         backup_body = QLabel(
-            "Kyth rollbacks protect the OS. They are not a substitute for personal file backups. "
+            "OS rollbacks protect the system — they are not a substitute for personal file backups. "
             "Keep game saves, projects, and documents in /home and copy them to an external drive "
             "or cloud service regularly."
         )
         backup_body.setObjectName("card-copy")
         backup_body.setWordWrap(True)
         backup_layout.addWidget(backup_body)
-
-        btn_row = QHBoxLayout()
-        btn_row.setSpacing(10)
+        backup_btn_row = QHBoxLayout()
+        backup_btn_row.setSpacing(10)
         home_btn = QPushButton("Open Home Folder")
         home_btn.clicked.connect(lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(os.path.expanduser("~"))))
-        docs_btn = QPushButton("Open Documents")
-        docs_btn.clicked.connect(lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(os.path.expanduser("~/Documents"))))
-        btn_row.addWidget(home_btn)
-        btn_row.addWidget(docs_btn)
-        btn_row.addStretch()
-        backup_layout.addLayout(btn_row)
+        backup_btn_row.addWidget(home_btn)
+        backup_btn_row.addStretch()
+        backup_layout.addLayout(backup_btn_row)
         self._add(backup_card)
 
         self._divider()
@@ -1516,10 +1574,41 @@ class WelcomePage(Page):
         self._add_layout(link_row)
 
         note = QLabel("This window will not reappear on login. Reopen it anytime from the application menu.")
-        note.setObjectName("subheading")
+        note.setObjectName("status-dim")
         note.setWordWrap(True)
         self._add(note)
         self._stretch()
+
+    def _make_step(self, num: int, title: str, desc: str, page_idx: int) -> QFrame:
+        frame = QFrame()
+        frame.setObjectName("step-item")
+        row = QHBoxLayout(frame)
+        row.setContentsMargins(18, 14, 18, 14)
+        row.setSpacing(16)
+
+        num_lbl = QLabel(str(num))
+        num_lbl.setObjectName("step-number")
+        num_lbl.setFixedSize(28, 28)
+        num_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        row.addWidget(num_lbl)
+
+        text_col = QVBoxLayout()
+        text_col.setSpacing(3)
+        title_lbl = QLabel(title)
+        title_lbl.setObjectName("step-title")
+        text_col.addWidget(title_lbl)
+        desc_lbl = QLabel(desc)
+        desc_lbl.setObjectName("card-copy")
+        text_col.addWidget(desc_lbl)
+        row.addLayout(text_col)
+        row.addStretch()
+
+        go_btn = QPushButton("Go →")
+        go_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        go_btn.clicked.connect(lambda checked=False, idx=page_idx: self._navigate(idx))
+        row.addWidget(go_btn)
+
+        return frame
 
 
 # ── Page: Hardware ────────────────────────────────────────────────────────────
@@ -1926,18 +2015,24 @@ class UpdatePage(Page):
             self._current_phase = phase
             self._status_lbl.setText(phase)
             _restyle(self._status_lbl)
-        # Start network monitor when bootc tells us how much to download
-        if "layers needed:" in text and self._dl_monitor is None:
+        # Start or update network monitor when bootc tells us how much to download
+        if "layers needed:" in text:
             try:
                 m = text.split("layers needed:")[1]
                 size_str = m.split("(")[1].rstrip(")") if "(" in m else ""
                 total = _parse_size_bytes(size_str)
                 if total > 0:
-                    self._dl_total = total
-                    self._progress.setRange(0, 1000)
-                    self._dl_monitor = DownloadMonitor(total, _get_rx_bytes())
-                    self._dl_monitor.stats.connect(self._on_dl_stats)
-                    self._dl_monitor.start()
+                    if self._dl_monitor is None:
+                        self._dl_total = total
+                        self._progress.setRange(0, 1000)
+                        self._dl_monitor = DownloadMonitor(total, _get_rx_bytes())
+                        self._dl_monitor.stats.connect(self._on_dl_stats)
+                        self._dl_monitor.start()
+                    elif total > self._dl_total:
+                        # A later phase reports a larger download — update in place
+                        self._dl_total = total
+                        self._dl_monitor._total = total
+                        self._progress.setRange(0, 1000)
             except Exception:
                 pass
         self._log.append(text)
@@ -1956,9 +2051,16 @@ class UpdatePage(Page):
         self._dl_eta = eta_sec
         if total > 0:
             self._progress.setValue(int(min(downloaded / total, 1.0) * 1000))
+        # While actively transferring, update the phase label to reflect the download
+        if speed_bps > 100_000 and downloaded < total:
+            dl_phase = "Downloading image layers…"
+            self._current_phase = dl_phase
+            self._status_lbl.setText(dl_phase)
+            _restyle(self._status_lbl)
         # Only show download stats while actively transferring (>100 KB/s)
         if speed_bps > 100_000:
-            dl_str = f"{_human_bytes(downloaded)} / {_human_bytes(total)}"
+            dl_dl, dl_total = _human_bytes_pair(downloaded, total)
+            dl_str = f"{dl_dl} / {dl_total}"
             speed_str = f"{_human_bytes(speed_bps)}/s"
             if eta_sec > 60:
                 eta_mins, eta_secs = divmod(eta_sec, 60)
@@ -2029,14 +2131,21 @@ class UpdatePage(Page):
 
     def _refresh_summary(self):
         branch = _branch_display_name(_current_branch())
-        staged = _has_staged_update()
-        rollback = _has_rollback_deployment()
         booted_ts = _bootc_image_timestamp("booted")
-        staged_ts = _bootc_image_timestamp("staged") if staged else None
 
         parts = [f"Branch: {branch}"]
         if booted_ts:
             parts.append(f"Running image built: {booted_ts}")
+        if self._worker is not None:
+            parts.append("Update in progress…")
+            self._summary_lbl.setText("\n".join(parts))
+            self._rollback_btn.setEnabled(False)
+            return
+
+        staged = _has_staged_update()
+        rollback = _has_rollback_deployment()
+        staged_ts = _bootc_image_timestamp("staged") if staged else None
+
         if staged:
             if staged_ts:
                 parts.append(f"Staged image built: {staged_ts} — reboot to apply.")
@@ -2054,6 +2163,15 @@ class BranchesPage(Page):
     def __init__(self):
         super().__init__()
         self._worker = None
+        self._dl_monitor = None
+        self._dl_total = 0
+        self._dl_speed = 0
+        self._dl_eta = 0
+        self._op_start_ts = 0.0
+        self._current_phase = ""
+        self._heartbeat = QTimer(self)
+        self._heartbeat.setInterval(5000)
+        self._heartbeat.timeout.connect(self._heartbeat_tick)
 
         self._heading("Branches")
         self._subheading("Choose which Kyth image stream this system follows.")
@@ -2100,6 +2218,12 @@ class BranchesPage(Page):
         self._status_lbl.hide()
         self._add(self._status_lbl)
 
+        self._activity_lbl = QLabel()
+        self._activity_lbl.setObjectName("card-copy")
+        self._activity_lbl.setWordWrap(True)
+        self._activity_lbl.hide()
+        self._add(self._activity_lbl)
+
         self._progress = QProgressBar()
         self._progress.setRange(0, 0)
         self._progress.hide()
@@ -2145,9 +2269,16 @@ class BranchesPage(Page):
 
     def _switch(self, tag: str):
         ref = f"{REGISTRY}:{tag}"
+        self._stop_dl_monitor()
+        self._dl_total = 0
+        self._dl_speed = 0
+        self._dl_eta = 0
+        self._op_start_ts = time.monotonic()
+        self._current_phase = ""
         self._log.clear()
         self._log.append(f"→ bootc switch {ref}\n")
         self._log.show()
+        self._progress.setRange(0, 0)
         self._progress.show()
         self._status_lbl.setText("Switching branch…")
         self._status_lbl.setObjectName("subheading")
@@ -2162,13 +2293,74 @@ class BranchesPage(Page):
         self._worker.line.connect(self._on_line)
         self._worker.done.connect(self._on_done)
         self._worker.start()
+        self._update_activity()
+        self._heartbeat.start()
+
+    def _stop_dl_monitor(self):
+        if self._dl_monitor is not None:
+            self._dl_monitor.stop()
+            self._dl_monitor.wait()
+            self._dl_monitor.deleteLater()
+            self._dl_monitor = None
 
     def _on_line(self, text: str):
+        if "layers needed:" in text and self._dl_monitor is None:
+            try:
+                m = text.split("layers needed:")[1]
+                size_str = m.split("(")[1].rstrip(")") if "(" in m else ""
+                total = _parse_size_bytes(size_str)
+                if total > 0:
+                    self._dl_total = total
+                    self._progress.setRange(0, 1000)
+                    self._dl_monitor = DownloadMonitor(total, _get_rx_bytes())
+                    self._dl_monitor.stats.connect(self._on_dl_stats)
+                    self._dl_monitor.start()
+            except Exception:
+                pass
         self._log.append(text)
         self._log.ensureCursorVisible()
 
+    def _on_dl_stats(self, downloaded: int, total: int, speed_bps: int, eta_sec: int):
+        self._dl_speed = speed_bps
+        self._dl_eta = eta_sec
+        if total > 0:
+            self._progress.setValue(int(min(downloaded / total, 1.0) * 1000))
+        if speed_bps > 100_000:
+            dl_dl, dl_total = _human_bytes_pair(downloaded, total)
+            dl_str = f"{dl_dl} / {dl_total}"
+            speed_str = f"{_human_bytes(speed_bps)}/s"
+            if eta_sec > 60:
+                eta_mins, eta_secs = divmod(eta_sec, 60)
+                eta_str = f"~{eta_mins}m {eta_secs:02d}s remaining"
+            elif eta_sec > 0:
+                eta_str = f"~{eta_sec}s remaining"
+            else:
+                eta_str = ""
+            parts = [dl_str, speed_str]
+            if eta_str:
+                parts.append(eta_str)
+            self._activity_lbl.setText("  ·  ".join(parts))
+            self._activity_lbl.show()
+
+    def _update_activity(self):
+        elapsed = int(time.monotonic() - self._op_start_ts) if self._op_start_ts else 0
+        mins, secs = divmod(elapsed, 60)
+        elapsed_str = f"{mins}m {secs:02d}s" if mins else f"{secs}s"
+        phase = self._current_phase or "Switching branch…"
+        self._activity_lbl.setText(f"{phase}  ·  {elapsed_str} elapsed")
+        self._activity_lbl.show()
+
+    def _heartbeat_tick(self):
+        if self._worker is None:
+            self._heartbeat.stop()
+            return
+        self._update_activity()
+
     def _on_done(self, code: int):
+        self._heartbeat.stop()
+        self._stop_dl_monitor()
         self._progress.hide()
+        self._activity_lbl.hide()
         self._stable_btn.setEnabled(True)
         self._testing_btn.setEnabled(True)
         _finish_worker(self)
@@ -4017,6 +4209,118 @@ class CloudStoragePage(Page):
         self._log.ensureCursorVisible()
 
 
+# ── Page: Software ────────────────────────────────────────────────────────────
+class SoftwarePage(Page):
+    def __init__(self):
+        super().__init__()
+
+        self._heading("Software")
+        self._subheading("How to install and manage applications on Kyth.")
+        self._divider()
+
+        # Why dnf doesn't work
+        why_card, why_layout = _make_card()
+        why_title = QLabel("Why can't I use dnf?")
+        why_title.setObjectName("card-title")
+        why_layout.addWidget(why_title)
+        why_body = QLabel(
+            "Kyth is an immutable OS — the base system files are read-only and update atomically "
+            "as a container image. This makes the system reliable and easy to roll back, but it "
+            "means dnf can't permanently add packages to the base layer.\n\n"
+            "Use one of the three methods below depending on what you need to install."
+        )
+        why_body.setObjectName("card-copy")
+        why_body.setWordWrap(True)
+        why_layout.addWidget(why_body)
+        self._add(why_card)
+
+        # Flatpak
+        fp_card, fp_layout = _make_card()
+        fp_top = QHBoxLayout()
+        fp_title = QLabel("Flatpak  —  Desktop Apps")
+        fp_title.setObjectName("card-title")
+        fp_top.addWidget(fp_title)
+        fp_top.addStretch()
+        fp_layout.addLayout(fp_top)
+        fp_body = QLabel(
+            "The recommended way to install graphical applications. "
+            "Flathub hosts thousands of apps — Spotify, VLC, GIMP, Obsidian, Inkscape, and more. "
+            "Flatpaks are sandboxed and update independently of the OS."
+        )
+        fp_body.setObjectName("card-copy")
+        fp_body.setWordWrap(True)
+        fp_layout.addWidget(fp_body)
+        fp_layout.addWidget(_launch_opt_value("flatpak install flathub <app-id>"))
+        fp_btn_row = QHBoxLayout()
+        fp_btn_row.setSpacing(10)
+        fp_flathub_btn = QPushButton("Browse Flathub")
+        fp_flathub_btn.setObjectName("primary")
+        fp_flathub_btn.clicked.connect(lambda: QDesktopServices.openUrl(QUrl("https://flathub.org")))
+        fp_btn_row.addWidget(fp_flathub_btn)
+        fp_btn_row.addStretch()
+        fp_layout.addLayout(fp_btn_row)
+        self._add(fp_card)
+
+        # Homebrew
+        brew_card, brew_layout = _make_card()
+        brew_title = QLabel("Homebrew  —  Command-line Tools")
+        brew_title.setObjectName("card-title")
+        brew_layout.addWidget(brew_title)
+        brew_body = QLabel(
+            "Pre-installed on Kyth and available to all users. Install CLI tools, language "
+            "runtimes, and libraries from the Homebrew catalog. Changes persist across OS updates."
+        )
+        brew_body.setObjectName("card-copy")
+        brew_body.setWordWrap(True)
+        brew_layout.addWidget(brew_body)
+        brew_layout.addWidget(_launch_opt_value("brew install <formula>"))
+        brew_btn_row = QHBoxLayout()
+        brew_btn_row.setSpacing(10)
+        brew_search_btn = QPushButton("Search Homebrew Packages")
+        brew_search_btn.clicked.connect(lambda: QDesktopServices.openUrl(QUrl("https://formulae.brew.sh")))
+        brew_btn_row.addWidget(brew_search_btn)
+        brew_btn_row.addStretch()
+        brew_layout.addLayout(brew_btn_row)
+        self._add(brew_card)
+
+        # Distrobox
+        dbox_card, dbox_layout = _make_card()
+        dbox_title = QLabel("Distrobox  —  Mutable Containers")
+        dbox_title.setObjectName("card-title")
+        dbox_layout.addWidget(dbox_title)
+        dbox_body = QLabel(
+            "Creates a full Linux container (Fedora, Ubuntu, Arch, etc.) that shares your home "
+            "directory. Use it when you need dnf, apt, or pacman — for development toolchains or "
+            "software that isn't available as a Flatpak or Homebrew formula."
+        )
+        dbox_body.setObjectName("card-copy")
+        dbox_body.setWordWrap(True)
+        dbox_layout.addWidget(dbox_body)
+        dbox_layout.addWidget(_launch_opt_value(
+            "distrobox create --image fedora:41 --name mybox\n"
+            "distrobox enter mybox"
+        ))
+        dbox_btn_row = QHBoxLayout()
+        dbox_btn_row.setSpacing(10)
+        dbox_term_btn = QPushButton("Open Terminal")
+        dbox_term_btn.clicked.connect(self._open_terminal)
+        dbox_btn_row.addWidget(dbox_term_btn)
+        dbox_btn_row.addStretch()
+        dbox_layout.addLayout(dbox_btn_row)
+        self._add(dbox_card)
+
+        self._stretch()
+
+    def _open_terminal(self):
+        for cmd in (["xdg-terminal-exec"], ["konsole"], ["xterm"]):
+            if shutil.which(cmd[0]):
+                try:
+                    subprocess.Popen(cmd)
+                    return
+                except OSError:
+                    pass
+
+
 # ── Sidebar nav button ─────────────────────────────────────────────────────────
 class NavButton(QPushButton):
     def __init__(self, label: str):
@@ -4078,14 +4382,15 @@ class MainWindow(QMainWindow):
 
         nav_entries = [
             ("Welcome",        "Welcome"),
+            ("Update",         "Update"),
             ("Hardware",       "Hardware"),
             ("Firmware",       "Firmware"),
-            ("Update",         "Update"),
-            ("NVIDIA Drivers", "NVIDIA"),
+            ("Software",       "Software"),
             ("Gaming",         "Gaming"),
+            ("NVIDIA Drivers", "NVIDIA"),
             ("Cloud Storage",  "Cloud Storage"),
-            ("Diagnostics",    "Diagnostics"),
             ("Branches",       "Branches"),
+            ("Diagnostics",    "Diagnostics"),
             ("Repair",         "Repair"),
         ]
 
@@ -4103,15 +4408,16 @@ class MainWindow(QMainWindow):
         self._stack = QStackedWidget()
         self._stack.setObjectName("content-area")
         self._pages = [
-            WelcomePage(),
+            WelcomePage(navigate=self._switch_page),
+            UpdatePage(),
             HardwarePage(),
             FirmwarePage(),
-            UpdatePage(),
-            NvidiaPage(),
+            SoftwarePage(),
             GamingPage(),
+            NvidiaPage(),
             CloudStoragePage(),
-            DiagnosticsPage(),
             BranchesPage(),
+            DiagnosticsPage(),
             RepairPage(),
         ]
         for page in self._pages:

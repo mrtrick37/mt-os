@@ -113,6 +113,11 @@ cat > /etc/skel/.config/plasmarc <<'PLASMAEOF'
 name=breeze-dark
 PLASMAEOF
 
+cat > /etc/skel/.config/plasma-welcomerc <<'WELCOMERCEOF'
+[General]
+ShowWelcomeWizard=false
+WELCOMERCEOF
+
 # ── Kickoff favorites ─────────────────────────────────────────────────────────
 # Pre-populate the Kickoff launcher favorites for new users.
 # Discord is listed here even though it installs via kyth-default-flatpaks.service
@@ -120,7 +125,7 @@ PLASMAEOF
 # and shows them automatically once the flatpak finishes installing.
 cat > /etc/skel/.config/kickoffrc <<'KICKOFFEOF'
 [Favorites]
-FavoriteURLs=applications:steam.desktop,applications:brave-browser.desktop,applications:com.discordapp.Discord.desktop,applications:kyth-welcome.desktop,applications:org.kde.dolphin.desktop,applications:org.kde.konsole.desktop,applications:systemsettings.desktop
+FavoriteURLs=applications:steam.desktop,applications:brave-browser.desktop,applications:com.discordapp.Discord.desktop,applications:kyth-welcome.desktop,applications:org.kde.konsole.desktop
 KICKOFFEOF
 
 # ── Plasma / PowerDevil hardening ─────────────────────────────────────────────
@@ -194,9 +199,9 @@ for theme_dir in \
     /usr/share/icons/breeze-dark/apps/scalable; do
     mkdir -p "${theme_dir}"
     cp /ctx/branding/kyth-logo.svg "${theme_dir}/kyth.svg"
-    cp /ctx/branding/kyth-logo.svg "${theme_dir}/start-here.svg"
-    cp /ctx/branding/kyth-logo.svg "${theme_dir}/start-here-kde.svg"
-    cp /ctx/branding/kyth-logo.svg "${theme_dir}/start-here-kde-plasma.svg"
+    cp /ctx/branding/kyth-logo-transparent.svg "${theme_dir}/start-here.svg"
+    cp /ctx/branding/kyth-logo-transparent.svg "${theme_dir}/start-here-kde.svg"
+    cp /ctx/branding/kyth-logo-transparent.svg "${theme_dir}/start-here-kde-plasma.svg"
 done
 gtk-update-icon-cache -f /usr/share/icons/hicolor/    2>/dev/null || true
 gtk-update-icon-cache -f /usr/share/icons/breeze/      2>/dev/null || true

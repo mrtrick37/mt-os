@@ -8,7 +8,7 @@ An atomic gaming and development desktop built on Fedora Kinoite with the CachyO
 
 ## What it is
 
-Kyth is a custom [bootc](https://containers.github.io/bootc/) image. The OS is a container image built with Docker, installed to disk via Anaconda WebUI, and updated atomically — rolling back is one command.
+Kyth is a custom bootc image. The OS is a container image built with Docker, installed to disk via Anaconda WebUI, and updated atomically — rolling back is one command.
 
 | | |
 |---|---|
@@ -244,7 +244,7 @@ disk_config/
 
 ## How updates work
 
-Kyth uses [bootc](https://containers.github.io/bootc/). On update, `bootc upgrade` pulls the new image, stages it, and makes it the default boot entry. The previous deployment stays on disk as a fallback. Automatic updates are intentionally disabled to prevent unexpected reboots.
+Kyth uses bootc. On update, `bootc upgrade` pulls the new image, stages it, and makes it the default boot entry. The previous deployment stays on disk as a fallback. Automatic updates are intentionally disabled to prevent unexpected reboots.
 
 ---
 

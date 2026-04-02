@@ -69,30 +69,32 @@ RUN dnf5 install -y \
     breeze-cursor-theme \
     --skip-broken && dnf5 clean all
 
-# ── Installer stability overrides (runtime only) ──────────────────────────────
-# The installed OS still comes from the ostreecontainer image (Kyth with
-# CachyOS). This section only stabilizes the live installer environment:
-#  - Disable Mesa-git/CachyOS COPRs if inherited from BASE_IMAGE
-#  - Prefer Fedora stable Mesa/libdrm stack
-#  - Replace CachyOS kernel in the live environment with Fedora kernel
-RUN set -e; \
-    dnf5 copr disable -y xxmitsu/mesa-git 2>/dev/null || true; \
-    dnf5 copr disable -y bieszczaders/kernel-cachyos 2>/dev/null || true; \
-    dnf5 distro-sync -y --allowerasing --skip-unavailable \
-        mesa\* \
-        libdrm\* \
-        xorg-x11-drv-amdgpu \
-        xorg-x11-drv-intel \
-        xorg-x11-drv-ati \
-        xorg-x11-drv-nouveau; \
-    dnf5 install -y --allowerasing \
-        kernel \
-        kernel-core \
-        kernel-modules \
-        kernel-modules-extra; \
-    rpm -qa 'kernel-cachyos*' | xargs -r rpm -e --nodeps || true; \
-    find /usr/lib/modules -mindepth 1 -maxdepth 1 -type d -name '*cachyos*' -exec rm -rf {} +; \
-    dnf5 clean all
+# ── CachyOS kernel ────────────────────────────────────────────────────────────
+# Install the same CachyOS kernel used by the installed OS so the live and
+# installed environments share the same kernel. This avoids dracut failures
+# caused by Fedora kernels compiling overlay as built-in (CONFIG_OVERLAY_FS=y)
+# rather than as a loadable module, which breaks dmsquash-live.
+# --setopt=tsflags=noscripts skips %posttrans scriptlets that call rpm-ostree
+# kernel-install, which fails in Docker builds with EXDEV errors.
+RUN dnf5 copr enable -y bieszczaders/kernel-cachyos \
+    && dnf5 install -y --setopt=tsflags=noscripts kernel-cachyos-modules \
+    && CACHYOS_KVER=$(basename "$(echo /usr/lib/modules/*cachyos*)") \
+    && depmod -a "${CACHYOS_KVER}" \
+    && dnf5 install -y --setopt=tsflags=noscripts --skip-unavailable \
+        kernel-cachyos \
+        kernel-cachyos-core \
+    && depmod -a "${CACHYOS_KVER}" \
+    && if [ ! -f "/usr/lib/modules/${CACHYOS_KVER}/vmlinuz" ]; then \
+           cp --no-preserve=all "/boot/vmlinuz-${CACHYOS_KVER}" \
+               "/usr/lib/modules/${CACHYOS_KVER}/vmlinuz" 2>/dev/null || true; \
+       fi \
+    && for kdir in /usr/lib/modules/*/; do \
+           kver=$(basename "$kdir"); \
+           if [[ "$kver" != *cachyos* ]]; then rm -rf "$kdir"; fi; \
+       done \
+    && rpm -qa | grep -E '^kernel' | grep -v cachyos | xargs -r rpm --nodeps -e 2>/dev/null || true \
+    && dnf5 copr disable -y bieszczaders/kernel-cachyos \
+    && dnf5 clean all
 
 # ── System setup: live user, autologin, mask setup service ───────────────────
 # Autologin strategy — two independent layers so one backs up the other:
@@ -240,7 +242,7 @@ RUN chmod +x /usr/bin/kyth-installer /usr/bin/kyth-launch-installer \
        fi \
     || true
 
-# ── Rebuild initramfs with dmsquash-live + Kyth Plymouth theme ────────────────
+# ── Branding assets, Plymouth theme, and live initramfs ──────────────────────
 RUN KVER=$(find /usr/lib/modules -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort -V | tail -n 1) \
     && rsvg-convert -w 200 \
         /usr/share/icons/hicolor/scalable/apps/kyth.svg \

@@ -47,7 +47,6 @@ dnf5 install -y --skip-unavailable \
     tiptop \
     trace-cmd \
     util-linux-script \
-    virt-viewer \
     gnome-boxes \
     ydotool \
     tmux \
@@ -106,7 +105,6 @@ dnf5 install -y --skip-unavailable --exclude=libde265.i686 \
 
 # KDE-specific gaming integrations
 dnf5 install -y \
-    kdeconnectd \
     kdeplasma-addons \
     rom-properties-kf6 \
     input-remapper
@@ -229,7 +227,7 @@ dnf5 install -y distrobox
 # via the SPICE protocol, so the VM display auto-resizes to the window size.
 # On bare metal it is a no-op.  kscreen-doctor (from kscreen) is the KDE CLI
 # for querying and configuring outputs; used by the first-login script below.
-dnf5 install -y spice-vdagent kscreen
+dnf5 install -y spice-vdagent virt-viewer kscreen
 # spice-vdagentd is socket/udev-activated — no systemctl enable needed.
 
 # Homebrew RPM deps
