@@ -44,7 +44,9 @@ rm -rf "${TMPDIR_TG}"
 # /usr/local symlinks to /var/usrlocal — ensure the target dir exists
 WINETRICKS_VER="20260125"
 WINETRICKS_COMMIT="b76e1ee"
-mkdir -p /usr/local/bin
+# /usr/local is a symlink to /var/usrlocal on ostree/bootc roots; mkdir -p
+# won't traverse a symlink, so resolve it first.
+mkdir -p "$(realpath -m /usr/local)/bin"
 curl -fsSL "https://raw.githubusercontent.com/Winetricks/winetricks/${WINETRICKS_COMMIT}/src/winetricks" \
     -o /tmp/winetricks
 # Sanity-check: must be a shell script before installing
