@@ -13,15 +13,7 @@ upgrade:
     # bootc upgrade fails if any packages have been layered via rpm-ostree.
     # Detect this upfront and give a clear fix rather than a cryptic error.
     layered=$(rpm-ostree status --json 2>/dev/null \
-        | python3 -c "
-import sys, json
-try:
-    d = json.load(sys.stdin).get('deployments', [{}])[0]
-    pkgs = d.get('requested-local-packages', []) + d.get('layered-commit-packages', [])
-    print(' '.join(pkgs) if pkgs else '')
-except Exception:
-    print('')
-" 2>/dev/null || true)
+        | python3 -c "import sys,json; d=json.load(sys.stdin).get('deployments', [{}])[0]; pkgs=d.get('requested-local-packages', []) + d.get('layered-commit-packages', []); print(' '.join(pkgs) if pkgs else '')" 2>/dev/null || true)
 
     if [[ -n "${layered}" ]]; then
         echo "  ERROR: local rpm-ostree packages are layered:" >&2
@@ -301,6 +293,32 @@ install-heroic:
     flatpak install -y flathub com.heroicgameslauncher.hgl
     echo
     echo "Heroic installed. Launch it from the app menu."
+
+# Open the Lutris one-click installer for Battle.net.
+[group('KythOS')]
+install-battlenet:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if ! command -v lutris >/dev/null 2>&1; then
+        echo "Lutris is not installed on this system." >&2
+        exit 1
+    fi
+    nohup lutris "lutris:install/battlenet" >/dev/null 2>&1 &
+    echo
+    echo "Opened the Battle.net installer in Lutris."
+
+# Open the Lutris one-click installer for the Epic Games Launcher.
+[group('KythOS')]
+install-epic-launcher:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if ! command -v lutris >/dev/null 2>&1; then
+        echo "Lutris is not installed on this system." >&2
+        exit 1
+    fi
+    nohup lutris "lutris:install/epic-games-store" >/dev/null 2>&1 &
+    echo
+    echo "Opened the Epic Games Launcher installer in Lutris."
 
 # Install OBS Studio — screen recording and live streaming.
 [group('KythOS')]

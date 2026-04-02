@@ -3003,8 +3003,9 @@ class GamingPage(Page):
         tools_head.setStyleSheet("font-size: 18px; font-weight: 700; color: #ffffff;")
         self._add(tools_head)
         tools_sub = QLabel(
-            "Optional tools — install with one click. "
-            "Each is also available via the corresponding ujust recipe."
+            "Heroic is installed by default alongside Lutris. "
+            "Other gaming tools can be installed here with one click and are also "
+            "available via the corresponding ujust recipe."
         )
         tools_sub.setObjectName("card-copy")
         tools_sub.setWordWrap(True)
@@ -3014,7 +3015,7 @@ class GamingPage(Page):
             {
                 "flatpak": "com.heroicgameslauncher.hgl",
                 "name": "Heroic Games Launcher",
-                "desc": "Epic Games, GOG and Amazon Games library in one place.",
+                "desc": "Installed by default — Epic Games, GOG and Amazon Games library in one place.",
                 "ujust": "install-heroic",
                 "launch": ["flatpak", "run", "com.heroicgameslauncher.hgl"],
             },
@@ -3068,6 +3069,45 @@ class GamingPage(Page):
             if len(self._TOOLS[i:i + 2]) == 1:
                 row_layout.addStretch(1)
             self._add_layout(row_layout)
+
+        self._divider()
+        launcher_head = QLabel("Windows launcher installers")
+        launcher_head.setObjectName("card-title")
+        self._add(launcher_head)
+        launcher_sub = QLabel(
+            "Heroic is the recommended default for Epic and GOG. "
+            "If you want the native Windows launchers instead, open their Lutris installers here."
+        )
+        launcher_sub.setObjectName("card-copy")
+        launcher_sub.setWordWrap(True)
+        self._add(launcher_sub)
+
+        launcher_card, launcher_layout = _make_card()
+        launcher_note = QLabel(
+            "Recommended pairing: Heroic for Epic/GOG libraries, Lutris for Battle.net. "
+            "CLI shortcuts: ujust install-battlenet / ujust install-epic-launcher"
+        )
+        launcher_note.setObjectName("card-copy")
+        launcher_note.setWordWrap(True)
+        launcher_layout.addWidget(launcher_note)
+
+        launcher_btns = QHBoxLayout()
+        launcher_btns.setSpacing(8)
+        battlenet_btn = QPushButton("Install Battle.net")
+        battlenet_btn.setObjectName("primary")
+        battlenet_btn.clicked.connect(
+            lambda _=False: self._launch_lutris_installer("battlenet", "Battle.net")
+        )
+        launcher_btns.addWidget(battlenet_btn)
+
+        epic_btn = QPushButton("Install Epic Launcher")
+        epic_btn.clicked.connect(
+            lambda _=False: self._launch_lutris_installer("epic-games-store", "Epic Games Launcher")
+        )
+        launcher_btns.addWidget(epic_btn)
+        launcher_btns.addStretch()
+        launcher_layout.addLayout(launcher_btns)
+        self._add(launcher_card)
 
         # Shared install progress area
         self._tool_op_status = QLabel()
@@ -3188,6 +3228,42 @@ class GamingPage(Page):
             refs["launch"].setVisible(installed)
 
     # ── Tool install ───────────────────────────────────────────────────────────
+
+    def _launch_lutris_installer(self, slug: str, name: str):
+        if not shutil.which("lutris"):
+            self._tool_op_status.setText("Lutris is not installed.")
+            self._tool_op_status.setObjectName("status-err")
+            self._tool_op_status.show()
+            _restyle(self._tool_op_status)
+            QMessageBox.warning(
+                self,
+                "Lutris not found",
+                f"Lutris is required to install {name}."
+            )
+            return
+
+        cmd = ["lutris", f"lutris:install/{slug}"]
+        self._tool_log.clear()
+        self._tool_log.append(f"→ {' '.join(cmd)}\n")
+        self._tool_log.append("Lutris should open the installer dialog.")
+        self._tool_log.show()
+        self._tool_progress.hide()
+        self._tool_op_status.setText(f"Opening {name} installer in Lutris…")
+        self._tool_op_status.setObjectName("subheading")
+        self._tool_op_status.show()
+        _restyle(self._tool_op_status)
+
+        try:
+            subprocess.Popen(cmd)
+            self._tool_op_status.setText(f"{name} installer opened in Lutris.")
+            self._tool_op_status.setObjectName("status-ok")
+            _restyle(self._tool_op_status)
+        except Exception as exc:
+            self._tool_log.append(f"\nFailed to start Lutris: {exc}")
+            self._tool_op_status.setText(f"Failed to open {name} installer.")
+            self._tool_op_status.setObjectName("status-err")
+            _restyle(self._tool_op_status)
+            QMessageBox.warning(self, f"{name} installer", str(exc))
 
     def _install_tool(self, tool: dict):
         if self._tool_worker and self._tool_worker.isRunning():
