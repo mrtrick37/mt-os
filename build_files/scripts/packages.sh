@@ -277,17 +277,31 @@ rm -rf /tmp/claude-code.vsix /tmp/claude-code-ext
 dnf5 remove -y nvidia-kmod-common || true
 # Keep this install constrained to Fedora + RPM Fusion repos so solver doesn't
 # mix incompatible NVIDIA package streams from third-party repos.
-# Exclude nvidia-kmod-common: RPM Fusion transiently ships it at a newer driver
-# version (595.x) than xorg-x11-drv-nvidia (580.x).  Both packages provide
-# /usr/bin/nvidia-bug-report.sh causing a file conflict in the same transaction.
-# At 580.x the driver package itself still contains those shared files, so the
-# exclude is safe.  Remove this exclusion once RPM Fusion versions converge.
+# Install NVIDIA packages.  RPM Fusion sometimes ships nvidia-kmod-common at a
+# newer driver version than xorg-x11-drv-nvidia during a release wave; both
+# packages own /usr/bin/nvidia-bug-report.sh in different driver series, causing
+# a file conflict in the same transaction.  Check available versions first and
+# exclude nvidia-kmod-common when they would mismatch.
+_xorg_ver=$(dnf5 repoquery --available \
+    --disablerepo='*' --enablerepo='fedora*' --enablerepo='updates*' --enablerepo='rpmfusion*' \
+    --qf '%{version}' xorg-x11-drv-nvidia 2>/dev/null | sort -V | tail -1 || true)
+_common_ver=$(dnf5 repoquery --available \
+    --disablerepo='*' --enablerepo='fedora*' --enablerepo='updates*' --enablerepo='rpmfusion*' \
+    --qf '%{version}' nvidia-kmod-common 2>/dev/null | sort -V | tail -1 || true)
+if [ -n "${_xorg_ver}" ] && [ -n "${_common_ver}" ] && [ "${_xorg_ver}" != "${_common_ver}" ]; then
+    echo "NVIDIA version mismatch (xorg-x11-drv-nvidia=${_xorg_ver}, nvidia-kmod-common=${_common_ver}); excluding nvidia-kmod-common from install."
+    _nvidia_excludes="--exclude=nvidia-kmod-common"
+else
+    echo "NVIDIA packages consistent (${_xorg_ver}); installing without exclusions."
+    _nvidia_excludes=""
+fi
+# shellcheck disable=SC2086
 dnf5 install -y --skip-unavailable --allowerasing \
     --disablerepo='*' \
     --enablerepo='fedora*' \
     --enablerepo='updates*' \
     --enablerepo='rpmfusion*' \
-    --exclude=nvidia-kmod-common \
+    ${_nvidia_excludes} \
     akmods \
     akmod-nvidia \
     xorg-x11-drv-nvidia \
@@ -295,18 +309,7 @@ dnf5 install -y --skip-unavailable --allowerasing \
     xorg-x11-drv-nvidia-libs \
     xorg-x11-drv-nvidia-libs.i686 \
     nvidia-vaapi-driver
-
-# Warn when nvidia-kmod-common and xorg-x11-drv-nvidia ship the same version —
-# at that point the --exclude=nvidia-kmod-common above can be dropped.
-_drv_ver=$(rpm -q --qf '%{version}' xorg-x11-drv-nvidia 2>/dev/null || true)
-_common_ver=$(dnf5 repoquery --available --disablerepo='*' \
-    --enablerepo='fedora*' --enablerepo='updates*' --enablerepo='rpmfusion*' \
-    --qf '%{version}' nvidia-kmod-common 2>/dev/null | sort -V | tail -1 || true)
-if [[ -n "${_drv_ver}" && -n "${_common_ver}" && "${_drv_ver}" == "${_common_ver}" ]]; then
-    echo "INFO: xorg-x11-drv-nvidia and nvidia-kmod-common are both at ${_drv_ver}." \
-         "The --exclude=nvidia-kmod-common workaround in packages.sh can now be removed."
-fi
-unset _drv_ver _common_ver
+unset _xorg_ver _common_ver _nvidia_excludes
 
 # Compile the NVIDIA kernel module against the installed CachyOS kernel.
 # akmods writes the .ko files to /usr/lib/modules/<kver>/extra/.
