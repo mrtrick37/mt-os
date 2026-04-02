@@ -113,6 +113,15 @@ cat > /etc/skel/.config/plasmarc <<'PLASMAEOF'
 name=breeze-dark
 PLASMAEOF
 
+# Suppress plasma-welcome system-wide (covers liveuser on the live ISO and all
+# installed users). The skel entry below is a belt-and-suspenders fallback for
+# per-user config that would otherwise override this system-wide setting.
+mkdir -p /etc/xdg
+cat > /etc/xdg/plasma-welcomerc <<'WELCOMERCEOF'
+[General]
+ShowWelcomeWizard=false
+WELCOMERCEOF
+
 cat > /etc/skel/.config/plasma-welcomerc <<'WELCOMERCEOF'
 [General]
 ShowWelcomeWizard=false

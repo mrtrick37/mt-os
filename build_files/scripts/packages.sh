@@ -9,7 +9,7 @@ set -euo pipefail
 echo '%_install_langs en_US' >> /etc/rpm/macros
 
 ### Install Docker for container operations
-dnf5 install -y docker || true
+dnf5 install -y docker
 
 # Add rpmfusion free and nonfree repositories for Fedora 43
 dnf5 install -y https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-43.noarch.rpm || true
@@ -33,22 +33,13 @@ dnf5 install -y --skip-unavailable \
 dnf5 install -y --skip-unavailable \
     p7zip \
     p7zip-plugins \
-    duperemove \
     qemu-char-spice \
     qemu-device-display-virtio-gpu \
     qemu-device-display-virtio-vga \
     qemu-device-usb-redirect \
     qemu-img \
     qemu-system-x86-core \
-    sysprof \
-    incus \
-    incus-agent \
-    lxc \
-    tiptop \
-    trace-cmd \
     util-linux-script \
-    gnome-boxes \
-    ydotool \
     tmux \
     gh \
     fwupd
@@ -175,6 +166,14 @@ dnf5 install -y libclc
 
 # Brave Browser — replaces Firefox
 dnf5 remove -y firefox || true
+# On ostree/bootc-style roots, /opt is often a symlink to /var/opt.
+# Ensure the symlink target exists before installing RPMs that place files in /opt.
+if [ -L /opt ]; then
+    opt_target="$(readlink /opt || true)"
+    if [ "${opt_target}" = "var/opt" ] || [ "${opt_target}" = "/var/opt" ]; then
+        mkdir -p /var/opt
+    fi
+fi
 dnf5 config-manager addrepo --overwrite --from-repofile=https://brave-browser-rpm-release.s3.brave.com/brave-browser.repo
 dnf5 install -y brave-browser
 sed -i "s/enabled=.*/enabled=0/g" /etc/yum.repos.d/brave-browser.repo
@@ -194,21 +193,57 @@ REPOEOF
 sed -i "s/enabled=.*/enabled=0/g" /etc/yum.repos.d/vscode.repo
 dnf5 -y install --enablerepo=code code
 
-# Install Claude Code VS Code extension into the system extensions directory
-# so it is available to all users without a per-user install.
-code --no-sandbox --user-data-dir=/tmp/vscode-install \
-    --extensions-dir /usr/share/code/extensions \
-    --install-extension anthropic.claude-code
+# Install Claude Code VS Code extension into /etc/skel so every new user gets
+# it pre-populated in ~/.vscode/extensions/ — the location VS Code checks by
+# default. Downloading the VSIX directly avoids running Electron headlessly in
+# the container build, which fails without a display even with --no-sandbox.
+CLAUDE_CODE_VER=$(curl -fsSL -X POST \
+    "https://marketplace.visualstudio.com/_apis/public/gallery/extensionquery" \
+    -H "Content-Type: application/json" \
+    -H "Accept: application/json;api-version=3.0-preview.1" \
+    -d '{"filters":[{"criteria":[{"filterType":7,"value":"anthropic.claude-code"}]}],"flags":529}' \
+    | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['results'][0]['extensions'][0]['versions'][0]['version'])")
+echo "Installing Claude Code extension ${CLAUDE_CODE_VER}"
+curl -fsSL \
+    "https://marketplace.visualstudio.com/_apis/public/gallery/publishers/anthropic/vsextensions/claude-code/${CLAUDE_CODE_VER}/vspackage" \
+    -o /tmp/claude-code.vsix
+mkdir -p /etc/skel/.vscode/extensions
+python3 -c "
+import zipfile
+with zipfile.ZipFile('/tmp/claude-code.vsix', 'r') as z:
+    for member in z.namelist():
+        if member.startswith('extension/'):
+            z.extract(member, '/tmp/claude-code-ext/')
+"
+mv /tmp/claude-code-ext/extension \
+    "/etc/skel/.vscode/extensions/anthropic.claude-code-${CLAUDE_CODE_VER}"
+rm -rf /tmp/claude-code.vsix /tmp/claude-code-ext
 
-# ── NVIDIA driver support ─────────────────────────────────────────────────────
-# akmod-nvidia and build tools are installed in the image so that the kyth-helper
-# app can compile the NVIDIA kernel module on user request without needing network
-# access to fetch packages at install time.
-# kernel-cachyos-devel is installed earlier while the CachyOS COPR is still
-# enabled so the matching headers are available in CI/container builds.
-dnf5 install -y \
+# ── NVIDIA driver ─────────────────────────────────────────────────────────────
+# The NVIDIA kernel module must be baked into /usr/lib/modules/ at image build
+# time — bootc/ostree roots are read-only at runtime so modules cannot be
+# compiled or installed post-boot.  kernel-cachyos-devel is installed in
+# build_base while the CachyOS COPR is active, so the headers are present here.
+# On AMD/Intel systems these packages are inert: the nvidia module exists in the
+# image but udev never loads it without NVIDIA hardware present.
+dnf5 install -y --skip-unavailable \
     akmods \
-    akmod-nvidia
+    akmod-nvidia \
+    xorg-x11-drv-nvidia \
+    xorg-x11-drv-nvidia-cuda \
+    xorg-x11-drv-nvidia-libs \
+    xorg-x11-drv-nvidia-libs.i686 \
+    nvidia-vaapi-driver
+
+# Compile the NVIDIA kernel module against the installed CachyOS kernel.
+# akmods writes the .ko files to /usr/lib/modules/<kver>/extra/.
+NVIDIA_KVER=$(basename "$(echo /usr/lib/modules/*cachyos*)")
+echo "Building NVIDIA module for kernel ${NVIDIA_KVER}"
+akmods --force --kernels "${NVIDIA_KVER}"
+# Fail loudly if the module was not produced — a silent miss here means NVIDIA
+# users get a black screen with no obvious cause.
+modinfo -k "${NVIDIA_KVER}" nvidia > /dev/null \
+    || { echo "ERROR: NVIDIA module failed to build for ${NVIDIA_KVER}"; exit 1; }
 
 # ── Kyth Helper app ───────────────────────────────────────────────────────────
 # PyQt6 helper + branch switcher.  Autostarts on first login via skel.

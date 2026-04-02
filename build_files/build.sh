@@ -460,6 +460,14 @@ PROTONEOF
 
 # Brave Browser — replaces Firefox
 dnf5 remove -y firefox || true
+# On ostree/bootc-style roots, /opt is often a symlink to /var/opt.
+# Ensure the symlink target exists before installing RPMs that place files in /opt.
+if [ -L /opt ]; then
+    opt_target="$(readlink /opt || true)"
+    if [ "${opt_target}" = "var/opt" ] || [ "${opt_target}" = "/var/opt" ]; then
+        mkdir -p /var/opt
+    fi
+fi
 dnf5 config-manager addrepo --overwrite --from-repofile=https://brave-browser-rpm-release.s3.brave.com/brave-browser.repo
 dnf5 install -y brave-browser
 sed -i "s/enabled=.*/enabled=0/g" /etc/yum.repos.d/brave-browser.repo

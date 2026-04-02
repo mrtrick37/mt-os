@@ -61,6 +61,22 @@ w! /sys/kernel/mm/transparent_hugepage/enabled - - - - madvise
 w! /sys/kernel/mm/transparent_hugepage/defrag  - - - - defer+madvise
 THPEOF
 
+# ── NVIDIA kernel module options ─────────────────────────────────────────────
+# nvidia-drm.modeset=1  — required for Wayland/SDDM to use the NVIDIA KMS driver
+#   instead of falling back to fbdev; without it KDE Plasma on Wayland will not
+#   start on NVIDIA hardware.
+# NVreg_PreserveVideoMemoryAllocations=1 — keeps VRAM contents across suspend/
+#   resume cycles, preventing a black screen after wake on NVIDIA systems.
+# nouveau is blacklisted: it conflicts with the proprietary driver and must not
+#   load.  On AMD/Intel systems nouveau is never triggered anyway (no NVIDIA
+#   hardware), so the blacklist is harmless.
+cat > /etc/modprobe.d/nvidia-kyth.conf <<'NVEOF'
+options nvidia-drm modeset=1
+options nvidia NVreg_PreserveVideoMemoryAllocations=1
+blacklist nouveau
+options nouveau modeset=0
+NVEOF
+
 # ── NTSYNC ────────────────────────────────────────────────────────────────────
 # CachyOS kernel ships the ntsync module. The udev rule gives the 'users' group
 # access to /dev/ntsync so Wine/Proton can use NT synchronization primitives
@@ -165,11 +181,24 @@ cat > /etc/environment.d/proton-radv.conf <<'PROTONEOF'
 PROTON_FORCE_LARGE_ADDRESS_AWARE=1
 WINE_LARGE_ADDRESS_AWARE=1
 AMD_VULKAN_ICD=RADV
-PROTON_ENABLE_NVAPI=1
 PROTON_USE_NTSYNC=1
-VKD3D_CONFIG=dxr11,dxr
+VKD3D_CONFIG=dxr
 mesa_glthread=true
 PROTONEOF
+
+# ── NVIDIA NVAPI: detect at login, not at build time ─────────────────────────
+# PROTON_ENABLE_NVAPI tells Proton to emulate NVIDIA's API layer.  It is only
+# meaningful on systems with NVIDIA hardware; setting it on AMD/Intel causes
+# games that check for NVAPI to try NVIDIA-specific paths and silently fail.
+# A systemd user-environment generator runs at each login and outputs the
+# variable only when an NVIDIA GPU is detected via lspci.
+install -m 0755 /dev/stdin /usr/lib/systemd/user-environment-generators/80-kyth-nvapi.sh <<'NVAPIEOF'
+#!/bin/bash
+if lspci -d ::0300 2>/dev/null | grep -qi nvidia || \
+   lspci -d ::0302 2>/dev/null | grep -qi nvidia; then
+    echo "PROTON_ENABLE_NVAPI=1"
+fi
+NVAPIEOF
 
 # ── Open file descriptor limit (esync / general compatibility) ────────────────
 # esync requires a high open-file limit; even with NTSYNC some games fall back
@@ -203,6 +232,7 @@ systemctl mask systemd-remount-fs.service
 systemctl enable rtkit-daemon.service 2>/dev/null || true
 systemctl enable input-remapper.service 2>/dev/null || true
 systemctl enable libvirtd.socket
+systemctl enable docker.socket 2>/dev/null || true
 systemctl enable fwupd 2>/dev/null || true
 
 # ── Automatic updates: use bootc, not rpm-ostree ──────────────────────────────
