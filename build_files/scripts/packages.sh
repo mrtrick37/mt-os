@@ -296,6 +296,18 @@ dnf5 install -y --skip-unavailable --allowerasing \
     xorg-x11-drv-nvidia-libs.i686 \
     nvidia-vaapi-driver
 
+# Warn when nvidia-kmod-common and xorg-x11-drv-nvidia ship the same version —
+# at that point the --exclude=nvidia-kmod-common above can be dropped.
+_drv_ver=$(rpm -q --qf '%{version}' xorg-x11-drv-nvidia 2>/dev/null || true)
+_common_ver=$(dnf5 repoquery --available --disablerepo='*' \
+    --enablerepo='fedora*' --enablerepo='updates*' --enablerepo='rpmfusion*' \
+    --qf '%{version}' nvidia-kmod-common 2>/dev/null | sort -V | tail -1 || true)
+if [[ -n "${_drv_ver}" && -n "${_common_ver}" && "${_drv_ver}" == "${_common_ver}" ]]; then
+    echo "INFO: xorg-x11-drv-nvidia and nvidia-kmod-common are both at ${_drv_ver}." \
+         "The --exclude=nvidia-kmod-common workaround in packages.sh can now be removed."
+fi
+unset _drv_ver _common_ver
+
 # Compile the NVIDIA kernel module against the installed CachyOS kernel.
 # akmods writes the .ko files to /usr/lib/modules/<kver>/extra/.
 NVIDIA_KVER=$(basename "$(echo /usr/lib/modules/*cachyos*)")

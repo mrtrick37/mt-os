@@ -32,7 +32,7 @@ RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
 # Isolated so daily package updates don't invalidate the full install layer above.
 RUN --mount=type=cache,dst=/var/cache \
     --mount=type=tmpfs,dst=/tmp \
-    dnf5 upgrade -y --exclude='kernel*' --exclude='gamescope*' && \
+    dnf5 upgrade -y --exclude='kernel*' --exclude='gamescope*' --exclude='nvidia-kmod-common' --exclude='xorg-x11-drv-nvidia*' && \
     dnf5 upgrade -y libdrm && \
     dnf5 clean all
 
