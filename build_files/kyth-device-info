@@ -10,7 +10,7 @@ safe_cmd() {
     "$@" 2>/dev/null || true
 }
 
-echo "Kyth Device Info"
+echo "KythOS Device Info"
 echo "Generated: $(date -Is)"
 
 section "OS"
@@ -35,7 +35,7 @@ safe_cmd rpm -q kernel-cachyos kernel-cachyos-core mesa-dri-drivers mesa-vulkan-
 safe_cmd sh -lc 'ls /usr/lib/modules | grep cachyos | head -1'
 safe_cmd sh -lc 'for dev in /sys/class/drm/card*/device/power_dpm_force_performance_level; do printf "%s: %s\n" "$dev" "$(cat "$dev")"; done'
 
-section "Kyth Tunings"
+section "KythOS Tunings"
 safe_cmd /usr/bin/kyth-kerver
 
 section "Flatpaks"

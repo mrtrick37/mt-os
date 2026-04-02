@@ -14,7 +14,7 @@
   <!-- Pure black background — matches wallpaper -->
   <rect width="280" height="420" fill="#000000"/>
 
-  <!-- Kyth logo — exact same drawing as wallpaper, scaled 2× and centred -->
+  <!-- KythOS logo — exact same drawing as wallpaper, scaled 2× and centred -->
   <g transform="translate(-49, 25) scale(2.0)" filter="url(#logo-glow)">
     <line x1="54.6" y1="140.6" x2="54.6" y2="27.5"
           stroke="#7aa2f7" stroke-width="16.9" stroke-linecap="round"/>
@@ -33,7 +33,7 @@
     <circle cx="54.6" cy="82.0" r="5.6" fill="#e0af68"/>
   </g>
 
-  <!-- "kyth" wordmark — centred under the K -->
+  <!-- "KythOS" wordmark — centred under the K -->
   <text x="140" y="400"
         font-family="'DejaVu Sans', 'Liberation Sans', sans-serif"
         font-size="48"
@@ -41,5 +41,5 @@
         letter-spacing="15"
         fill="#a9b1d6"
         opacity="0.8"
-        text-anchor="middle">kyth</text>
+        text-anchor="middle">KythOS</text>
 </svg>

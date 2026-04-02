@@ -7,7 +7,7 @@ Custom atomic gaming and development desktop OS built on Fedora Kinoite (KDE Pla
 ```bash
 just build                        # Build base image + full OS image (requires Docker)
 just rebuild-live-iso             # Build the live bootable ISO (force rebuild)
-just build-live-iso               # Same as above (uses cached container layer)
+just build-live-iso               # Build the live bootable ISO (uses cached container layer)
 just run-live-iso-native          # Boot live ISO in QEMU with SPICE
 just build-qcow2                  # Build QCOW2 VM image
 just clean                        # Remove build artifacts
@@ -30,20 +30,19 @@ newgrp docker   # Activate docker group in current shell without logging out
 
 ## Project Layout
 
-```
+```text
 Dockerfile              # Main OS image (layers 2+3)
 Justfile                # Build orchestration
 build_base/             # Layer 1: CachyOS kernel + base Fedora Kinoite 43
   Dockerfile
   build.sh
 build_files/            # Layer 2+: packages, gaming tweaks, branding
-  build.sh              # Main package/config script
   build-live-iso.sh     # Assembles squashfs + GRUB2 + ISO
-  Containerfile.live    # Live session variant (custom web installer)
-  branding/             # Kyth logos and Cockpit branding CSS
-  scripts/
-    ge-proton.sh        # GE-Proton installer
-    mesa-git.sh         # Bleeding-edge Mesa GPU drivers
+  Containerfile.live    # Live session variant (custom installer)
+  kyth-installer        # Graphical installer (PySide6 + Chromium kiosk)
+  kyth-launch-installer # Desktop launcher for the installer
+  branding/             # KythOS logos and branding CSS
+  scripts/              # Build layers: packages, thirdparty, sysconfig, branding, ge-proton, mesa-git
   just/kyth.just        # ujust recipes shipped in the OS
   kyth-welcome/         # First-boot welcome app
 disk_config/            # Bootc Image Builder configs

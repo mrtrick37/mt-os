@@ -13,7 +13,9 @@ Type=oneshot
 # --or-update: idempotent — updates if already present, installs if not
 ExecStart=/usr/bin/flatpak install -y --noninteractive --system --or-update flathub \
     org.fedoraproject.MediaWriter \
-    com.discordapp.Discord
+    com.discordapp.Discord \
+    it.mijorus.gearlever \
+    com.heroicgameslauncher.hgl
 ExecStartPost=/bin/mkdir -p /var/lib/kyth
 ExecStartPost=/bin/touch /var/lib/kyth/default-flatpaks-done
 RemainAfterExit=yes

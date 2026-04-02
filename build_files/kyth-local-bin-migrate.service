@@ -1,5 +1,5 @@
 [Unit]
-Description=Kyth migration for old /usr/local helper paths
+Description=KythOS migration for old /usr/local helper paths
 After=local-fs.target
 ConditionPathExists=!/var/lib/kyth/migrations/local-bin-v1.done
 

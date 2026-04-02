@@ -252,7 +252,7 @@ build-base base_image="ghcr.io/ublue-os/kinoite-main:43":
     fi
     docker build --build-arg BASE_IMAGE={{ base_image }} --tag localhost/kyth-base:stable build_base/
 
-# Build the full Kyth image (runs build_files/build.sh on top of kyth-base).
+# Build the full KythOS image (runs build_files/build.sh on top of kyth-base).
 # Requires build-base to have run first.
 build: build-base
     #!/usr/bin/env bash
@@ -341,9 +341,9 @@ _build-bib $target_image $tag $type $config: (_rootful_load_image target_image t
 
         # Attempt to extract product metadata from the image's OCI labels and pass
         # them to bootc/lorax so lorax receives a valid product.name/product.version.
-        # Provide sensible defaults so installer UI shows Kyth even when labels
+        # Provide sensible defaults so installer UI shows KythOS even when labels
         # are missing from the base image.
-        PRODUCT_NAME="Kyth"
+        PRODUCT_NAME="KythOS"
         PRODUCT_VERSION="43"
         set +e
         labels_json=$(docker inspect "${target_image}:${tag}" 2>/dev/null | jq -c '.[0].Config.Labels // {}' 2>/dev/null || true)
@@ -407,7 +407,7 @@ _build-bib $target_image $tag $type $config: (_rootful_load_image target_image t
 
     # Move new build output into place
     sudo mv -f $BUILDTMP/* output/ || true
-    # Rename standard install ISO to a consistent Kyth filename
+    # Rename standard install ISO to a consistent KythOS filename
     if sudo test -f output/bootiso/install.iso; then
         sudo mv -f output/bootiso/install.iso output/bootiso/kyth-installer.iso || true
     fi
@@ -433,7 +433,7 @@ build-raw $target_image=("localhost/" + image_name) $tag=default_tag: && (_build
 [group('Build Virtual Machine Image')]
 build-iso $target_image=("localhost/" + image_name) $tag=default_tag: && (_build-bib target_image tag "iso" "disk_config/iso.toml")
 
-# Build a live ISO with the Kyth web installer (netinstall — pulls OS from
+# Build a live ISO with the KythOS web installer (netinstall — pulls OS from
 # the registry at install time via bootc install to-disk).
 # Pass source_tag to target a different branch: just build-live-iso testing
 [group('Build Virtual Machine Image')]

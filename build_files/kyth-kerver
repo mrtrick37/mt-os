@@ -40,7 +40,7 @@ fi
 ntsync_state="missing"
 [[ -e /dev/ntsync ]] && ntsync_state="present"
 
-echo "Kyth Kernel / Runtime Summary"
+echo "KythOS Kernel / Runtime Summary"
 echo
 print_kv "Kernel" "$(uname -r)"
 print_kv "Bootc Image" "${bootc_ref}"

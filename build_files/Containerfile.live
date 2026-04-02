@@ -1,7 +1,7 @@
-# Live ISO variant of Kyth — Python web installer edition
+# Live ISO variant of KythOS — Python web installer edition
 # Built as a separate stable installer product.
 # Uses a conservative desktop/runtime base image; installed target OS is still
-# pulled from Kyth's ostreecontainer image.
+# pulled from KythOS's ostreecontainer image.
 # Installation is handled by kyth-installer (embedded Python HTTP server + Chromium kiosk),
 # which calls 'bootc install to-disk' and configures hostname, timezone, and user account.
 # Built by build-live-iso.sh; not pushed to the registry.
@@ -161,7 +161,7 @@ RUN mkdir -p \
     && chmod +x /home/liveuser/.xinitrc \
     && printf '[Desktop Entry]\nType=Application\nName=Steam\nHidden=true\n' \
         > /home/liveuser/.config/autostart/steam.desktop \
-    && printf '[Desktop Entry]\nType=Application\nName=Kyth Welcome\nHidden=true\n' \
+    && printf '[Desktop Entry]\nType=Application\nName=KythOS Welcome\nHidden=true\n' \
         > /home/liveuser/.config/autostart/kyth-welcome.desktop \
     && printf '[Desktop Entry]\nType=Application\nName=Accessibility\nHidden=true\n' \
         > /home/liveuser/.config/autostart/org.kde.kaccess.desktop \
@@ -184,16 +184,16 @@ RUN mkdir -p \
     && printf '#!/bin/bash\n# Live environment hook kept for compatibility.\n# Rendering policy is applied in ~/.xinitrc for deterministic startup.\ntrue\n' \
         > /home/liveuser/.config/plasma-workspace/env/live.sh \
     && chmod +x /home/liveuser/.config/plasma-workspace/env/live.sh \
-    && printf '[Desktop Entry]\nName=Install Kyth\nComment=Install Kyth to this computer\nExec=/usr/bin/kyth-launch-installer\nIcon=kyth\nTerminal=false\nType=Application\nCategories=System;\n' \
+    && printf '[Desktop Entry]\nName=Install KythOS\nComment=Install KythOS to this computer\nExec=/usr/bin/kyth-launch-installer\nIcon=kyth\nTerminal=false\nType=Application\nCategories=System;\n' \
         > /home/liveuser/Desktop/install-kyth.desktop \
-    && printf '[Desktop Entry]\nName=Install Kyth\nComment=Install Kyth to this computer\nExec=/usr/bin/kyth-launch-installer\nIcon=kyth\nTerminal=false\nType=Application\nCategories=System;\n' \
+    && printf '[Desktop Entry]\nName=Install KythOS\nComment=Install KythOS to this computer\nExec=/usr/bin/kyth-launch-installer\nIcon=kyth\nTerminal=false\nType=Application\nCategories=System;\n' \
         > /usr/share/applications/kyth-install.desktop \
-    && printf '[Desktop Entry]\nName=Installer Logs\nComment=View live Kyth installer logs\nExec=konsole -e bash -c "echo Kyth Installer Logs; echo; tail -n 100 -F /tmp/kyth-installer.log /tmp/kyth-installer-launch.log 2>/dev/null || echo Waiting for installer...; read"\nIcon=utilities-log-viewer\nTerminal=false\nType=Application\nCategories=System;\n' \
+    && printf '[Desktop Entry]\nName=Installer Logs\nComment=View live KythOS installer logs\nExec=konsole -e bash -c "echo KythOS Installer Logs; echo; tail -n 100 -F /tmp/kyth-installer.log /tmp/kyth-installer-launch.log 2>/dev/null || echo Waiting for installer...; read"\nIcon=utilities-log-viewer\nTerminal=false\nType=Application\nCategories=System;\n' \
         > /home/liveuser/Desktop/installer-logs.desktop \
     && chmod +x /home/liveuser/Desktop/installer-logs.desktop \
     && printf '[Favorites]\nFavoriteURLs=/usr/share/applications/chromium-browser.desktop,/usr/share/applications/org.kde.dolphin.desktop,/usr/share/applications/systemsettings.desktop,/usr/share/applications/org.kde.konsole.desktop,/usr/share/applications/kyth-install.desktop\n' \
         > /home/liveuser/.config/kickoffrc \
-    && printf '[Desktop Entry]\nType=Application\nName=Kyth Wallpaper\nExec=plasma-apply-wallpaperimage /usr/share/wallpapers/kyth/contents/images/kyth-wallpaper.png\nX-KDE-autostart-after=panel\n' \
+    && printf '[Desktop Entry]\nType=Application\nName=KythOS Wallpaper\nExec=plasma-apply-wallpaperimage /usr/share/wallpapers/kyth/contents/images/kyth-wallpaper.png\nX-KDE-autostart-after=panel\n' \
         > /home/liveuser/.config/autostart/kyth-wallpaper.desktop \
     && if [ -f /etc/skel/.config/autostart/kyth-set-kickoff-icon.desktop ]; then \
            cp /etc/skel/.config/autostart/kyth-set-kickoff-icon.desktop \
@@ -219,7 +219,7 @@ RUN chmod +x /usr/bin/kyth-installer /usr/bin/kyth-launch-installer \
         "${SOURCE_TAG}" "${SOURCE_TAG}" \
         > /etc/kyth-installer.env \
     && mkdir -p /usr/share/wallpapers/kyth/contents/images \
-    && printf '{"KPlugin":{"Authors":[{"Name":"Kyth"}],"Id":"kyth","Name":"Kyth","License":"CC-BY-SA-4.0"},"KPackageStructure":"Wallpaper/Images"}\n' \
+    && printf '{"KPlugin":{"Authors":[{"Name":"KythOS"}],"Id":"kyth","Name":"KythOS","License":"CC-BY-SA-4.0"},"KPackageStructure":"Wallpaper/Images"}\n' \
         > /usr/share/wallpapers/kyth/metadata.json \
     && cp /usr/share/icons/hicolor/scalable/apps/kyth.svg \
           /usr/share/icons/hicolor/scalable/apps/start-here.svg \
@@ -228,8 +228,8 @@ RUN chmod +x /usr/bin/kyth-installer /usr/bin/kyth-launch-installer \
           /usr/share/icons/breeze-dark/apps/scalable/start-here.svg \
     && gtk-update-icon-cache -f /usr/share/icons/hicolor/    2>/dev/null || true \
     && gtk-update-icon-cache -f /usr/share/icons/breeze-dark/ 2>/dev/null || true \
-    && sed -i 's/^PRETTY_NAME=.*/PRETTY_NAME="Kyth 43 Live"/' /etc/os-release \
-    && sed -i 's/^NAME=.*/NAME="Kyth"/' /etc/os-release \
+    && sed -i 's/^PRETTY_NAME=.*/PRETTY_NAME="KythOS 43 Live"/' /etc/os-release \
+    && sed -i 's/^NAME=.*/NAME="KythOS"/' /etc/os-release \
     && sed -i '/^VARIANT_ID=/d' /etc/os-release \
     && printf 'VARIANT_ID=kyth\n' >> /etc/os-release \
     && printf 'PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin\n' >> /etc/environment \

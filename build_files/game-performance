@@ -85,7 +85,7 @@ fi
 if command -v systemd-inhibit >/dev/null 2>&1; then
     systemd-inhibit \
         --what=idle:sleep \
-        --why="Kyth game-performance (${profile}) session" \
+        --why="KythOS game-performance (${profile}) session" \
         "${run_cmd[@]}"
 else
     "${run_cmd[@]}"

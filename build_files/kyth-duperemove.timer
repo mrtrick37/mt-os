@@ -1,5 +1,5 @@
 [Unit]
-Description=Weekly Kyth Steam/Wine dedupe pass
+Description=Weekly KythOS Steam/Wine dedupe pass
 
 [Timer]
 OnCalendar=weekly

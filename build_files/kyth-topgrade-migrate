@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # kyth-topgrade-migrate — ensure all users have topgrade configured correctly
-# for a Kyth bootc system:
+# for a KythOS bootc system:
 #   • system (dnf5) disabled — OS is read-only bootc, not managed by dnf
 #   • distrobox disabled (distrobox-upgrade fails without a PTY)
 #   • containers disabled (podman container updates fail on bootc)
@@ -20,7 +20,7 @@ STATE_FILE = os.path.join(STATE_DIR, "topgrade-v3.done")
 
 SKEL_CONFIG = "/etc/skel/.config/topgrade.toml"
 
-# Full block written to configs that have no Kyth config at all.
+# Full block written to configs that have no KythOS config at all.
 TOPGRADE_DISABLE_BLOCK = """
 # Added by kyth-topgrade-migrate.
 [misc]
@@ -31,7 +31,7 @@ disable = ["system", "distrobox", "containers"]
 
 [commands]
 # -n makes sudo fail fast if NOPASSWD isn't working, rather than hanging.
-"Kyth system update" = "sudo -n bootc upgrade"
+"KythOS system update" = "sudo -n bootc upgrade"
 """
 
 
@@ -40,7 +40,7 @@ def log(msg):
 
 
 def needs_patch(path):
-    """Return True if topgrade.toml is missing any Kyth-required setting."""
+    """Return True if topgrade.toml is missing any KythOS-required setting."""
     try:
         content = open(path).read()
     except OSError:
@@ -55,7 +55,7 @@ def needs_patch(path):
 
 
 def patch_config(path):
-    """Apply Kyth topgrade fixes in-place to an existing config."""
+    """Apply KythOS topgrade fixes in-place to an existing config."""
     with open(path) as f:
         content = f.read()
 
@@ -93,7 +93,7 @@ def patch_config(path):
     if '"system"' not in content and "rpm_ostree" not in content:
         with open(path, "a") as f:
             f.write(TOPGRADE_DISABLE_BLOCK)
-        log(f"  appended Kyth config block to {path}")
+        log(f"  appended KythOS config block to {path}")
         return
 
     if changed:

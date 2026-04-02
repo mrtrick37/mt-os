@@ -8,10 +8,10 @@ set -euo pipefail
 # either a Podman/buildah build (which preserves xattrs) or a live relabel.
 sed -i 's/^SELINUX=enforcing/SELINUX=permissive/' /etc/selinux/config
 
-# Apply Kyth branding to the base image
+# Apply KythOS branding to the base image
 cat > /etc/os-release <<'EOF' || true
-NAME="Kyth"
-PRETTY_NAME="Kyth 43"
+NAME="KythOS"
+PRETTY_NAME="KythOS 43"
 ID=fedora
 VERSION_ID="43"
 ANSI_COLOR="0;34"
@@ -20,7 +20,7 @@ SUPPORT_URL="https://github.com/mrtrick37/kyth/discussions"
 BUG_REPORT_URL="https://github.com/mrtrick37/kyth/issues"
 EOF
 
-echo "Kyth base customization applied"
+echo "KythOS base customization applied"
 
 # ── CachyOS kernel ────────────────────────────────────────────────────────────
 # Install with --noscripts to skip the %posttrans that calls rpm-ostree
