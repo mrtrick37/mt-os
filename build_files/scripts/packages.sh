@@ -19,7 +19,10 @@ dnf5 install -y https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-r
 # Install a full system codec stack so common local playback, browser media,
 # and creator workflows work without extra setup.  RPM Fusion provides the
 # patent-encumbered pieces Fedora does not ship by default.
-dnf5 install -y --skip-unavailable \
+# gstreamer1-plugins-bad-freeworld conflicts with Fedora's
+# gstreamer1-plugins-bad; ensure we prefer the RPM Fusion variant.
+dnf5 remove -y gstreamer1-plugins-bad || true
+dnf5 install -y --allowerasing --skip-unavailable --exclude=gstreamer1-plugins-bad \
     ffmpeg \
     ffmpegthumbnailer \
     gstreamer1-plugin-openh264 \
