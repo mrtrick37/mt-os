@@ -149,7 +149,12 @@ fi
 # Pinned to a release tag so the thirdparty layer hash stays stable between daily
 # CI builds. Bump HOMEBREW_TAG when you want to ship a newer Homebrew version.
 HOMEBREW_TAG="5.1.1"
-useradd -r -d /home/linuxbrew -M -s /sbin/nologin linuxbrew
+# Ensure parent/target directories exist before clone (some base images don't
+# include /home/linuxbrew yet).
+mkdir -p /home/linuxbrew
+if ! id -u linuxbrew >/dev/null 2>&1; then
+    useradd -r -d /home/linuxbrew -M -s /sbin/nologin linuxbrew
+fi
 git clone --depth 1 --branch "${HOMEBREW_TAG}" \
     https://github.com/Homebrew/brew /home/linuxbrew/.linuxbrew \
     || { echo "ERROR: Homebrew git clone failed"; exit 1; }
