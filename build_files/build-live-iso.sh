@@ -211,10 +211,11 @@ sudo chmod 644 "${ISO_DIR}/images/pxeboot/"*
 # ── 4. Squashfs ───────────────────────────────────────────────────────────────
 # No OCI bundle embedded — kyth-installer pulls from the registry at install time
 # via bootc install to-disk.
-echo "==> Creating squashfs (zstd, $(nproc) cores)"
+ZSTD_LEVEL="${SQUASHFS_ZSTD_LEVEL:-3}"
+echo "==> Creating squashfs (zstd level ${ZSTD_LEVEL}, $(nproc) cores)"
 sudo mksquashfs "${ROOTFS}" "${ISO_DIR}/LiveOS/squashfs.img" \
     -comp zstd \
-    -Xcompression-level 9 \
+    -Xcompression-level "${ZSTD_LEVEL}" \
     -processors "$(nproc)" \
     -noappend \
     -no-progress \

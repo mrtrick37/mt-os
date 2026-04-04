@@ -16,6 +16,10 @@ on:
           - latest
           - testing
 
+concurrency:
+  group: build-live-iso-${{ github.event.workflow_run.head_branch || inputs.source_tag || 'latest' }}
+  cancel-in-progress: true
+
 env:
   # workflow_dispatch → use the input; workflow_run → derive from triggering branch
   SOURCE_TAG: ${{ inputs.source_tag || (github.event.workflow_run.head_branch == 'testing' && 'testing' || 'latest') }}
@@ -65,10 +69,13 @@ jobs:
         run: |
           BASE_IMAGE="ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:${{ env.SOURCE_TAG }}"
           IMAGE="ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:live-build"
+          CACHE_REF="ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:live-buildcache"
           docker buildx build \
             --tag "${IMAGE}" \
             --build-arg BASE_IMAGE="${BASE_IMAGE}" \
             --build-arg SOURCE_TAG="${{ env.SOURCE_TAG }}" \
+            --cache-from "type=registry,ref=${CACHE_REF}" \
+            --cache-to   "type=registry,ref=${CACHE_REF},mode=max" \
             -f build_files/Containerfile.live \
             --push \
             .
