@@ -12,7 +12,7 @@ KythOS is a custom bootc image. The OS is a container image built with Docker, i
 
 | | |
 |---|---|
-| **Base** | Fedora 43 KDE Plasma (`ublue-os/kinoite-main:43`) |
+| **Base** | Fedora 44 KDE Plasma (`ublue-os/kinoite-main:44`) |
 | **Kernel** | CachyOS — BORE scheduler, sched-ext, BBRv3, NTSYNC, latency-tuned |
 | **GPU drivers** | Mesa-git (bleeding-edge RADV/RADEONSI from `xxmitsu/mesa-git` COPR) |
 | **Display** | KDE Plasma 6 on Wayland |
@@ -204,7 +204,7 @@ Dockerfile                        Main OS image (layers on top of kyth-base)
 Justfile                          Build orchestration — all recipes
 
 build_base/
-  Dockerfile                      Pulls kinoite-main:43, installs CachyOS kernel
+  Dockerfile                      Pulls kinoite-main:44, installs CachyOS kernel
   build.sh                        Kernel, initramfs, Plymouth, kargs, SDDM
 
 build_files/

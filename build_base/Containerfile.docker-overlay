@@ -1,5 +1,5 @@
 # bootc overlay Containerfile for Docker and Docker Compose
-FROM registry.fedoraproject.org/fedora:43
+FROM registry.fedoraproject.org/fedora:44
 
 # Install Docker and Docker Compose
 RUN dnf5 install -y docker docker-compose && \

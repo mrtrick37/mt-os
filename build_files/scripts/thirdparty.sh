@@ -10,7 +10,7 @@ is_enabled() {
 }
 
 # ── topgrade ─────────────────────────────────────────────────────────────────
-# Not in Fedora 43 repos — install pre-built binary from GitHub releases.
+# Not in Fedora 44 repos — install pre-built binary from GitHub releases.
 # Uses the musl-linked build for maximum compatibility across libc versions.
 TOPGRADE_REPO_API="https://api.github.com/repos/topgrade-rs/topgrade/releases/latest"
 TMPDIR_TG=$(mktemp -d)
@@ -60,7 +60,7 @@ rm -f /tmp/winetricks
 # sensitive threads (audio, input, render) while keeping throughput tasks warm.
 #
 # We pull pre-built binaries directly from the upstream GitHub release rather
-# than relying on a COPR that may not have a Fedora 43 build available.
+# than relying on a COPR that may not have a Fedora 44 build available.
 if is_enabled "${ENABLE_SCX:-1}"; then
     SCX_REPO_API="https://api.github.com/repos/sched-ext/scx/releases/latest"
     TMPDIR_SCX=$(mktemp -d)
