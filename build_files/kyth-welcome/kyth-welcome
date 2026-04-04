@@ -31,15 +31,36 @@ _CLOUD_SYNC_CONFIG = os.path.expanduser("~/.config/kyth-cloud-sync.json")
 _SYNC_INTERVAL_MS = 5 * 60 * 1000  # 5 minutes
 _WIZARD_SENTINEL = os.path.expanduser("~/.config/kyth-welcome-done")
 
+
+def _apply_install_badge(lbl: QLabel, ok: bool, ok_text: str = "Installed",
+                         warn_text: str = "Not Installed") -> None:
+    if ok:
+        bg = "#0f2a31"
+        fg = "#5ee6c1"
+        border = "#1f6b63"
+        text = ok_text
+    else:
+        bg = "#171d27"
+        fg = "#a9b5c7"
+        border = "#2e394c"
+        text = warn_text
+
+    lbl.setText(f"  {text}  ")
+    lbl.setStyleSheet(
+        f"background: {bg}; color: {fg}; border: 1px solid {border}; "
+        "border-radius: 10px; padding: 3px 8px; font-size: 11px; "
+        "font-weight: 700; letter-spacing: 0.2px;"
+    )
+
 QSS = """
 * {
     font-family: "Noto Sans", "Segoe UI", sans-serif;
     font-size: 14px;
-    color: #f0f0f0;
+    color: #edf3ff;
 }
 
 QMainWindow {
-    background: #0c0c0c;
+    background: #091019;
 }
 
 QWidget {
@@ -52,36 +73,37 @@ QLabel {
 
 /* ── Sidebar ─────────────────────────────────────────────────────────────── */
 QWidget#sidebar {
-    background: #07090d;
-    border-right: 1px solid #161d28;
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                stop:0 #081018, stop:1 #060b12);
+    border-right: 1px solid #182333;
 }
 
 QWidget#sidebar-header {
     background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                                stop:0 #0b111a, stop:1 #0f1826);
-    border-bottom: 1px solid #182337;
+                                stop:0 #0d1723, stop:0.55 #102133, stop:1 #143050);
+    border-bottom: 1px solid #223552;
 }
 
 QLabel#sidebar-logo {
-    font-size: 20px;
+    font-size: 21px;
     font-weight: 700;
     color: #f8fbff;
-    letter-spacing: 0.3px;
+    letter-spacing: 0.5px;
     padding: 0;
 }
 
 QLabel#sidebar-ver {
     font-size: 11px;
-    color: #7d8aa2;
+    color: #90a4c3;
     padding: 0;
 }
 
 QPushButton#nav-item {
     background: transparent;
-    color: #7d8798;
+    color: #8896ab;
     border: none;
     border-left: 3px solid transparent;
-    border-radius: 0px;
+    border-radius: 10px;
     padding: 11px 16px 11px 14px;
     text-align: left;
     font-size: 13px;
@@ -89,18 +111,18 @@ QPushButton#nav-item {
 }
 
 QPushButton#nav-item:hover {
-    background: #101722;
-    color: #dbe7ff;
-    border-left: 3px solid #22314a;
+    background: #111b29;
+    color: #e2ecff;
+    border-left: 3px solid #35537c;
 }
 
 QPushButton#nav-item-active {
     background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                                stop:0 #122036, stop:1 #173154);
+                                stop:0 #152845, stop:0.6 #17365d, stop:1 #1d4779);
     color: #ffffff;
-    border: none;
+    border: 1px solid #2f4f7e;
     border-left: 3px solid #7cb2ff;
-    border-radius: 0px;
+    border-radius: 10px;
     padding: 11px 16px 11px 14px;
     text-align: left;
     font-size: 13px;
@@ -110,101 +132,108 @@ QPushButton#nav-item-active {
 /* ── Content area ────────────────────────────────────────────────────────── */
 QWidget#content-area {
     background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                                stop:0 #0b0f15, stop:0.55 #0b1119, stop:1 #091019);
+                                stop:0 #09111a, stop:0.48 #0b1420, stop:1 #0a1725);
 }
 
 QScrollArea {
     background: transparent;
+    border: none;
 }
 
 /* ── Headings ────────────────────────────────────────────────────────────── */
 QLabel#eyebrow {
-    background: #101a2a;
-    color: #8cb9ff;
-    border: 1px solid #28446c;
-    border-radius: 10px;
-    padding: 4px 10px;
+    background: #0f1f32;
+    color: #92c8ff;
+    border: 1px solid #2f5a8d;
+    border-radius: 12px;
+    padding: 4px 11px;
     font-size: 11px;
     font-weight: 700;
     letter-spacing: 1.1px;
 }
 
 QLabel#heading {
-    font-size: 27px;
+    font-size: 29px;
     font-weight: 700;
     color: #ffffff;
+    letter-spacing: 0.2px;
 }
 
 QLabel#subheading {
     font-size: 14px;
-    color: #95a2b5;
+    color: #95a8c3;
 }
 
 /* ── Status labels ───────────────────────────────────────────────────────── */
 QLabel#status-ok {
-    color: #4dbb6f;
+    color: #58e0bb;
     font-weight: 600;
 }
 
 QLabel#status-warn {
-    color: #e8a832;
+    color: #ffbf61;
     font-weight: 600;
 }
 
 QLabel#status-err {
-    color: #f55a75;
+    color: #ff7892;
     font-weight: 600;
 }
 
 QLabel#status-dim {
-    color: #69778d;
+    color: #7386a2;
 }
 
 /* ── Buttons ─────────────────────────────────────────────────────────────── */
 QPushButton {
-    background: #161b24;
-    color: #e8edf7;
-    border: 1px solid #2a3342;
-    border-radius: 8px;
-    padding: 8px 18px;
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                stop:0 #18202c, stop:1 #121923);
+    color: #edf3ff;
+    border: 1px solid #313e52;
+    border-radius: 10px;
+    padding: 9px 18px;
     font-size: 13px;
+    font-weight: 500;
 }
 
 QPushButton:hover {
-    background: #1d2430;
-    border-color: #42526b;
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                stop:0 #202a38, stop:1 #171f2b);
+    border-color: #49607d;
 }
 
 QPushButton:pressed {
-    background: #253041;
+    background: #1b2431;
 }
 
 QPushButton:disabled {
-    background: #10141c;
-    color: #556070;
-    border-color: #1b2230;
+    background: #101621;
+    color: #5f6d82;
+    border-color: #202a39;
 }
 
 QPushButton#primary {
     background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                                stop:0 #2d66df, stop:1 #4a8cff);
+                                stop:0 #2f6fff, stop:0.55 #3e86ff, stop:1 #5bb7ff);
     color: #ffffff;
     font-weight: 700;
-    border: none;
+    border: 1px solid #4a84ea;
 }
 
 QPushButton#primary:hover {
     background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                                stop:0 #3b74eb, stop:1 #5a9aff);
+                                stop:0 #3d7dff, stop:0.55 #4d94ff, stop:1 #69c0ff);
+    border-color: #6aa7ff;
 }
 
 QPushButton#primary:pressed {
-    background: #2556bd;
+    background: #275fcf;
 }
 
 QPushButton#primary:disabled {
-    background: #162a5c;
-    color: #66738b;
+    background: #1a315d;
+    color: #7e8ca3;
+    border-color: #29446f;
 }
 
 QPushButton#danger {
@@ -224,84 +253,96 @@ QPushButton#danger:disabled {
 }
 
 QPushButton#branch-active {
-    background: #162444;
-    color: #6da4f8;
-    border: 1px solid #253d6e;
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                                stop:0 #13243b, stop:1 #163459);
+    color: #9cc9ff;
+    border: 1px solid #31537f;
     font-weight: 600;
-    border-radius: 6px;
+    border-radius: 10px;
     padding: 10px 22px;
 }
 
 QPushButton#branch-inactive {
-    background: #111111;
-    color: #555555;
-    border: 1px solid #1e1e1e;
-    border-radius: 6px;
+    background: #0f151d;
+    color: #738197;
+    border: 1px solid #222e3d;
+    border-radius: 10px;
     padding: 10px 22px;
 }
 
 QPushButton#branch-inactive:hover {
-    background: #1a1a1a;
-    color: #aaaaaa;
-    border: 1px solid #303030;
+    background: #151d28;
+    color: #d4deef;
+    border: 1px solid #34465d;
 }
 
 /* ── Cards ───────────────────────────────────────────────────────────────── */
 QFrame#card {
     background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                                stop:0 #101722, stop:1 #0d141d);
-    border: 1px solid #22304a;
-    border-radius: 12px;
+                                stop:0 #101925, stop:0.58 #0d1824, stop:1 #0b141f);
+    border: 1px solid #243754;
+    border-radius: 14px;
 }
 
 QLabel#card-title {
     font-size: 15px;
     font-weight: 700;
     color: #f5f8ff;
+    letter-spacing: 0.1px;
 }
 
 QLabel#section-heading {
-    font-size: 17px;
+    font-size: 18px;
     font-weight: 700;
     color: #f5f8ff;
-    letter-spacing: 0.2px;
+    letter-spacing: 0.25px;
+}
+
+QLabel#card-summary {
+    color: #eef4ff;
+    font-weight: 600;
+}
+
+QLabel#card-action {
+    color: #7ebcff;
+    font-style: italic;
 }
 
 QLabel#card-copy {
-    color: #9aa4b6;
+    color: #a5b2c7;
     line-height: 1.55;
 }
 
 QFrame#card-accent-ok {
-    background: #0a1a0d;
-    border: 1px solid #1a3b20;
-    border-radius: 10px;
+    background: #0f1f22;
+    border: 1px solid #1f4c4f;
+    border-radius: 12px;
 }
 
 QFrame#card-accent-warn {
-    background: #0d1422;
-    border: 1px solid #1e3358;
-    border-radius: 10px;
+    background: #191722;
+    border: 1px solid #5f4f2d;
+    border-radius: 12px;
 }
 
 QFrame#card-accent-err {
-    background: #170810;
-    border: 1px solid #3e1020;
-    border-radius: 10px;
+    background: #1d1018;
+    border: 1px solid #5b2031;
+    border-radius: 12px;
 }
 
 /* ── Stat tiles ──────────────────────────────────────────────────────────── */
 QFrame#stat-tile {
     background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                                stop:0 #111a28, stop:1 #0d141d);
-    border: 1px solid #294061;
-    border-radius: 12px;
+                                stop:0 #121c2a, stop:1 #0c1520);
+    border: 1px solid #2d4668;
+    border-radius: 14px;
 }
 
 QLabel#stat-label {
     font-size: 11px;
     font-weight: 600;
-    color: #7b8aa5;
+    color: #7f91ae;
     text-transform: uppercase;
     letter-spacing: 1px;
 }
@@ -315,97 +356,103 @@ QLabel#stat-value {
 QLabel#stat-value-ok {
     font-size: 16px;
     font-weight: 700;
-    color: #55d282;
+    color: #5ee6c1;
 }
 
 QLabel#stat-value-warn {
     font-size: 16px;
     font-weight: 700;
-    color: #f0bc5c;
+    color: #ffbf61;
 }
 
 /* ── Divider ─────────────────────────────────────────────────────────────── */
 QFrame#divider {
-    background: #182131;
+    background: #1a2739;
     max-height: 1px;
     border: none;
 }
 
 /* ── Text log ────────────────────────────────────────────────────────────── */
 QTextEdit {
-    background: #060606;
-    color: #c0c0c0;
-    border: 1px solid #1e1e1e;
-    border-radius: 8px;
+    background: #071019;
+    color: #cdd8ea;
+    border: 1px solid #243448;
+    border-radius: 12px;
     font-family: "Noto Mono", "Cascadia Code", "Consolas", monospace;
     font-size: 12px;
     padding: 12px;
-    selection-background-color: #2a2a2a;
+    selection-background-color: #23456f;
 }
 
 /* ── Progress bar ────────────────────────────────────────────────────────── */
 QProgressBar {
-    background: #1a1a1a;
+    background: #101824;
     border: none;
-    border-radius: 3px;
-    max-height: 4px;
+    border-radius: 4px;
+    max-height: 6px;
     text-align: center;
     color: transparent;
 }
 
 QProgressBar::chunk {
-    background: #3d70e8;
-    border-radius: 3px;
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                                stop:0 #3a7bff, stop:1 #58ddb9);
+    border-radius: 4px;
 }
 
 /* ── Scroll bars ─────────────────────────────────────────────────────────── */
 QScrollBar:vertical {
-    background: #080808;
-    width: 8px;
+    background: transparent;
+    width: 12px;
+    margin: 6px 0 6px 0;
     border: none;
 }
 
 QScrollBar::handle:vertical {
-    background: #252525;
-    border-radius: 4px;
-    min-height: 24px;
+    background: #22354c;
+    border-radius: 6px;
+    min-height: 28px;
 }
 
 QScrollBar::handle:vertical:hover {
-    background: #363636;
+    background: #315074;
 }
 
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
     height: 0px;
+    background: transparent;
 }
 
 QScrollBar:horizontal {
-    background: #080808;
-    height: 8px;
+    background: transparent;
+    height: 12px;
+    margin: 0 6px 0 6px;
     border: none;
 }
 
 QScrollBar::handle:horizontal {
-    background: #252525;
-    border-radius: 4px;
-    min-width: 24px;
+    background: #22354c;
+    border-radius: 6px;
+    min-width: 28px;
 }
 
 QScrollBar::handle:horizontal:hover {
-    background: #363636;
+    background: #315074;
 }
 
 QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
     width: 0px;
+    background: transparent;
 }
 
 /* ── Line edit ───────────────────────────────────────────────────────────── */
 QLineEdit {
-    background: #111111;
-    border: 1px solid #252525;
-    border-radius: 6px;
-    padding: 6px 12px;
-    color: #e0e0e0;
+    background: #0d1621;
+    border: 1px solid #273446;
+    border-radius: 10px;
+    padding: 9px 12px;
+    color: #edf3ff;
+    selection-background-color: #295188;
 }
 
 QLineEdit:focus {
@@ -414,26 +461,26 @@ QLineEdit:focus {
 
 /* ── Checkbox ────────────────────────────────────────────────────────────── */
 QCheckBox {
-    color: #d0d0d0;
+    color: #d8e2f3;
     spacing: 8px;
 }
 
 QCheckBox::indicator {
     width: 16px;
     height: 16px;
-    background: #1a1a1a;
-    border: 2px solid #333333;
-    border-radius: 4px;
+    background: #0f1723;
+    border: 1px solid #385274;
+    border-radius: 5px;
 }
 
 QCheckBox::indicator:checked {
-    background: #5b9cf6;
-    border-color: #5b9cf6;
+    background: #367dff;
+    border-color: #5ca2ff;
     image: none;
 }
 
 QCheckBox::indicator:hover {
-    border-color: #5b9cf6;
+    border-color: #5ca2ff;
 }
 
 /* ── Getting-started step items ──────────────────────────────────────────── */
@@ -1515,8 +1562,8 @@ def _make_card(name: str = "card") -> tuple[QFrame, QVBoxLayout]:
     card = QFrame()
     card.setObjectName(name)
     layout = QVBoxLayout(card)
-    layout.setContentsMargins(20, 18, 20, 18)
-    layout.setSpacing(12)
+    layout.setContentsMargins(22, 20, 22, 20)
+    layout.setSpacing(14)
     return card, layout
 
 
@@ -1556,7 +1603,7 @@ class HardwareCard(QFrame):
 
         self._summary = QLabel()
         self._summary.setWordWrap(True)
-        self._summary.setStyleSheet("color: #f0f0f0; font-weight: 600;")
+        self._summary.setObjectName("card-summary")
         layout.addWidget(self._summary)
 
         self._details = QLabel()
@@ -1567,7 +1614,7 @@ class HardwareCard(QFrame):
 
         self._action = QLabel()
         self._action.setWordWrap(True)
-        self._action.setStyleSheet("color: #6da4f8; font-style: italic;")
+        self._action.setObjectName("card-action")
         layout.addWidget(self._action)
 
         self.update_probe(probe)
@@ -3365,7 +3412,7 @@ class GamingPage(Page):
         top = QHBoxLayout()
         top.setSpacing(8)
         name_lbl = QLabel(tool["name"])
-        name_lbl.setStyleSheet("font-size: 13px; font-weight: 700; color: #f0f0f0;")
+        name_lbl.setObjectName("card-title")
         top.addWidget(name_lbl)
         top.addStretch()
         badge = QLabel()
@@ -3401,22 +3448,12 @@ class GamingPage(Page):
     # ── Status ─────────────────────────────────────────────────────────────────
 
     def _refresh_status(self):
-        def _set_badge(lbl: QLabel, ok: bool, ok_text: str = "Installed",
-                       warn_text: str = "Not Installed"):
-            color = "#4dbb6f" if ok else "#555555"
-            text = ok_text if ok else warn_text
-            lbl.setText(f"  {text}  ")
-            lbl.setStyleSheet(
-                f"background: {color}22; color: {color}; border: 1px solid {color}44; "
-                f"border-radius: 10px; padding: 3px 8px; font-size: 11px; font-weight: 700;"
-            )
-
-        _set_badge(self._mh_badge, _mangohud_installed())
-        _set_badge(self._gs_badge, _gamescope_installed())
-        _set_badge(self._vk_badge, _vkbasalt_installed())
+        _apply_install_badge(self._mh_badge, _mangohud_installed())
+        _apply_install_badge(self._gs_badge, _gamescope_installed())
+        _apply_install_badge(self._vk_badge, _vkbasalt_installed())
 
         gp_ver = _ge_proton_version()
-        _set_badge(self._gp_badge, bool(gp_ver), ok_text=gp_ver or "Installed")
+        _apply_install_badge(self._gp_badge, bool(gp_ver), ok_text=gp_ver or "Installed")
         self._gp_version_lbl.setText(
             f"Installed: {gp_ver}" if gp_ver
             else "GE-Proton not found in compatibilitytools.d"
@@ -4840,7 +4877,7 @@ class ContentCreationPage(Page):
         top = QHBoxLayout()
         top.setSpacing(8)
         name_lbl = QLabel(tool["name"])
-        name_lbl.setStyleSheet("font-size: 13px; font-weight: 700; color: #f0f0f0;")
+        name_lbl.setObjectName("card-title")
         top.addWidget(name_lbl)
         top.addStretch()
         badge = QLabel()
@@ -4871,24 +4908,14 @@ class ContentCreationPage(Page):
     # ── Status ─────────────────────────────────────────────────────────────────
 
     def _refresh_status(self):
-        def _set_badge(lbl: QLabel, ok: bool, ok_text: str = "Installed",
-                       warn_text: str = "Not Installed"):
-            color = "#4dbb6f" if ok else "#555555"
-            text = ok_text if ok else warn_text
-            lbl.setText(f"  {text}  ")
-            lbl.setStyleSheet(
-                f"background: {color}22; color: {color}; border: 1px solid {color}44; "
-                f"border-radius: 10px; padding: 3px 8px; font-size: 11px; font-weight: 700;"
-            )
-
         for refs in self._tool_refs:
             installed = _is_flatpak_installed(refs["tool"]["flatpak"])
-            _set_badge(refs["badge"], installed)
+            _apply_install_badge(refs["badge"], installed)
             refs["install"].setVisible(not installed)
             refs["launch"].setVisible(installed)
 
         dv_installed = _davinci_flatpak_app_id() is not None
-        _set_badge(self._dv_badge, dv_installed)
+        _apply_install_badge(self._dv_badge, dv_installed)
         self._dv_install_btn.setVisible(not dv_installed)
         self._dv_launch_btn.setVisible(dv_installed)
         self._refresh_davinci_zip_hint()
