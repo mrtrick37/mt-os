@@ -14,7 +14,7 @@
 #
 # Host requirements:
 #   xorriso, squashfs-tools (mksquashfs), mtools, dosfstools
-#   (all available via: sudo dnf install xorriso squashfs-tools mtools dosfstools)
+#   Missing packages are installed automatically via rpm-ostree --apply-live.
 
 set -euo pipefail
 
@@ -107,13 +107,18 @@ cleanup() {
 }
 trap cleanup EXIT
 
-for cmd in xorriso mksquashfs mkfs.fat mcopy mmd; do
-    if ! command -v "${cmd}" &>/dev/null; then
-        echo "ERROR: '${cmd}' not found." >&2
-        echo "       Install with: sudo dnf install xorriso squashfs-tools mtools dosfstools" >&2
-        exit 1
-    fi
-done
+_missing_pkgs=()
+command -v xorriso    &>/dev/null || _missing_pkgs+=(xorriso)
+command -v mksquashfs &>/dev/null || _missing_pkgs+=(squashfs-tools)
+command -v mkfs.fat   &>/dev/null || _missing_pkgs+=(dosfstools)
+command -v mcopy      &>/dev/null || _missing_pkgs+=(mtools)
+command -v mmd        &>/dev/null || [[ " ${_missing_pkgs[*]} " == *mtools* ]] || _missing_pkgs+=(mtools)
+
+if [[ ${#_missing_pkgs[@]} -gt 0 ]]; then
+    echo "==> Installing missing ISO build tools: ${_missing_pkgs[*]}"
+    sudo rpm-ostree install --apply-live --idempotent "${_missing_pkgs[@]}"
+    hash -r
+fi
 
 mkdir -p \
     "${ROOTFS}" \

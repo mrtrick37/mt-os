@@ -23,6 +23,8 @@ concurrency:
 env:
   # workflow_dispatch → use the input; workflow_run → derive from triggering branch
   SOURCE_TAG: ${{ inputs.source_tag || (github.event.workflow_run.head_branch == 'testing' && 'testing' || 'latest') }}
+  # Opt into Node.js 24 for all actions — required before June 2026 when Node 20 is dropped.
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   # ── Job 1: Build the live container and push it to GHCR ──────────────────────

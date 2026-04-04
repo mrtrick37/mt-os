@@ -108,6 +108,11 @@ cat > /etc/gamemode.ini <<'GAMEMODEEOF'
 [general]
 renice = 10
 ioprio = 0
+# Inhibit screensaver during gameplay — prevents blanking during cutscenes/loads
+inhibit_screensaver = 1
+# Promote game threads to SCHED_FIFO via rtkit when conditions allow.
+# 'auto' only engages when the system is not under memory pressure.
+softrealtime = auto
 
 [cpu]
 park_cores = no
@@ -194,6 +199,11 @@ AMD_VULKAN_ICD=RADV
 PROTON_USE_NTSYNC=1
 VKD3D_CONFIG=dxr
 mesa_glthread=true
+# FSR upscaling in fullscreen Wine/Proton games — lets older titles that don't
+# run at native resolution get AMD FidelityFX Super Resolution upscaling.
+# Strength 0 = sharpest, 5 = most blur; 2 is a good balance.
+WINE_FULLSCREEN_FSR=1
+WINE_FULLSCREEN_FSR_STRENGTH=2
 PROTONEOF
 
 # ── NVIDIA NVAPI: detect at login, not at build time ─────────────────────────

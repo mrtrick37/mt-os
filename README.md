@@ -27,14 +27,17 @@ KythOS is a custom bootc image. The OS is a container image built with Docker, i
 ### Gaming
 
 - Steam (with first-run setup notification), Lutris, GameMode, gamescope, MangoHud, vkBasalt
-- umu-launcher, winetricks (pinned upstream release), libFAudio
+- umu-launcher, winetricks (pinned upstream release), protontricks, libFAudio
 - OBS Studio + obs-vkcapture (GPU capture without display compositor overhead)
 - GE-Proton — pre-installed at build time, updated weekly via systemd timer
+- ProtonUp-Qt — GUI to manage GE-Proton and other compatibility tool versions
 - scx schedulers (scx_lavd / scx_rusty / scx_bpfland via scxd, auto-mode) — prioritises latency-sensitive threads during gaming
 - system76-scheduler — dynamically adjusts process priorities based on focused window
 - ananicy-cpp — static per-process CPU/IO priority rules
 - NTSYNC udev rules (faster Wine sync primitives, lower-latency than esync/fsync)
 - AMD GPU high-performance power profile during gameplay (GameMode)
+- GameMode soft-realtime (`SCHED_FIFO` via rtkit) + screensaver inhibit
+- FSR upscaling in fullscreen Wine/Proton games (`WINE_FULLSCREEN_FSR=1`, strength 2)
 - `game-performance` and `zink-run` helper wrappers
 - Weekly `duperemove` timer for reclaiming duplicate blocks on supported filesystems
 - input-remapper (remap controllers, mice, keyboards at the kernel level)
