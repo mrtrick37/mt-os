@@ -1,11 +1,7 @@
 name: Build container image
 on:
-  pull_request:
-    branches:
-      - main
-      - testing
   schedule:
-    - cron: '05 10 * * *'  # 10:05am UTC daily — rebuilds both branches with latest packages
+    - cron: '05 10 * * *'  # 10:05am UTC daily — rebuilds both :latest and :testing with fresh upstream packages
   push:
     branches:
       - main
@@ -20,21 +16,27 @@ env:
   IMAGE_LOGO_URL: "https://avatars.githubusercontent.com/u/120078124?s=200&v=4"  # Put your own image here for a fancy profile on https://artifacthub.io/!
   IMAGE_NAME: "${{ github.event.repository.name }}"  # output image name, usually same as repo name
   IMAGE_REGISTRY: "ghcr.io/${{ github.repository_owner }}"  # do not edit
-  # main → :latest  |  testing → :testing  |  other branches → :<branch-name>
-  DEFAULT_TAG: ${{ github.ref_name == 'main' && 'latest' || github.ref_name }}
   # Opt into Node.js 24 for all actions — required before June 2026 when Node 20 is dropped.
   # Remove this line once docker/login-action and docker/metadata-action pins are updated
   # to SHA-pinned releases that natively target Node.js 24.
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref || github.run_id }}
-  cancel-in-progress: false
-
 jobs:
   build_push:
-    name: Build and push image
+    name: Build and push (${{ matrix.branch }})
     runs-on: ubuntu-24.04
+
+    # One slot per branch — prevents a scheduled run and a push from racing on the same tag.
+    concurrency:
+      group: ${{ github.workflow }}-${{ matrix.branch }}
+      cancel-in-progress: false
+
+    strategy:
+      fail-fast: false
+      matrix:
+        # push → build only the branch that was pushed (single-item list)
+        # schedule / workflow_dispatch → build both branches in parallel
+        branch: ${{ github.event_name == 'push' && fromJSON(format('["{0}"]', github.ref_name)) || fromJSON('["main","testing"]') }}
 
     permissions:
       contents: read
@@ -43,18 +45,20 @@ jobs:
 
     steps:
       - name: Prepare environment
+        id: prep
         run: |
-          # Lowercase the image uri
           echo "IMAGE_REGISTRY=${IMAGE_REGISTRY,,}" >> ${GITHUB_ENV}
           echo "IMAGE_NAME=${IMAGE_NAME,,}" >> ${GITHUB_ENV}
-          # Sanitize DEFAULT_TAG: replace '/' with '-' to form valid Docker tags
-          # (PR refs like '56/merge' are invalid tag names)
-          SANITIZED_TAG="${DEFAULT_TAG//\//-}"
-          echo "DEFAULT_TAG=${SANITIZED_TAG}" >> ${GITHUB_ENV}
+          # main → :latest, everything else → :<branch-name>
+          TAG="${{ matrix.branch == 'main' && 'latest' || matrix.branch }}"
+          echo "DEFAULT_TAG=${TAG}" >> ${GITHUB_ENV}
+          echo "default_tag=${TAG}" >> ${GITHUB_OUTPUT}
 
       # These stage versions are pinned by https://github.com/renovatebot/renovate
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: ${{ matrix.branch }}
 
       - name: Maximize build space
         uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be # v1.3.1
@@ -84,11 +88,9 @@ jobs:
           # This generates all the tags for your image, you can add custom tags here too!
           # Default tags are "$DEFAULT_TAG" and "$DEFAULT_TAG.$date".
           tags: |
-            type=raw,value=${{ env.DEFAULT_TAG }}
-            type=raw,value=${{ env.DEFAULT_TAG }}.{{date 'YYYYMMDD'}}
+            type=raw,value=${{ steps.prep.outputs.default_tag }}
+            type=raw,value=${{ steps.prep.outputs.default_tag }}.{{date 'YYYYMMDD'}}
             type=raw,value={{date 'YYYYMMDD'}}
-            type=sha,enable=${{ github.event_name == 'pull_request' }}
-            type=ref,event=pr
           labels: |
             io.artifacthub.package.readme-url=https://raw.githubusercontent.com/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}/${{ github.sha }}/README.md
             org.opencontainers.image.created=${{ steps.date.outputs.date }}
@@ -98,12 +100,12 @@ jobs:
             org.opencontainers.image.title=${{ env.IMAGE_NAME }}
             org.opencontainers.image.url=https://github.com/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}/tree/${{ github.sha }}
             org.opencontainers.image.vendor=${{ github.repository_owner }}
-            org.opencontainers.image.version=${{ env.DEFAULT_TAG }}.{{date 'YYYYMMDD'}}
+            org.opencontainers.image.version=${{ steps.prep.outputs.default_tag }}.{{date 'YYYYMMDD'}}
             io.artifacthub.package.deprecated=false
             io.artifacthub.package.keywords=${{ env.IMAGE_KEYWORDS }}
             io.artifacthub.package.license=Apache-2.0
             io.artifacthub.package.logo-url=${{ env.IMAGE_LOGO_URL }}
-            io.artifacthub.package.prerelease=${{ github.ref_name != 'main' }}
+            io.artifacthub.package.prerelease=${{ matrix.branch != 'main' }}
             containers.bootc=1
           sep-tags: " "
           sep-labels: "\n"
@@ -124,22 +126,18 @@ jobs:
       - name: Build final image
         run: |
           docker build \
-            --tag ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:${{ env.DEFAULT_TAG }} \
+            --tag ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:${{ steps.prep.outputs.default_tag }} \
             .
 
       # Tag the docker-built image with all metadata tags (date variants, etc.)
       # so the Push To GHCR step can find them in the docker store.
-      # The previous buildah-build step was building the same Containerfile into
-      # a separate buildah store, making the date tags invisible to docker push.
       - name: Tag date variants
         run: |
           IMAGE_FULL="ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}"
           for tag in ${{ steps.metadata.outputs.tags }}; do
-            docker tag "${IMAGE_FULL}:${{ env.DEFAULT_TAG }}" "${IMAGE_FULL}:${tag}" || true
+            docker tag "${IMAGE_FULL}:${{ steps.prep.outputs.default_tag }}" "${IMAGE_FULL}:${tag}" || true
           done
 
-      # These `if` statements are so that pull requests for your custom images do not make it publish any packages under your name without you knowing
-      # They also check if the runner is on the default branch so that things like the merge queue (if you enable it), are going to work
       - name: Ensure Docker
         run: |
           if ! command -v docker >/dev/null 2>&1; then
@@ -150,18 +148,15 @@ jobs:
           fi
 
       - name: Login to GitHub Container Registry (docker)
-        if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/testing')
         run: |
           echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
 
       - name: Push To GHCR
-        if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/testing')
         id: push
         timeout-minutes: 60
         run: |
           echo "${{ github.token }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
           IMAGE_FULL="ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}"
-          DIGEST=""
           for tag in ${{ steps.metadata.outputs.tags }}; do
             for attempt in 1 2 3; do
               echo "Pushing $IMAGE_FULL:$tag (attempt $attempt)..."
@@ -172,21 +167,15 @@ jobs:
             done
           done
           # Capture digest of the primary tag for cosign
-          DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "$IMAGE_FULL:${{ env.DEFAULT_TAG }}" 2>/dev/null | cut -d@ -f2 || true)
+          DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "$IMAGE_FULL:${{ steps.prep.outputs.default_tag }}" 2>/dev/null | cut -d@ -f2 || true)
           echo "digest=${DIGEST}" >> $GITHUB_OUTPUT
 
-      # This section is optional and only needs to be enabled if you plan on distributing
-      # your project for others to consume. You will need to create a public and private key
-      # using Cosign and save the private key as a repository secret in Github for this workflow
-      # to consume. For more details, review the image signing section of the README.
       - name: Install Cosign
         uses: sigstore/cosign-installer@faadad0cce49287aee09b3a48701e75088a2c6ad # v4.0.0
-        if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/testing')
         with:
           cosign-release: 'v2.6.1'
 
       - name: Login to GitHub Container Registry (cosign)
-        if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/testing')
         uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3
         with:
           registry: ghcr.io
@@ -194,7 +183,6 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Sign container image
-        if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/testing')
         run: |
           IMAGE_FULL="${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}"
           for tag in ${{ steps.metadata.outputs.tags }}; do
