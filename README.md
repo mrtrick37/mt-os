@@ -27,10 +27,10 @@ KythOS is a custom bootc image. The OS is a container image built with Docker, i
 ### Gaming
 
 - Steam (with first-run setup notification), Lutris, GameMode, gamescope, MangoHud, vkBasalt
-- umu-launcher, winetricks (pinned upstream release), protontricks, libFAudio
-- OBS Studio + obs-vkcapture (GPU capture without display compositor overhead)
+- umu-launcher, winetricks (pinned upstream release), libFAudio
 - GE-Proton — pre-installed at build time, updated weekly via systemd timer
-- ProtonUp-Qt — GUI to manage GE-Proton and other compatibility tool versions
+- OBS Studio + obs-vkcapture (GPU capture without display compositor overhead)
+- First-boot Flatpaks (auto-installed on first login): Heroic Games Launcher, protontricks, ProtonUp-Qt, Discord, Flatseal, Gearlever, OBS Studio, MediaWriter
 - scx schedulers (scx_lavd / scx_rusty / scx_bpfland via scxd, auto-mode) — prioritises latency-sensitive threads during gaming
 - system76-scheduler — dynamically adjusts process priorities based on focused window
 - ananicy-cpp — static per-process CPU/IO priority rules
@@ -41,6 +41,8 @@ KythOS is a custom bootc image. The OS is a container image built with Docker, i
 - MangoHud pre-configured with a curated default overlay (fps, frametimes, GPU/CPU temp/clock, VRAM — toggle `Shift_R+F12`)
 - vkBasalt pre-configured with CAS sharpening (strength 0.4, `Home` to toggle) — active when `ENABLE_VKBASALT=1`
 - FSR upscaling in fullscreen Wine/Proton games (`WINE_FULLSCREEN_FSR=1`, strength 2)
+- LatencyFleX — Vulkan implicit layer for frame-pacing in supported Wine/Proton games; eliminates vsync latency penalty without tearing
+- steam-devices — Valve's udev rules for PS/Xbox/Switch/third-party controllers (no `/dev/input` access issues out of box)
 - `game-performance` and `zink-run` helper wrappers
 - Weekly `duperemove` timer for reclaiming duplicate blocks on supported filesystems
 - input-remapper (remap controllers, mice, keyboards at the kernel level)
@@ -69,12 +71,12 @@ KythOS is a custom bootc image. The OS is a container image built with Docker, i
 
 ### System tuning
 
-- **Memory:** vm.swappiness=10, THP=madvise, vm.max_map_count=2147483642 (Star Citizen etc.), vm.compaction_proactiveness=0, vm.page-cluster=0, vm.watermark_boost_factor=0, vm.vfs_cache_pressure=50, vm.oom_kill_allocating_task=1 (fast OOM recovery)
+- **Memory:** vm.swappiness=180 (correct value for zram — low swappiness defeats zram), vm.watermark_scale_factor=125, THP=madvise, vm.max_map_count=2147483642 (Star Citizen etc.), vm.compaction_proactiveness=0, vm.page-cluster=0, vm.watermark_boost_factor=0, vm.vfs_cache_pressure=50, vm.oom_kill_allocating_task=1 (fast OOM recovery), vm.dirty_bytes=256 MB / vm.dirty_background_bytes=64 MB (absolute limits prevent 3+ GB dirty backlogs on high-RAM systems), vm.dirty_expire_centisecs=500 (flush dirty pages after 5 s, not 30 s)
 - **Network:** TCP BBRv3, raised socket buffers (64 MB), TCP Fast Open, raised inotify limits, `tcp_mtu_probing=1` (recovers from MTU black holes on BBR + VPN paths)
 - **Audio:** PipeWire at 48 kHz / 128-sample quantum (~2.7 ms latency), min-quantum=32, allowed-rates=[44100 48000] (rate-switches instead of resampling)
-- **Storage:** I/O scheduler per device type — `none` on NVMe, `mq-deadline` on SATA SSD, `bfq` on HDD
-- **Gaming:** split-lock mitigation disabled, kernel.sched_autogroup_enabled=1, NMI watchdog disabled, kernel.perf_event_paranoid=1 (MangoHud CPU timings + perf tooling)
-- **Wine/Proton:** PROTON_FORCE_LARGE_ADDRESS_AWARE + WINE_LARGE_ADDRESS_AWARE (full 4 GB address space for 32-bit games), NTSYNC enabled, VKD3D DXR + feature level 12_2 (DXR 1.1, mesh shaders), mesa_glthread
+- **Storage:** I/O scheduler per device type — `none` on NVMe, `mq-deadline` on SATA SSD, `bfq` on HDD; weekly `fstrim.timer` for SSD block reclaim
+- **Gaming:** split-lock mitigation disabled, kernel.sched_autogroup_enabled=1, NMI watchdog disabled, kernel.perf_event_paranoid=1 (MangoHud CPU timings + perf tooling); irqbalance enabled (distributes IRQs across all CPU cores)
+- **Wine/Proton:** PROTON_FORCE_LARGE_ADDRESS_AWARE + WINE_LARGE_ADDRESS_AWARE (full 4 GB address space for 32-bit games), NTSYNC enabled, WINEFSYNC + WINEESYNC as fallbacks, VKD3D DXR + feature level 12_2 (DXR 1.1, mesh shaders), RADV_PERFTEST=gpl (pipeline library — eliminates most shader compilation stutter), mesa_glthread; NVIDIA: PROTON_ENABLE_NVAPI + `__GL_THREADED_OPTIMIZATIONS=1` auto-enabled when NVIDIA GPU detected
 - zram (min(RAM/2, 8 GB), zstd compression)
 - WiFi power-save disabled system-wide; Intel WiFi BT coexistence disabled; MT7921 ASPM disabled
 - KDE Baloo file indexer disabled by default (causes I/O stutter on first boot / after large game downloads) — re-enable in System Settings → Search
@@ -228,7 +230,7 @@ build_files/
     cockpit-branding.css          Themed CSS for the installer UI
   scripts/
     packages.sh                   RPM packages, repos, dnf upgrade (Layer 1)
-    thirdparty.sh                 topgrade, winetricks, scx schedulers, Homebrew (Layer 2)
+    thirdparty.sh                 topgrade, winetricks, LatencyFleX, scx schedulers, Homebrew (Layer 2)
     sysconfig.sh                  sysctl, audio, gaming tuning, env vars (Layer 3)
     branding.sh                   Icons, themes, Plymouth, wallpaper, welcome app (Layer 4)
     ge-proton.sh                  GE-Proton installer (Layer 5)

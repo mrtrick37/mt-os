@@ -5,11 +5,23 @@ set -euo pipefail
 # ── Kernel sysctl parameters ──────────────────────────────────────────────────
 mkdir -p /etc/sysctl.d
 cat > /etc/sysctl.d/99-kyth.conf <<'SYSCTLEOF'
-# Memory — reduce swap aggression and background compaction stutter
-vm.swappiness = 10
+# Memory
+# swappiness=180: with zram present the kernel should aggressively swap to the
+# fast compressed device rather than drop clean pages. The Fedora zram-generator
+# project, CachyOS, and Bazzite all recommend 180 for zram systems. The old value
+# of 10 caused the kernel to almost never use the zram swap it had set up,
+# defeating its purpose and increasing OOM frequency under gaming load.
+vm.swappiness = 180
+# Keep a larger free-memory reserve so reclaim starts earlier and avoids sudden
+# multi-second stall spikes during shader compilation or map loads.
+vm.watermark_scale_factor = 125
 vm.compaction_proactiveness = 0
-vm.dirty_ratio = 10
-vm.dirty_background_ratio = 5
+# Absolute dirty limits instead of ratios. At 10% ratio a 32 GB machine allows
+# 3.2 GB of dirty pages before writeback starts — too much buffering, causes
+# visible stutter when the flush finally hits. 256 MB / 64 MB matches
+# Bazzite/Nobara and keeps writeback incremental throughout gameplay.
+vm.dirty_bytes = 268435456
+vm.dirty_background_bytes = 67108864
 vm.page_lock_unfairness = 1
 # Disable swap read-ahead — on SSDs random I/O is fast; prefetching neighbours
 # wastes bandwidth and causes micro-stutter under memory pressure
@@ -21,6 +33,12 @@ vm.watermark_boost_factor = 0
 vm.vfs_cache_pressure = 50
 # Raise memory map limit for games with large numbers of mappings (Star Citizen, etc.)
 vm.max_map_count = 2147483642
+
+# Writeback timing — flush dirty pages after 5 s instead of the kernel default
+# 30 s. Paired with the absolute dirty_bytes limits above this keeps write bursts
+# short and predictable during shader compilation / asset loading.
+vm.dirty_expire_centisecs = 500
+vm.dirty_writeback_centisecs = 500
 
 # Network — activate BBRv3 (built into CachyOS kernel)
 net.core.default_qdisc = fq
@@ -228,6 +246,17 @@ PROTON_FORCE_LARGE_ADDRESS_AWARE=1
 WINE_LARGE_ADDRESS_AWARE=1
 AMD_VULKAN_ICD=RADV
 PROTON_USE_NTSYNC=1
+# esync/fsync: fallback sync primitives used when NTSYNC is unavailable (module
+# not loaded, older kernel, or non-kyth install). Proton checks in priority order:
+# NTSYNC → fsync → esync → default. Having both enabled costs nothing when NTSYNC
+# is active, and keeps Wine/Proton fast on any system this image runs on.
+WINEFSYNC=1
+WINEESYNC=1
+# RADV Graphics Pipeline Library — pre-compiles pipeline variants in the background
+# instead of stalling the render thread. Eliminates most shader compilation stutter
+# in DX11/DX12 games without requiring a warm shader cache. No regressions reported
+# on current Mesa-git; disable per-game with RADV_PERFTEST= if needed.
+RADV_PERFTEST=gpl
 VKD3D_CONFIG=dxr
 # Advertise DX12 Ultimate feature level (12_2) so VKD3D-Proton exposes DXR 1.1,
 # mesh shaders, and sampler feedback. Must be paired with VKD3D_CONFIG=dxr above.
@@ -252,6 +281,9 @@ install -m 0755 /dev/stdin /usr/lib/systemd/user-environment-generators/80-kyth-
 if lspci -d ::0300 2>/dev/null | grep -qi nvidia || \
    lspci -d ::0302 2>/dev/null | grep -qi nvidia; then
     echo "PROTON_ENABLE_NVAPI=1"
+    # NVIDIA equivalent of mesa_glthread: offloads OpenGL command submission to
+    # a second thread. Only meaningful on NVIDIA + OpenGL; Vulkan/DXVK unaffected.
+    echo "__GL_THREADED_OPTIMIZATIONS=1"
 fi
 NVAPIEOF
 
@@ -393,6 +425,12 @@ SUDOEOF
 
 systemctl enable rtkit-daemon.service 2>/dev/null || true
 systemctl enable input-remapper.service 2>/dev/null || true
+# Periodic SSD TRIM — reclaims blocks marked free by the filesystem. Safe on
+# all modern SSDs and NVMe drives; the timer runs weekly by default.
+systemctl enable fstrim.timer 2>/dev/null || true
+# Distribute hardware IRQs across all CPU cores. Without this all IRQs land on
+# cpu0, causing it to spike during heavy I/O or network activity mid-game.
+systemctl enable irqbalance.service 2>/dev/null || true
 # Fedora/libvirt can expose either legacy libvirtd or modular virtqemud units.
 # Enable whichever socket exists so image builds stay portable across releases.
 if systemctl list-unit-files --type=socket --no-legend 2>/dev/null | grep -q '^libvirtd\.socket'; then
