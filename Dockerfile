@@ -7,14 +7,14 @@ FROM localhost/kyth-base:stable
 
 # Override upstream OCI labels so downstream tooling (lorax/bootc) sees KythOS product metadata
 LABEL org.opencontainers.image.title="KythOS"
-LABEL org.opencontainers.image.version="43"
+LABEL org.opencontainers.image.version="44"
 LABEL org.opencontainers.image.description="KythOS — atomic gaming and dev workstation built on Fedora Kinoite"
 LABEL org.opencontainers.image.licenses="Apache-2.0"
 LABEL org.opencontainers.image.source="https://github.com/mrtrick37/kyth"
 LABEL org.opencontainers.image.documentation="https://github.com/mrtrick37/kyth"
 LABEL org.osbuild.product="KythOS"
-LABEL org.osbuild.version="43"
-LABEL org.osbuild.branding.release="KythOS 43"
+LABEL org.osbuild.version="44"
+LABEL org.osbuild.branding.release="KythOS 44"
 
 ### MODIFICATIONS
 ARG ENABLE_ANANICY=1

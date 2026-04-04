@@ -79,7 +79,7 @@ clean-output:
         | sort | xargs -r du -sh 2>/dev/null || echo "(none)"
 
 # Prune Docker build cache and dangling (unreferenced) image layers.
-# Keeps all named images (kyth:latest, kyth-live:build, kinoite-main:43).
+# Keeps all named images (kyth:latest, kyth-live:build, kinoite-main:44).
 # Run after a build to recover the reclaimable space shown in 'just disk-usage'.
 [group('Utility')]
 clean-docker:
@@ -126,7 +126,7 @@ prune-live-dev:
     docker system df || true
 
 # Full local cleanup: stale outputs + Docker cache.
-# Does NOT remove localhost/kyth:latest or ghcr.io/ublue-os/kinoite-main:43
+# Does NOT remove localhost/kyth:latest or ghcr.io/ublue-os/kinoite-main:44
 # since those are needed to build.
 [group('Utility')]
 clean-all: clean-output clean-docker
@@ -232,9 +232,9 @@ sudoif command *args:
     sudoif {{ command }} {{ args }}
 
 # Build the base image from build_base/ and tag it as localhost/kyth:latest
-# Override the upstream with: just build-base ghcr.io/ublue-os/kinoite-main:43
+# Override the upstream with: just build-base ghcr.io/ublue-os/kinoite-main:44
 [group('Build')]
-build-base base_image="ghcr.io/ublue-os/kinoite-main:43":
+build-base base_image="ghcr.io/ublue-os/kinoite-main:44":
     #!/usr/bin/env bash
     # Ensure current user is in the docker group
     if ! id -nG "$USER" | grep -qw docker; then
@@ -252,7 +252,7 @@ build-base base_image="ghcr.io/ublue-os/kinoite-main:43":
     fi
     docker build --build-arg BASE_IMAGE={{ base_image }} --tag localhost/kyth-base:stable build_base/
 
-# Build the full KythOS image (runs build_files/build.sh on top of kyth-base).
+# Build the full KythOS image (packages → thirdparty → sysconfig → branding → GE-Proton → Mesa-git).
 # Requires build-base to have run first.
 build: build-base
     #!/usr/bin/env bash

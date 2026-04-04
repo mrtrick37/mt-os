@@ -69,10 +69,10 @@ chmod +x /usr/bin/kyth-set-resolution
 # "KythOS" instead of upstream branding.
 cat > /etc/os-release <<'EOF' || true
 NAME="KythOS"
-PRETTY_NAME="KythOS 43"
+PRETTY_NAME="KythOS 44"
 ID=fedora
-VERSION="43"
-VERSION_ID="43"
+VERSION="44"
+VERSION_ID="44"
 ANSI_COLOR="0;34"
 HOME_URL="https://github.com/mrtrick37/kyth"
 SUPPORT_URL="https://github.com/mrtrick37/kyth/discussions"

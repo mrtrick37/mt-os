@@ -15,7 +15,11 @@ ExecStart=/usr/bin/flatpak install -y --noninteractive --system --or-update flat
     org.fedoraproject.MediaWriter \
     com.discordapp.Discord \
     it.mijorus.gearlever \
-    com.heroicgameslauncher.hgl
+    com.heroicgameslauncher.hgl \
+    com.github.Matoking.protontricks \
+    net.davidotek.pupgui2 \
+    com.obsproject.Studio \
+    com.github.tchx84.Flatseal
 ExecStartPost=/bin/mkdir -p /var/lib/kyth
 ExecStartPost=/bin/touch /var/lib/kyth/default-flatpaks-done
 RemainAfterExit=yes

@@ -10,7 +10,7 @@ is_enabled() {
 }
 
 # ── topgrade ─────────────────────────────────────────────────────────────────
-# Not in Fedora 43 repos — install pre-built binary from GitHub releases.
+# Not in Fedora 44 repos — install pre-built binary from GitHub releases.
 # Uses the musl-linked build for maximum compatibility across libc versions.
 TOPGRADE_REPO_API="https://api.github.com/repos/topgrade-rs/topgrade/releases/latest"
 TMPDIR_TG=$(mktemp -d)
@@ -54,13 +54,57 @@ head -1 /tmp/winetricks | grep -q '^#!' || { echo "winetricks download looks inv
 install -m 0755 /tmp/winetricks /usr/local/bin/winetricks
 rm -f /tmp/winetricks
 
+# ── LatencyFleX ──────────────────────────────────────────────────────────────
+# Frame-pacing / latency-flexibility layer for Wine/Proton. Games that implement
+# the LatencyFleX API (via GE-Proton or natively) can report their ideal frame
+# schedule to the runtime, eliminating the latency penalty of vsync without
+# tearing. Installs the Vulkan implicit layer system-wide; it activates only in
+# games that call into the API, and is a no-op everywhere else.
+LFX_REPO_API="https://api.github.com/repos/ishitatsuyuki/LatencyFleX/releases/latest"
+TMPDIR_LFX=$(mktemp -d)
+release_json="${TMPDIR_LFX}/release.json"
+if curl -fsSL "${LFX_REPO_API}" -o "${release_json}" 2>/dev/null; then
+    LFX_URL=$(
+        grep -oP 'https://[^"]+\.tar\.(gz|xz|zst)' "${release_json}" \
+        | grep -iv 'source' \
+        | head -n1
+    ) || true
+    if [[ -n "${LFX_URL}" ]]; then
+        LFX_TARBALL=$(basename "${LFX_URL}")
+        echo "latencyflex: downloading ${LFX_TARBALL}"
+        curl -fsSL "${LFX_URL}" -o "${TMPDIR_LFX}/${LFX_TARBALL}"
+        tar -xf "${TMPDIR_LFX}/${LFX_TARBALL}" -C "${TMPDIR_LFX}/"
+
+        LFX_SO=$(find "${TMPDIR_LFX}" -name 'liblatencyflex_layer.so' | head -n1)
+        LFX_JSON=$(find "${TMPDIR_LFX}" -name '*.json' | grep -i 'latencyflex' | head -n1)
+
+        if [[ -n "${LFX_SO}" && -n "${LFX_JSON}" ]]; then
+            install -m 0755 "${LFX_SO}" /usr/lib64/liblatencyflex_layer.so
+            mkdir -p /usr/share/vulkan/implicit_layer.d
+            install -m 0644 "${LFX_JSON}" \
+                /usr/share/vulkan/implicit_layer.d/latencyflex_layer.json
+            # Ensure the JSON points to the installed library path
+            sed -i 's|"library_path":.*|"library_path": "/usr/lib64/liblatencyflex_layer.so"|' \
+                /usr/share/vulkan/implicit_layer.d/latencyflex_layer.json
+            echo "latencyflex: Vulkan layer installed"
+        else
+            echo "latencyflex: could not find layer .so or .json in archive; skipping."
+        fi
+    else
+        echo "latencyflex: no tarball found in release assets; skipping."
+    fi
+else
+    echo "latencyflex: failed to fetch release info from GitHub; skipping."
+fi
+rm -rf "${TMPDIR_LFX}"
+
 # ── scx userspace schedulers ──────────────────────────────────────────────────
 # sched-ext (scx) is a BPF-based scheduler framework in the CachyOS kernel.
 # scx_lavd is optimised for interactive + gaming — it prioritises latency-
 # sensitive threads (audio, input, render) while keeping throughput tasks warm.
 #
 # We pull pre-built binaries directly from the upstream GitHub release rather
-# than relying on a COPR that may not have a Fedora 43 build available.
+# than relying on a COPR that may not have a Fedora 44 build available.
 if is_enabled "${ENABLE_SCX:-1}"; then
     SCX_REPO_API="https://api.github.com/repos/sched-ext/scx/releases/latest"
     TMPDIR_SCX=$(mktemp -d)

@@ -37,54 +37,70 @@ QSS = """
     color: #f0f0f0;
 }
 
-QMainWindow, QWidget {
+QMainWindow {
     background: #0c0c0c;
+}
+
+QWidget {
+    background: transparent;
+}
+
+QLabel {
+    background: transparent;
 }
 
 /* ── Sidebar ─────────────────────────────────────────────────────────────── */
 QWidget#sidebar {
-    background: #080808;
-    border-right: 1px solid #1c1c1c;
+    background: #07090d;
+    border-right: 1px solid #161d28;
+}
+
+QWidget#sidebar-header {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+                                stop:0 #0b111a, stop:1 #0f1826);
+    border-bottom: 1px solid #182337;
 }
 
 QLabel#sidebar-logo {
-    font-size: 18px;
+    font-size: 20px;
     font-weight: 700;
-    color: #ffffff;
+    color: #f8fbff;
+    letter-spacing: 0.3px;
     padding: 0;
 }
 
 QLabel#sidebar-ver {
     font-size: 11px;
-    color: #444444;
+    color: #7d8aa2;
     padding: 0;
 }
 
 QPushButton#nav-item {
     background: transparent;
-    color: #666666;
+    color: #7d8798;
     border: none;
     border-left: 3px solid transparent;
     border-radius: 0px;
-    padding: 10px 16px 10px 13px;
+    padding: 11px 16px 11px 14px;
     text-align: left;
     font-size: 13px;
     font-weight: 500;
 }
 
 QPushButton#nav-item:hover {
-    background: #111111;
-    color: #bbbbbb;
-    border-left: 3px solid transparent;
+    background: #101722;
+    color: #dbe7ff;
+    border-left: 3px solid #22314a;
 }
 
 QPushButton#nav-item-active {
-    background: #0d1525;
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                                stop:0 #122036, stop:1 #173154);
     color: #ffffff;
     border: none;
-    border-left: 3px solid #5b9cf6;
+    border-left: 3px solid #7cb2ff;
     border-radius: 0px;
-    padding: 10px 16px 10px 13px;
+    padding: 11px 16px 11px 14px;
     text-align: left;
     font-size: 13px;
     font-weight: 600;
@@ -92,19 +108,35 @@ QPushButton#nav-item-active {
 
 /* ── Content area ────────────────────────────────────────────────────────── */
 QWidget#content-area {
-    background: #0c0c0c;
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+                                stop:0 #0b0f15, stop:0.55 #0b1119, stop:1 #091019);
+}
+
+QScrollArea {
+    background: transparent;
 }
 
 /* ── Headings ────────────────────────────────────────────────────────────── */
+QLabel#eyebrow {
+    background: #101a2a;
+    color: #8cb9ff;
+    border: 1px solid #28446c;
+    border-radius: 10px;
+    padding: 4px 10px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 1.1px;
+}
+
 QLabel#heading {
-    font-size: 24px;
+    font-size: 27px;
     font-weight: 700;
     color: #ffffff;
 }
 
 QLabel#subheading {
     font-size: 14px;
-    color: #888888;
+    color: #95a2b5;
 }
 
 /* ── Status labels ───────────────────────────────────────────────────────── */
@@ -124,52 +156,54 @@ QLabel#status-err {
 }
 
 QLabel#status-dim {
-    color: #444444;
+    color: #69778d;
 }
 
 /* ── Buttons ─────────────────────────────────────────────────────────────── */
 QPushButton {
-    background: #1e1e1e;
-    color: #e0e0e0;
-    border: 1px solid #2c2c2c;
-    border-radius: 6px;
+    background: #161b24;
+    color: #e8edf7;
+    border: 1px solid #2a3342;
+    border-radius: 8px;
     padding: 8px 18px;
     font-size: 13px;
 }
 
 QPushButton:hover {
-    background: #2a2a2a;
-    border-color: #383838;
+    background: #1d2430;
+    border-color: #42526b;
 }
 
 QPushButton:pressed {
-    background: #333333;
+    background: #253041;
 }
 
 QPushButton:disabled {
-    background: #131313;
-    color: #444444;
-    border-color: #1a1a1a;
+    background: #10141c;
+    color: #556070;
+    border-color: #1b2230;
 }
 
 QPushButton#primary {
-    background: #2b5fd4;
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                                stop:0 #2d66df, stop:1 #4a8cff);
     color: #ffffff;
     font-weight: 700;
     border: none;
 }
 
 QPushButton#primary:hover {
-    background: #3d70e8;
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                                stop:0 #3b74eb, stop:1 #5a9aff);
 }
 
 QPushButton#primary:pressed {
-    background: #2450bb;
+    background: #2556bd;
 }
 
 QPushButton#primary:disabled {
     background: #162a5c;
-    color: #444444;
+    color: #66738b;
 }
 
 QPushButton#danger {
@@ -213,20 +247,28 @@ QPushButton#branch-inactive:hover {
 
 /* ── Cards ───────────────────────────────────────────────────────────────── */
 QFrame#card {
-    background: #111111;
-    border: 1px solid #222222;
-    border-radius: 10px;
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+                                stop:0 #101722, stop:1 #0d141d);
+    border: 1px solid #22304a;
+    border-radius: 12px;
 }
 
 QLabel#card-title {
     font-size: 15px;
     font-weight: 700;
-    color: #f0f0f0;
+    color: #f5f8ff;
+}
+
+QLabel#section-heading {
+    font-size: 17px;
+    font-weight: 700;
+    color: #f5f8ff;
+    letter-spacing: 0.2px;
 }
 
 QLabel#card-copy {
-    color: #999999;
-    line-height: 1.5;
+    color: #9aa4b6;
+    line-height: 1.55;
 }
 
 QFrame#card-accent-ok {
@@ -249,40 +291,41 @@ QFrame#card-accent-err {
 
 /* ── Stat tiles ──────────────────────────────────────────────────────────── */
 QFrame#stat-tile {
-    background: #111111;
-    border: 1px solid #222222;
-    border-radius: 10px;
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+                                stop:0 #111a28, stop:1 #0d141d);
+    border: 1px solid #294061;
+    border-radius: 12px;
 }
 
 QLabel#stat-label {
     font-size: 11px;
     font-weight: 600;
-    color: #555555;
+    color: #7b8aa5;
     text-transform: uppercase;
     letter-spacing: 1px;
 }
 
 QLabel#stat-value {
-    font-size: 15px;
+    font-size: 16px;
     font-weight: 700;
-    color: #e8e8e8;
+    color: #edf3ff;
 }
 
 QLabel#stat-value-ok {
-    font-size: 15px;
+    font-size: 16px;
     font-weight: 700;
-    color: #4dbb6f;
+    color: #55d282;
 }
 
 QLabel#stat-value-warn {
-    font-size: 15px;
+    font-size: 16px;
     font-weight: 700;
-    color: #e8a832;
+    color: #f0bc5c;
 }
 
 /* ── Divider ─────────────────────────────────────────────────────────────── */
 QFrame#divider {
-    background: #1c1c1c;
+    background: #182131;
     max-height: 1px;
     border: none;
 }
@@ -394,20 +437,23 @@ QCheckBox::indicator:hover {
 
 /* ── Getting-started step items ──────────────────────────────────────────── */
 QFrame#step-item {
-    background: #111111;
-    border: 1px solid #222222;
-    border-radius: 8px;
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                                stop:0 #101722, stop:1 #0f141c);
+    border: 1px solid #243149;
+    border-radius: 12px;
 }
 
 QFrame#step-item:hover {
-    background: #161616;
-    border: 1px solid #2e2e2e;
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                                stop:0 #111d2d, stop:1 #101926);
+    border: 1px solid #4a74b8;
 }
 
 QLabel#step-number {
-    background: #162040;
-    color: #6da4f8;
-    border-radius: 14px;
+    background: #162a52;
+    color: #8ab6ff;
+    border: 1px solid #36598f;
+    border-radius: 15px;
     font-size: 13px;
     font-weight: 700;
 }
@@ -415,20 +461,42 @@ QLabel#step-number {
 QLabel#step-title {
     font-size: 14px;
     font-weight: 600;
-    color: #f0f0f0;
+    color: #f4f7ff;
+}
+
+QLabel#step-desc {
+    color: #9aa4b6;
+    line-height: 1.45;
+}
+
+QPushButton#step-action {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                                stop:0 #131c2a, stop:1 #162538);
+    color: #e6eeff;
+    border: 1px solid #30415f;
+    border-radius: 8px;
+    padding: 8px 14px;
+    font-weight: 600;
+}
+
+QPushButton#step-action:hover {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                                stop:0 #182335, stop:1 #1c2e46);
+    border-color: #5f8fe0;
 }
 
 /* ── Update alert card ───────────────────────────────────────────────────── */
 QFrame#card-update {
-    background: #071628;
-    border: 1px solid #1a3f70;
-    border-radius: 10px;
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+                                stop:0 #0a1a30, stop:1 #091320);
+    border: 1px solid #31578f;
+    border-radius: 12px;
 }
 
 QLabel#card-title-update {
     font-size: 15px;
     font-weight: 700;
-    color: #6da4f8;
+    color: #8ab6ff;
 }
 
 /* ── Wizard header ───────────────────────────────────────────────────────── */
@@ -1410,6 +1478,14 @@ def _restyle(widget: QWidget):
     widget.style().polish(widget)
 
 
+def _set_log_panel(toggle: QPushButton, log: QTextEdit, expanded: bool):
+    toggle.blockSignals(True)
+    toggle.setChecked(expanded)
+    toggle.blockSignals(False)
+    toggle.setText("Hide details" if expanded else "Show details")
+    log.setVisible(expanded)
+
+
 # ── Hardware card widget ───────────────────────────────────────────────────────
 class HardwareCard(QFrame):
     def __init__(self, probe: HardwareProbe):
@@ -1471,9 +1547,11 @@ class StatTile(QFrame):
     def __init__(self, label: str, value: str, value_style: str = "stat-value"):
         super().__init__()
         self.setObjectName("stat-tile")
+        self.setMinimumHeight(82)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(16, 14, 16, 14)
-        layout.setSpacing(5)
+        layout.setContentsMargins(18, 16, 18, 16)
+        layout.setSpacing(6)
 
         self._label = QLabel(label.upper())
         self._label.setObjectName("stat-label")
@@ -1512,8 +1590,8 @@ class Page(QWidget):
         scroll.setWidget(container)
 
         self._layout = QVBoxLayout(container)
-        self._layout.setContentsMargins(52, 44, 52, 44)
-        self._layout.setSpacing(24)
+        self._layout.setContentsMargins(60, 48, 60, 52)
+        self._layout.setSpacing(26)
 
     def _add(self, widget: QWidget) -> QWidget:
         self._layout.addWidget(widget)
@@ -1548,6 +1626,10 @@ class WelcomePage(Page):
         super().__init__()
         self._navigate = navigate or (lambda _: None)
 
+        intro_badge = QLabel("SYSTEM HUB")
+        intro_badge.setObjectName("eyebrow")
+        self._add(intro_badge)
+
         self._heading("Welcome to KythOS")
         self._subheading("A fast, atomic desktop built for gaming and development.")
         self._divider()
@@ -1562,20 +1644,20 @@ class WelcomePage(Page):
         tiles_row.setSpacing(12)
 
         self._branch_tile = StatTile("Branch", branch)
-        tiles_row.addWidget(self._branch_tile)
+        tiles_row.addWidget(self._branch_tile, 1)
 
         staged_val = "Staged" if staged else "Up to date"
         staged_style = "stat-value-warn" if staged else "stat-value-ok"
         self._update_tile = StatTile("System", staged_val, staged_style)
-        tiles_row.addWidget(self._update_tile)
+        tiles_row.addWidget(self._update_tile, 1)
 
         rollback_val = "Available" if rollback else "None"
         rollback_style = "stat-value-ok" if rollback else "stat-value"
         self._rollback_tile = StatTile("Rollback", rollback_val, rollback_style)
-        tiles_row.addWidget(self._rollback_tile)
+        tiles_row.addWidget(self._rollback_tile, 1)
 
         self._kernel_tile = StatTile("Kernel", kernel)
-        tiles_row.addWidget(self._kernel_tile)
+        tiles_row.addWidget(self._kernel_tile, 1)
 
         self._add_layout(tiles_row)
 
@@ -1603,20 +1685,20 @@ class WelcomePage(Page):
 
         # Getting started section
         section_lbl = QLabel("Getting started")
-        section_lbl.setObjectName("card-title")
+        section_lbl.setObjectName("section-heading")
         self._add(section_lbl)
 
-        # Page indices match new nav order: 0=Welcome 1=Update 2=Hardware
-        # 3=Firmware 4=Software 5=Gaming 6=NVIDIA 7=Cloud 8=Branches 9=Diagnostics 10=Repair
+        # Page destinations are resolved by name so optional pages can be hidden
+        # without breaking the quick links on the welcome screen.
         steps = [
-            (1, "Run a system update",      "Start with the latest packages and OS image.",            1),
-            (2, "Check your hardware",       "Confirm graphics, audio, and wireless are working.",      2),
-            (3, "Update device firmware",    "Check for BIOS and peripheral firmware updates.",         3),
-            (4, "Set up gaming",             "Configure Steam, Proton, and performance tools.",         5),
-            (5, "Learn how to install apps", "Flatpak, Homebrew, and Distrobox explained.",             4),
+            (1, "Run a system update",      "Start with the latest packages and OS image.",            "Update"),
+            (2, "Check your hardware",       "Confirm graphics, audio, and wireless are working.",      "Hardware"),
+            (3, "Update device firmware",    "Check for BIOS and peripheral firmware updates.",         "Firmware"),
+            (4, "Set up gaming",             "Configure Steam, Proton, and performance tools.",         "Gaming"),
+            (5, "Learn how to install apps", "Flatpak, Homebrew, and Distrobox explained.",             "Software"),
         ]
-        for num, title, desc, page_idx in steps:
-            self._add(self._make_step(num, title, desc, page_idx))
+        for num, title, desc, page_key in steps:
+            self._add(self._make_step(num, title, desc, page_key))
 
         self._divider()
 
@@ -1661,34 +1743,36 @@ class WelcomePage(Page):
         self._add(note)
         self._stretch()
 
-    def _make_step(self, num: int, title: str, desc: str, page_idx: int) -> QFrame:
+    def _make_step(self, num: int, title: str, desc: str, page_key: str) -> QFrame:
         frame = QFrame()
         frame.setObjectName("step-item")
         row = QHBoxLayout(frame)
-        row.setContentsMargins(18, 14, 18, 14)
+        row.setContentsMargins(20, 16, 20, 16)
         row.setSpacing(16)
 
         num_lbl = QLabel(str(num))
         num_lbl.setObjectName("step-number")
-        num_lbl.setFixedSize(28, 28)
+        num_lbl.setFixedSize(30, 30)
         num_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         row.addWidget(num_lbl)
 
         text_col = QVBoxLayout()
-        text_col.setSpacing(3)
+        text_col.setSpacing(4)
         title_lbl = QLabel(title)
         title_lbl.setObjectName("step-title")
         text_col.addWidget(title_lbl)
         desc_lbl = QLabel(desc)
-        desc_lbl.setObjectName("card-copy")
+        desc_lbl.setObjectName("step-desc")
+        desc_lbl.setWordWrap(True)
         text_col.addWidget(desc_lbl)
-        row.addLayout(text_col)
-        row.addStretch()
+        row.addLayout(text_col, 1)
 
         go_btn = QPushButton("Go →")
+        go_btn.setObjectName("step-action")
         go_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        go_btn.clicked.connect(lambda checked=False, idx=page_idx: self._navigate(idx))
-        row.addWidget(go_btn)
+        go_btn.setMinimumWidth(72)
+        go_btn.clicked.connect(lambda checked=False, key=page_key: self._navigate(key))
+        row.addWidget(go_btn, 0, Qt.AlignmentFlag.AlignVCenter)
 
         return frame
 
@@ -1974,6 +2058,13 @@ class UpdatePage(Page):
         self._progress.hide()
         self._add(self._progress)
 
+        self._log_toggle = QPushButton("Show details")
+        self._log_toggle.setCheckable(True)
+        self._log_toggle.setToolTip("Show or hide the update log output")
+        self._log_toggle.clicked.connect(lambda checked: self._set_log_expanded(checked))
+        self._log_toggle.hide()
+        self._add(self._log_toggle)
+
         self._log = QTextEdit()
         self._log.setReadOnly(True)
         self._log.setMinimumHeight(200)
@@ -2036,6 +2127,9 @@ class UpdatePage(Page):
         self._os_btn.setEnabled(enabled)
         self._rollback_btn.setEnabled(enabled and _has_rollback_deployment())
 
+    def _set_log_expanded(self, expanded: bool):
+        _set_log_panel(self._log_toggle, self._log, expanded)
+
     def _start_operation(self, mode: str, label: str, cmd: list[str], inhibit_reason: str):
         self._stop_dl_monitor()
         self._dl_total = 0
@@ -2047,7 +2141,8 @@ class UpdatePage(Page):
         self._op_start_ts = time.monotonic()
         self._current_phase = ""
         self._log.clear()
-        self._log.show()
+        self._log_toggle.show()
+        self._set_log_expanded(False)
         self._progress.setRange(0, 0)
         self._progress.show()
         self._status_lbl.setText(label)
@@ -2311,6 +2406,12 @@ class BranchesPage(Page):
         self._progress.hide()
         self._add(self._progress)
 
+        self._log_toggle = QPushButton("Show details")
+        self._log_toggle.setCheckable(True)
+        self._log_toggle.clicked.connect(lambda checked: _set_log_panel(self._log_toggle, self._log, checked))
+        self._log_toggle.hide()
+        self._add(self._log_toggle)
+
         self._log = QTextEdit()
         self._log.setReadOnly(True)
         self._log.setMinimumHeight(120)
@@ -2359,7 +2460,8 @@ class BranchesPage(Page):
         self._current_phase = ""
         self._log.clear()
         self._log.append(f"→ bootc switch {ref}\n")
-        self._log.show()
+        self._log_toggle.show()
+        _set_log_panel(self._log_toggle, self._log, False)
         self._progress.setRange(0, 0)
         self._progress.show()
         self._status_lbl.setText("Switching branch…")
@@ -2494,6 +2596,12 @@ class FirmwarePage(Page):
         self._progress.hide()
         self._add(self._progress)
 
+        self._log_toggle = QPushButton("Show details")
+        self._log_toggle.setCheckable(True)
+        self._log_toggle.clicked.connect(lambda checked: _set_log_panel(self._log_toggle, self._log, checked))
+        self._log_toggle.hide()
+        self._add(self._log_toggle)
+
         self._log = QTextEdit()
         self._log.setReadOnly(True)
         self._log.setMinimumHeight(200)
@@ -2508,7 +2616,8 @@ class FirmwarePage(Page):
     def _run_check(self):
         self._log.clear()
         self._log.append("→ fwupdmgr refresh --force\n")
-        self._log.show()
+        self._log_toggle.show()
+        _set_log_panel(self._log_toggle, self._log, False)
         self._progress.show()
         self._status_lbl.setText("Refreshing firmware metadata…")
         self._status_lbl.setObjectName("subheading")
@@ -2621,6 +2730,12 @@ class NvidiaPage(Page):
         self._progress.hide()
         self._add(self._progress)
 
+        self._log_toggle = QPushButton("Show details")
+        self._log_toggle.setCheckable(True)
+        self._log_toggle.clicked.connect(lambda checked: _set_log_panel(self._log_toggle, self._log, checked))
+        self._log_toggle.hide()
+        self._add(self._log_toggle)
+
         self._log = QTextEdit()
         self._log.setReadOnly(True)
         self._log.setMinimumHeight(200)
@@ -2679,7 +2794,8 @@ class NvidiaPage(Page):
         ]
         self._log.clear()
         self._log.append("→ Installing NVIDIA drivers via akmods…\n")
-        self._log.show()
+        self._log_toggle.show()
+        _set_log_panel(self._log_toggle, self._log, False)
         self._progress.show()
         self._install_btn.setEnabled(False)
 
@@ -2785,6 +2901,12 @@ class RepairPage(Page):
         self._progress.hide()
         self._add(self._progress)
 
+        self._log_toggle = QPushButton("Show details")
+        self._log_toggle.setCheckable(True)
+        self._log_toggle.clicked.connect(lambda checked: _set_log_panel(self._log_toggle, self._log, checked))
+        self._log_toggle.hide()
+        self._add(self._log_toggle)
+
         self._log = QTextEdit()
         self._log.setReadOnly(True)
         self._log.setMinimumHeight(120)
@@ -2800,7 +2922,8 @@ class RepairPage(Page):
         self._reset_btn.setEnabled(False)
         self._log.clear()
         self._log.append("→ bootc reset\n")
-        self._log.show()
+        self._log_toggle.show()
+        _set_log_panel(self._log_toggle, self._log, False)
         self._progress.show()
         self._status_lbl.setText("Resetting system…")
         self._status_lbl.setObjectName("subheading")
@@ -2958,6 +3081,11 @@ class GamingPage(Page):
         self._gp_progress.setRange(0, 0)
         self._gp_progress.hide()
         gp_layout.addWidget(self._gp_progress)
+        self._gp_log_toggle = QPushButton("Show details")
+        self._gp_log_toggle.setCheckable(True)
+        self._gp_log_toggle.clicked.connect(lambda checked: _set_log_panel(self._gp_log_toggle, self._gp_log, checked))
+        self._gp_log_toggle.hide()
+        gp_layout.addWidget(self._gp_log_toggle)
         self._gp_log = QTextEdit()
         self._gp_log.setReadOnly(True)
         self._gp_log.setMaximumHeight(120)
@@ -3003,8 +3131,10 @@ class GamingPage(Page):
         tools_head.setStyleSheet("font-size: 18px; font-weight: 700; color: #ffffff;")
         self._add(tools_head)
         tools_sub = QLabel(
-            "Optional tools — install with one click. "
-            "Each is also available via the corresponding ujust recipe."
+            "Heroic is installed by default alongside Lutris. "
+            "Bottles is the easiest option for random Windows `.exe` and `.msi` installers. "
+            "Other gaming tools can be installed here with one click and are also "
+            "available via the corresponding ujust recipe."
         )
         tools_sub.setObjectName("card-copy")
         tools_sub.setWordWrap(True)
@@ -3014,9 +3144,23 @@ class GamingPage(Page):
             {
                 "flatpak": "com.heroicgameslauncher.hgl",
                 "name": "Heroic Games Launcher",
-                "desc": "Epic Games, GOG and Amazon Games library in one place.",
+                "desc": "Installed by default — Epic Games, GOG and Amazon Games library in one place.",
                 "ujust": "install-heroic",
                 "launch": ["flatpak", "run", "com.heroicgameslauncher.hgl"],
+            },
+            {
+                "flatpak": "com.usebottles.bottles",
+                "name": "Bottles",
+                "desc": "Best for running standalone Windows `.exe` and `.msi` installers in isolated app environments.",
+                "ujust": "install-bottles",
+                "launch": ["flatpak", "run", "com.usebottles.bottles"],
+            },
+            {
+                "flatpak": "org.prismlauncher.PrismLauncher",
+                "name": "Prism Launcher",
+                "desc": "Minecraft launcher with modpacks, multiple instances, and Java version control.",
+                "ujust": "install-prismlauncher",
+                "launch": ["flatpak", "run", "org.prismlauncher.PrismLauncher"],
             },
             {
                 "flatpak": "com.obsproject.Studio",
@@ -3069,6 +3213,57 @@ class GamingPage(Page):
                 row_layout.addStretch(1)
             self._add_layout(row_layout)
 
+        self._divider()
+        launcher_head = QLabel("Launcher setup")
+        launcher_head.setObjectName("card-title")
+        self._add(launcher_head)
+        launcher_sub = QLabel(
+            "Heroic is the recommended default for Epic and GOG. "
+            "Use the buttons below to open Heroic or start Lutris installers for Battle.net, EA App, and Ubisoft Connect."
+        )
+        launcher_sub.setObjectName("card-copy")
+        launcher_sub.setWordWrap(True)
+        self._add(launcher_sub)
+
+        launcher_card, launcher_layout = _make_card()
+        launcher_note = QLabel(
+            "Recommended pairing: Heroic for Epic/GOG/Amazon libraries, Lutris for Battle.net, EA App, and Ubisoft Connect, and Bottles for standalone `.exe` / `.msi` installs. "
+            "CLI shortcuts: ujust install-heroic / ujust install-bottles / ujust install-battlenet / ujust install-ea-app / ujust install-ubisoft-connect"
+        )
+        launcher_note.setObjectName("card-copy")
+        launcher_note.setWordWrap(True)
+        launcher_layout.addWidget(launcher_note)
+
+        launcher_btns = QHBoxLayout()
+        launcher_btns.setSpacing(8)
+
+        epic_btn = QPushButton("Open Heroic for Epic")
+        epic_btn.setObjectName("primary")
+        epic_btn.clicked.connect(lambda _=False: self._open_heroic_for_epic())
+        launcher_btns.addWidget(epic_btn)
+
+        battlenet_btn = QPushButton("Install Battle.net")
+        battlenet_btn.clicked.connect(
+            lambda _=False: self._launch_lutris_installer("battlenet", "Battle.net")
+        )
+        launcher_btns.addWidget(battlenet_btn)
+
+        ea_btn = QPushButton("Install EA App")
+        ea_btn.clicked.connect(
+            lambda _=False: self._launch_lutris_installer("lutris:ea-app-standard", "EA App")
+        )
+        launcher_btns.addWidget(ea_btn)
+
+        ubisoft_btn = QPushButton("Install Ubisoft Connect")
+        ubisoft_btn.clicked.connect(
+            lambda _=False: self._launch_lutris_installer("lutris:ubisoft-connect-latest", "Ubisoft Connect")
+        )
+        launcher_btns.addWidget(ubisoft_btn)
+
+        launcher_btns.addStretch()
+        launcher_layout.addLayout(launcher_btns)
+        self._add(launcher_card)
+
         # Shared install progress area
         self._tool_op_status = QLabel()
         self._tool_op_status.setObjectName("subheading")
@@ -3078,6 +3273,11 @@ class GamingPage(Page):
         self._tool_progress.setRange(0, 0)
         self._tool_progress.hide()
         self._add(self._tool_progress)
+        self._tool_log_toggle = QPushButton("Show details")
+        self._tool_log_toggle.setCheckable(True)
+        self._tool_log_toggle.clicked.connect(lambda checked: _set_log_panel(self._tool_log_toggle, self._tool_log, checked))
+        self._tool_log_toggle.hide()
+        self._add(self._tool_log_toggle)
         self._tool_log = QTextEdit()
         self._tool_log.setReadOnly(True)
         self._tool_log.setMaximumHeight(120)
@@ -3189,6 +3389,151 @@ class GamingPage(Page):
 
     # ── Tool install ───────────────────────────────────────────────────────────
 
+    def _open_heroic_for_epic(self):
+        cmd = ["flatpak", "run", "com.heroicgameslauncher.hgl"]
+        self._tool_log.clear()
+        self._tool_log.append(f"→ {' '.join(cmd)}\n")
+        self._tool_log.append("Heroic should open. Sign in to Epic Games there to install your library.")
+        self._tool_log_toggle.show()
+        _set_log_panel(self._tool_log_toggle, self._tool_log, False)
+        self._tool_progress.hide()
+        self._tool_op_status.setText("Opening Heroic Games Launcher…")
+        self._tool_op_status.setObjectName("subheading")
+        self._tool_op_status.show()
+        _restyle(self._tool_op_status)
+
+        try:
+            subprocess.Popen(cmd)
+            self._tool_op_status.setText("Heroic opened for Epic sign-in.")
+            self._tool_op_status.setObjectName("status-ok")
+            _restyle(self._tool_op_status)
+        except Exception as exc:
+            self._tool_log.append(f"\nFailed to start Heroic: {exc}")
+            self._tool_op_status.setText("Failed to open Heroic.")
+            self._tool_op_status.setObjectName("status-err")
+            _restyle(self._tool_op_status)
+            QMessageBox.warning(self, "Heroic Games Launcher", str(exc))
+
+    def _prepare_epic_lutris_install(self) -> bool:
+        prefix = os.path.expanduser("~/Games/epic-games-store")
+        cache = os.path.expanduser("~/.cache/lutris/installer/epic-games-store")
+        found_paths = [path for path in (prefix, cache) if os.path.exists(path)]
+        if not found_paths:
+            return True
+
+        notes = []
+        winetricks_log = os.path.join(prefix, "winetricks.log")
+        if os.path.isfile(winetricks_log):
+            try:
+                with open(winetricks_log, "r", encoding="utf-8", errors="ignore") as fh:
+                    if "corefonts" in fh.read():
+                        notes.append("Winetricks already ran in the old Epic prefix (corefonts found).")
+            except OSError:
+                pass
+
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Warning)
+        box.setWindowTitle("Reset old Epic installer state?")
+        box.setText(
+            "A previous Epic install attempt was found. Lutris/UMU can fail when it reuses a partial Epic prefix."
+        )
+        detail_lines = []
+        detail_lines.extend(notes)
+        detail_lines.extend([f"Found: {path}" for path in found_paths])
+        detail_lines.append("")
+        detail_lines.append("Choose 'Reset and Retry' to move the old state aside and reopen the installer.")
+        box.setInformativeText("\n".join(detail_lines))
+        reset_btn = box.addButton("Reset and Retry", QMessageBox.ButtonRole.AcceptRole)
+        open_btn = box.addButton("Open Anyway", QMessageBox.ButtonRole.ActionRole)
+        cancel_btn = box.addButton(QMessageBox.StandardButton.Cancel)
+        box.setDefaultButton(reset_btn)
+        box.exec()
+
+        clicked = box.clickedButton()
+        if clicked == cancel_btn:
+            self._tool_op_status.setText("Epic installer launch cancelled.")
+            self._tool_op_status.setObjectName("subheading")
+            self._tool_op_status.show()
+            _restyle(self._tool_op_status)
+            return False
+        if clicked == open_btn:
+            return True
+
+        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        self._tool_log.clear()
+        self._tool_log.append("Preparing a clean Epic installer retry…\n")
+        self._tool_log_toggle.show()
+        _set_log_panel(self._tool_log_toggle, self._tool_log, False)
+        for path in found_paths:
+            backup = f"{path}.bak-{timestamp}"
+            try:
+                shutil.move(path, backup)
+                self._tool_log.append(f"Moved {path} → {backup}")
+            except Exception as exc:
+                self._tool_log.append(f"Failed to move {path}: {exc}")
+                self._tool_log_toggle.show()
+                _set_log_panel(self._tool_log_toggle, self._tool_log, False)
+                self._tool_op_status.setText("Epic installer reset failed.")
+                self._tool_op_status.setObjectName("status-err")
+                self._tool_op_status.show()
+                _restyle(self._tool_op_status)
+                QMessageBox.warning(
+                    self,
+                    "Epic installer reset",
+                    f"Could not move {path}:\n{exc}"
+                )
+                return False
+
+        self._tool_log.append("\nOld installer state was backed up. Relaunching Lutris…")
+        self._tool_log_toggle.show()
+        _set_log_panel(self._tool_log_toggle, self._tool_log, False)
+        self._tool_op_status.setText("Old Epic installer state was backed up. Retrying…")
+        self._tool_op_status.setObjectName("subheading")
+        self._tool_op_status.show()
+        _restyle(self._tool_op_status)
+        return True
+
+    def _launch_lutris_installer(self, target: str, name: str):
+        if not shutil.which("lutris"):
+            self._tool_op_status.setText("Lutris is not installed.")
+            self._tool_op_status.setObjectName("status-err")
+            self._tool_op_status.show()
+            _restyle(self._tool_op_status)
+            QMessageBox.warning(
+                self,
+                "Lutris not found",
+                f"Lutris is required to install {name}."
+            )
+            return
+
+        self._tool_log.clear()
+        if target == "epic-games-store" and not self._prepare_epic_lutris_install():
+            return
+
+        lutris_target = target if target.startswith("lutris:") else f"lutris:install/{target}"
+        cmd = ["lutris", lutris_target]
+        self._tool_log.append(f"→ {' '.join(cmd)}\n")
+        self._tool_log.append("Lutris should open the installer dialog.")
+        self._tool_log_toggle.show()
+        _set_log_panel(self._tool_log_toggle, self._tool_log, False)
+        self._tool_progress.hide()
+        self._tool_op_status.setText(f"Opening {name} installer in Lutris…")
+        self._tool_op_status.setObjectName("subheading")
+        self._tool_op_status.show()
+        _restyle(self._tool_op_status)
+
+        try:
+            subprocess.Popen(cmd)
+            self._tool_op_status.setText(f"{name} installer opened in Lutris.")
+            self._tool_op_status.setObjectName("status-ok")
+            _restyle(self._tool_op_status)
+        except Exception as exc:
+            self._tool_log.append(f"\nFailed to start Lutris: {exc}")
+            self._tool_op_status.setText(f"Failed to open {name} installer.")
+            self._tool_op_status.setObjectName("status-err")
+            _restyle(self._tool_op_status)
+            QMessageBox.warning(self, f"{name} installer", str(exc))
+
     def _install_tool(self, tool: dict):
         if self._tool_worker and self._tool_worker.isRunning():
             return
@@ -3197,7 +3542,8 @@ class GamingPage(Page):
             refs["install"].setEnabled(False)
         self._tool_log.clear()
         self._tool_log.append(f"→ flatpak install -y flathub {tool['flatpak']}\n")
-        self._tool_log.show()
+        self._tool_log_toggle.show()
+        _set_log_panel(self._tool_log_toggle, self._tool_log, False)
         self._tool_progress.show()
         self._tool_op_status.setText(f"Installing {tool['name']}…")
         self._tool_op_status.setObjectName("subheading")
@@ -3239,7 +3585,8 @@ class GamingPage(Page):
         self._gp_update_btn.setEnabled(False)
         self._gp_log.clear()
         self._gp_log.append("→ sudo /usr/bin/kyth-ge-proton-update\n")
-        self._gp_log.show()
+        self._gp_log_toggle.show()
+        _set_log_panel(self._gp_log_toggle, self._gp_log, False)
         self._gp_progress.show()
         self._gp_op_status.setText("Checking for GE-Proton update…")
         self._gp_op_status.setObjectName("subheading")
@@ -4424,8 +4771,8 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("KythOS")
-        self.setMinimumSize(860, 580)
-        self.resize(980, 680)
+        self.setMinimumSize(900, 620)
+        self.resize(1040, 700)
 
         root = QWidget()
         root.setObjectName("content-area")
@@ -4437,13 +4784,13 @@ class MainWindow(QMainWindow):
         # ── Sidebar ──────────────────────────────────────────────────────────
         sidebar = QWidget()
         sidebar.setObjectName("sidebar")
-        sidebar.setFixedWidth(200)
+        sidebar.setFixedWidth(212)
         sidebar_layout = QVBoxLayout(sidebar)
         sidebar_layout.setContentsMargins(0, 0, 0, 0)
         sidebar_layout.setSpacing(0)
 
         logo_area = QWidget()
-        logo_area.setObjectName("sidebar")
+        logo_area.setObjectName("sidebar-header")
         logo_layout = QVBoxLayout(logo_area)
         logo_layout.setContentsMargins(18, 20, 18, 16)
         logo_layout.setSpacing(2)
@@ -4454,7 +4801,7 @@ class MainWindow(QMainWindow):
 
         _branch = _current_branch()
         _branch_text = {"latest": "Stable", "testing": "Testing"}.get(_branch or "", "KythOS 43")
-        ver_lbl = QLabel(f"{_branch_text} · Fedora 43")
+        ver_lbl = QLabel(_branch_text)
         ver_lbl.setObjectName("sidebar-ver")
         logo_layout.addWidget(ver_lbl)
         sidebar_layout.addWidget(logo_area)
@@ -4462,24 +4809,31 @@ class MainWindow(QMainWindow):
         sep = _divider()
         sidebar_layout.addWidget(sep)
 
-        nav_entries = [
-            ("Welcome",        "Welcome"),
-            ("Update",         "Update"),
-            ("Hardware",       "Hardware"),
-            ("Firmware",       "Firmware"),
-            ("Software",       "Software"),
-            ("Gaming",         "Gaming"),
-            ("NVIDIA Drivers", "NVIDIA"),
-            ("Cloud Storage",  "Cloud Storage"),
-            ("Branches",       "Branches"),
-            ("Diagnostics",    "Diagnostics"),
-            ("Repair",         "Repair"),
+        page_specs = [
+            ("Welcome", "Welcome", lambda: WelcomePage(navigate=self._navigate_to)),
+            ("Update", "Update", UpdatePage),
+            ("Hardware", "Hardware", HardwarePage),
+            ("Firmware", "Firmware", FirmwarePage),
+            ("Software", "Software", SoftwarePage),
+            ("Gaming", "Gaming", GamingPage),
         ]
+        if _detect_nvidia():
+            page_specs.append(("NVIDIA Drivers", "NVIDIA", NvidiaPage))
+        page_specs.extend([
+            ("Cloud Storage", "Cloud Storage", CloudStoragePage),
+            ("Branches", "Branches", BranchesPage),
+            ("Diagnostics", "Diagnostics", DiagnosticsPage),
+            ("Repair", "Repair", RepairPage),
+        ])
+
+        self._page_index_by_key = {
+            key: idx for idx, (_, key, _) in enumerate(page_specs)
+        }
 
         self._nav_buttons: list[NavButton] = []
-        for label, _ in nav_entries:
+        for idx, (label, _, _) in enumerate(page_specs):
             btn = NavButton(label)
-            btn.clicked.connect(self._make_nav_handler(len(self._nav_buttons)))
+            btn.clicked.connect(self._make_nav_handler(idx))
             sidebar_layout.addWidget(btn)
             self._nav_buttons.append(btn)
 
@@ -4489,19 +4843,7 @@ class MainWindow(QMainWindow):
         # ── Page stack ───────────────────────────────────────────────────────
         self._stack = QStackedWidget()
         self._stack.setObjectName("content-area")
-        self._pages = [
-            WelcomePage(navigate=self._switch_page),
-            UpdatePage(),
-            HardwarePage(),
-            FirmwarePage(),
-            SoftwarePage(),
-            GamingPage(),
-            NvidiaPage(),
-            CloudStoragePage(),
-            BranchesPage(),
-            DiagnosticsPage(),
-            RepairPage(),
-        ]
+        self._pages = [factory() for _, _, factory in page_specs]
         for page in self._pages:
             self._stack.addWidget(page)
         root_layout.addWidget(self._stack)
@@ -4510,6 +4852,15 @@ class MainWindow(QMainWindow):
 
     def _make_nav_handler(self, index: int):
         return lambda: self._switch_page(index)
+
+    def _navigate_to(self, destination: int | str):
+        if isinstance(destination, str):
+            index = self._page_index_by_key.get(destination)
+            if index is None:
+                return
+            self._switch_page(index)
+            return
+        self._switch_page(destination)
 
     def _switch_page(self, index: int):
         for i, btn in enumerate(self._nav_buttons):
@@ -4705,7 +5056,7 @@ class WizardWindow(QMainWindow):
         hero_layout.addSpacing(4)
 
         desc = QLabel(
-            "Built on Fedora Kinoite with the CachyOS kernel, Mesa-git Vulkan, and a "
+            "Built on an atomic KDE desktop with the CachyOS kernel, Mesa-git Vulkan, and a "
             "complete gaming stack pre-installed. Updates ship as atomic container images — "
             "every change is instant to roll back."
         )
@@ -4726,7 +5077,7 @@ class WizardWindow(QMainWindow):
         kernel = _command_stdout(["uname", "-r"]) or "unknown"
         branch = _branch_display_name(_current_branch())
 
-        for i, (label, value) in enumerate([("Kernel", kernel), ("Branch", branch), ("Base", "Fedora 43")]):
+        for i, (label, value) in enumerate([("Kernel", kernel), ("Branch", branch), ("Release", "43")]):
             if i > 0:
                 sep = QFrame()
                 sep.setFrameShape(QFrame.Shape.VLine)

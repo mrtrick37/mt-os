@@ -5,11 +5,23 @@ set -euo pipefail
 # ── Kernel sysctl parameters ──────────────────────────────────────────────────
 mkdir -p /etc/sysctl.d
 cat > /etc/sysctl.d/99-kyth.conf <<'SYSCTLEOF'
-# Memory — reduce swap aggression and background compaction stutter
-vm.swappiness = 10
+# Memory
+# swappiness=180: with zram present the kernel should aggressively swap to the
+# fast compressed device rather than drop clean pages. The Fedora zram-generator
+# project, CachyOS, and Bazzite all recommend 180 for zram systems. The old value
+# of 10 caused the kernel to almost never use the zram swap it had set up,
+# defeating its purpose and increasing OOM frequency under gaming load.
+vm.swappiness = 180
+# Keep a larger free-memory reserve so reclaim starts earlier and avoids sudden
+# multi-second stall spikes during shader compilation or map loads.
+vm.watermark_scale_factor = 125
 vm.compaction_proactiveness = 0
-vm.dirty_ratio = 10
-vm.dirty_background_ratio = 5
+# Absolute dirty limits instead of ratios. At 10% ratio a 32 GB machine allows
+# 3.2 GB of dirty pages before writeback starts — too much buffering, causes
+# visible stutter when the flush finally hits. 256 MB / 64 MB matches
+# Bazzite/Nobara and keeps writeback incremental throughout gameplay.
+vm.dirty_bytes = 268435456
+vm.dirty_background_bytes = 67108864
 vm.page_lock_unfairness = 1
 # Disable swap read-ahead — on SSDs random I/O is fast; prefetching neighbours
 # wastes bandwidth and causes micro-stutter under memory pressure
@@ -21,6 +33,12 @@ vm.watermark_boost_factor = 0
 vm.vfs_cache_pressure = 50
 # Raise memory map limit for games with large numbers of mappings (Star Citizen, etc.)
 vm.max_map_count = 2147483642
+
+# Writeback timing — flush dirty pages after 5 s instead of the kernel default
+# 30 s. Paired with the absolute dirty_bytes limits above this keeps write bursts
+# short and predictable during shader compilation / asset loading.
+vm.dirty_expire_centisecs = 500
+vm.dirty_writeback_centisecs = 500
 
 # Network — activate BBRv3 (built into CachyOS kernel)
 net.core.default_qdisc = fq
@@ -47,10 +65,35 @@ kernel.sched_autogroup_enabled = 1
 
 # Disable split-lock mitigation — some older/ported games use split-lock ops
 kernel.split_lock_mitigate = 0
+
+# MTU probing — detect and recover from MTU black holes that can cause online
+# game connections to stall silently on some ISPs and VPN paths with BBR.
+net.ipv4.tcp_mtu_probing = 1
+
+# Allow unprivileged access to CPU perf counters.
+# Fedora defaults to 2 (kernel-only). Setting 1 lets MangoHud report accurate
+# CPU frame times, enables GameMode's SCHED_FIFO eligibility checks, and
+# allows sysprof/perf without root. Setting 0 would expose raw kernel addresses;
+# 1 is the safe middle ground used by most gaming-focused distros.
+kernel.perf_event_paranoid = 1
+
+# Kill the task that triggered OOM rather than hunting for the "best victim"
+# via a costly process-tree scan. Eliminates multi-second stutter spikes when
+# RAM fills up during shader compilation while a game is running.
+vm.oom_kill_allocating_task = 1
 SYSCTLEOF
 
 # Load tcp_bbr module at boot so the BBRv3 sysctl takes effect
 echo 'tcp_bbr' > /etc/modules-load.d/bbr.conf
+
+# ── Locale defaults ──────────────────────────────────────────────────────────
+# Force a 12-hour AM/PM clock by default on installed systems.
+# LANG keeps the desktop in US English; LC_TIME specifically controls date/time
+# formatting for Plasma, Qt, and libc-aware apps.
+cat > /etc/locale.conf <<'LOCALEEOF'
+LANG=en_US.UTF-8
+LC_TIME=en_US.UTF-8
+LOCALEEOF
 
 # ── Transparent Huge Pages → madvise ─────────────────────────────────────────
 # 'always' (kernel default) forces THP on all allocations and causes stutter.
@@ -99,6 +142,21 @@ cat > /etc/gamemode.ini <<'GAMEMODEEOF'
 [general]
 renice = 10
 ioprio = 0
+# Inhibit screensaver during gameplay — prevents blanking during cutscenes/loads
+inhibit_screensaver = 1
+# Promote game threads to SCHED_FIFO via rtkit when conditions allow.
+# 'auto' only engages when the system is not under memory pressure.
+softrealtime = auto
+# Switch to the gaming performance profile automatically when a game launches
+# via GameMode, and restore the previous state on exit.
+# kyth-performance-mode: saves current powerprofile + KWin blur/animation state,
+# switches to performance power profile + reduced animations, then restores on exit.
+# GameMode runs startscript/endscript via /bin/sh -c as the game user.
+# DBUS_SESSION_BUS_ADDRESS may not be inherited (depends on how the game was
+# launched), so we set it explicitly via the logind socket path as a fallback.
+# unix:path=/run/user/UID/bus is guaranteed present for any logged-in user.
+startscript=export DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=/run/user/$(id -u)/bus}"; /usr/bin/kyth-performance-mode save && /usr/bin/kyth-performance-mode gaming
+endscript=DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=/run/user/$(id -u)/bus}" /usr/bin/kyth-performance-mode restore
 
 [cpu]
 park_cores = no
@@ -107,6 +165,7 @@ pin_cores = yes
 [gpu]
 apply_gpu_optimisations = accept-responsibility
 amd_performance_level = high
+nv_perf_level = 5
 GAMEMODEEOF
 
 # ── WiFi — disable power management ──────────────────────────────────────────
@@ -165,6 +224,11 @@ context.properties = {
     default.clock.quantum       = 128
     default.clock.min-quantum   = 32
     default.clock.max-quantum   = 8192
+    # Allow PipeWire to switch between 44100 and 48000 Hz rather than resampling.
+    # Without this, a game or app that outputs at 44100 Hz forces the entire graph
+    # (mic, desktop audio, etc.) through a sample-rate converter — adding CPU
+    # overhead and latency. With it, PipeWire renegotiates the clock rate instead.
+    default.clock.allowed-rates = [ 44100 48000 ]
 }
 PWEOF
 
@@ -182,8 +246,28 @@ PROTON_FORCE_LARGE_ADDRESS_AWARE=1
 WINE_LARGE_ADDRESS_AWARE=1
 AMD_VULKAN_ICD=RADV
 PROTON_USE_NTSYNC=1
+# esync/fsync: fallback sync primitives used when NTSYNC is unavailable (module
+# not loaded, older kernel, or non-kyth install). Proton checks in priority order:
+# NTSYNC → fsync → esync → default. Having both enabled costs nothing when NTSYNC
+# is active, and keeps Wine/Proton fast on any system this image runs on.
+WINEFSYNC=1
+WINEESYNC=1
+# RADV Graphics Pipeline Library — pre-compiles pipeline variants in the background
+# instead of stalling the render thread. Eliminates most shader compilation stutter
+# in DX11/DX12 games without requiring a warm shader cache. No regressions reported
+# on current Mesa-git; disable per-game with RADV_PERFTEST= if needed.
+RADV_PERFTEST=gpl
 VKD3D_CONFIG=dxr
+# Advertise DX12 Ultimate feature level (12_2) so VKD3D-Proton exposes DXR 1.1,
+# mesh shaders, and sampler feedback. Must be paired with VKD3D_CONFIG=dxr above.
+# Hardware that doesn't support a feature silently skips it; no harm on older GPUs.
+VKD3D_FEATURE_LEVEL=12_2
 mesa_glthread=true
+# FSR upscaling in fullscreen Wine/Proton games — lets older titles that don't
+# run at native resolution get AMD FidelityFX Super Resolution upscaling.
+# Strength 0 = sharpest, 5 = most blur; 2 is a good balance.
+WINE_FULLSCREEN_FSR=1
+WINE_FULLSCREEN_FSR_STRENGTH=2
 PROTONEOF
 
 # ── NVIDIA NVAPI: detect at login, not at build time ─────────────────────────
@@ -197,6 +281,9 @@ install -m 0755 /dev/stdin /usr/lib/systemd/user-environment-generators/80-kyth-
 if lspci -d ::0300 2>/dev/null | grep -qi nvidia || \
    lspci -d ::0302 2>/dev/null | grep -qi nvidia; then
     echo "PROTON_ENABLE_NVAPI=1"
+    # NVIDIA equivalent of mesa_glthread: offloads OpenGL command submission to
+    # a second thread. Only meaningful on NVIDIA + OpenGL; Vulkan/DXVK unaffected.
+    echo "__GL_THREADED_OPTIMIZATIONS=1"
 fi
 NVAPIEOF
 
@@ -209,6 +296,80 @@ echo '[Manager]
 DefaultLimitNOFILE=1048576' > /etc/systemd/system.conf.d/99-kyth-limits.conf
 echo '[Manager]
 DefaultLimitNOFILE=1048576' > /etc/systemd/user.conf.d/99-kyth-limits.conf
+
+# ── Baloo file indexer — disabled by default ─────────────────────────────────
+# Baloo (KDE's file indexer) runs heavy I/O scans on first boot and after game
+# downloads, causing stutter mid-session. Disable it in the skel so new users
+# start with indexing off. Users can re-enable it from System Settings → Search.
+mkdir -p /etc/skel/.config
+cat > /etc/skel/.config/baloofilerc <<'BALOOEOF'
+[Basic Settings]
+Indexing-Enabled=false
+BALOOEOF
+
+# ── journald size cap ─────────────────────────────────────────────────────────
+# On a gaming desktop the journal can silently grow to multi-GB over time from
+# verbose game/driver output. Cap persistent storage at 500 MB and the in-memory
+# runtime journal (current boot) at 128 MB.
+mkdir -p /etc/systemd/journald.conf.d
+cat > /etc/systemd/journald.conf.d/99-kyth.conf <<'JOURNALDEOF'
+[Journal]
+SystemMaxUse=500M
+RuntimeMaxUse=128M
+JOURNALDEOF
+
+# ── MangoHud default config ───────────────────────────────────────────────────
+# Pre-configure a curated overlay: useful OOTB without being overwhelming.
+# Users can override globally via ~/.config/MangoHud/MangoHud.conf or per-game
+# via the MANGOHUD_CONFIG env var / Steam launch options.
+mkdir -p /etc/skel/.config/MangoHud
+cat > /etc/skel/.config/MangoHud/MangoHud.conf <<'MANGOHUDEOF'
+# KythOS default MangoHud overlay — toggle with Shift_R+F12
+# Full option reference: https://github.com/flightlessmango/MangoHud
+
+toggle_hud=Shift_R+F12
+
+# Position and style
+position=top-left
+background_alpha=0.5
+font_size=20
+text_color=FFFFFF
+round_corners=4
+
+# Frame metrics
+fps
+frametime=1
+frame_timing=1
+
+# GPU
+gpu_stats
+gpu_temp
+gpu_core_clock
+gpu_mem_clock
+vram
+
+# CPU
+cpu_stats
+cpu_temp
+cpu_mhz
+
+# System RAM
+ram
+
+# Show Wine/Proton version when running Windows games
+wine
+MANGOHUDEOF
+
+# ── vkBasalt default config ───────────────────────────────────────────────────
+# vkBasalt is only active when ENABLE_VKBASALT=1 is set (per-launch or globally).
+# Pre-configure CAS sharpening so there's a sensible default when users opt in.
+# casSharpness: 0.0 = maximum sharpening, 1.0 = no sharpening; 0.4 is a clean balance.
+cat > /etc/vkBasalt.conf <<'VKBASALTEOF'
+effects = cas
+casSharpness = 0.4
+# Toggle the effect on/off in-game
+toggleKey = Home
+VKBASALTEOF
 
 # Steam: disable CEF browser sandbox — required on bootc/ostree systems where
 # user namespace restrictions prevent the Chromium sandbox from initialising,
@@ -229,8 +390,47 @@ sed '/^PrefersNonDefaultGPU=\|^X-KDE-RunOnDiscreteGpu=/d' \
 # on bootc/ostree systems and always fails with exit status 32. Mask it.
 systemctl mask systemd-remount-fs.service
 
+# ── AMD CPU Energy Performance Preference helper ─────────────────────────────
+# kyth-performance-mode calls this via sudo to set EPP on all CPU cores.
+# On amd_pstate=active systems (default on CachyOS kernel), EPP is the primary
+# frequency/voltage scaling knob — more direct than powerprofilesctl alone.
+# Valid values: performance, balance_performance, balance_power, power, default
+install -m 0755 /dev/stdin /usr/bin/kyth-set-epp <<'EPPEOF'
+#!/bin/bash
+EPP="${1:-balance_performance}"
+changed=0
+for f in /sys/devices/system/cpu/cpu*/cpufreq/energy_performance_preference; do
+    [[ -f "$f" ]] || continue
+    echo "$EPP" > "$f" 2>/dev/null && changed=1 || true
+done
+[[ $changed -eq 1 ]] || echo "kyth-set-epp: no EPP sysfs nodes found (non-AMD or pstate inactive)" >&2
+EPPEOF
+
+# ── Sudoers: passwordless safe upgrade/firmware operations ────────────────────
+# bootc upgrade/switch stages a new image but does not modify the running system —
+# a reboot is always required to activate it. fwupdmgr operations are similarly
+# safe (refresh = metadata fetch; get-updates/update = firmware staging).
+# Allowing these without a password lets 'ujust upgrade' run without a mid-stream
+# sudo prompt that breaks the terminal flow.
+# The 0440 mode (owner+group read, no write) is required by sudo's NOPASSWD check.
+install -m 0440 /dev/stdin /etc/sudoers.d/kyth-upgrade <<'SUDOEOF'
+# KythOS: wheel group may run safe update/firmware commands without a password.
+%wheel ALL=(root) NOPASSWD: /usr/bin/bootc upgrade
+%wheel ALL=(root) NOPASSWD: /usr/bin/bootc switch *
+%wheel ALL=(root) NOPASSWD: /usr/bin/fwupdmgr refresh *
+%wheel ALL=(root) NOPASSWD: /usr/bin/fwupdmgr update
+%wheel ALL=(root) NOPASSWD: /usr/bin/fwupdmgr get-updates
+%wheel ALL=(root) NOPASSWD: /usr/bin/kyth-set-epp *
+SUDOEOF
+
 systemctl enable rtkit-daemon.service 2>/dev/null || true
 systemctl enable input-remapper.service 2>/dev/null || true
+# Periodic SSD TRIM — reclaims blocks marked free by the filesystem. Safe on
+# all modern SSDs and NVMe drives; the timer runs weekly by default.
+systemctl enable fstrim.timer 2>/dev/null || true
+# Distribute hardware IRQs across all CPU cores. Without this all IRQs land on
+# cpu0, causing it to spike during heavy I/O or network activity mid-game.
+systemctl enable irqbalance.service 2>/dev/null || true
 # Fedora/libvirt can expose either legacy libvirtd or modular virtqemud units.
 # Enable whichever socket exists so image builds stay portable across releases.
 if systemctl list-unit-files --type=socket --no-legend 2>/dev/null | grep -q '^libvirtd\.socket'; then

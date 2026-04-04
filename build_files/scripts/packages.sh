@@ -11,9 +11,9 @@ echo '%_install_langs en_US' >> /etc/rpm/macros
 ### Install Docker for container operations
 dnf5 install -y docker
 
-# Add rpmfusion free and nonfree repositories for Fedora 43
-dnf5 install -y https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-43.noarch.rpm || true
-dnf5 install -y https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-43.noarch.rpm || true
+# Add rpmfusion free and nonfree repositories for Fedora 44
+dnf5 install -y https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-44.noarch.rpm || true
+dnf5 install -y https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-44.noarch.rpm || true
 
 # ── Multimedia baseline ───────────────────────────────────────────────────────
 # Install a full system codec stack so common local playback, browser media,
@@ -34,6 +34,7 @@ dnf5 install -y --allowerasing --skip-unavailable --exclude=gstreamer1-plugins-b
 
 # Install all required packages
 dnf5 install -y --skip-unavailable \
+    irqbalance \
     p7zip \
     p7zip-plugins \
     qemu-char-spice \
@@ -95,7 +96,8 @@ dnf5 install -y --skip-unavailable --exclude=libde265.i686 \
     mesa-libGL.i686 \
     mesa-dri-drivers.i686 \
     nss \
-    nss.i686
+    nss.i686 \
+    steam-devices
 
 # KDE-specific gaming integrations
 dnf5 install -y \
@@ -166,6 +168,9 @@ dnf5 install -y --skip-unavailable \
     libva-utils \
     mesa-va-drivers \
     mesa-vdpau-drivers \
+    intel-media-driver \
+    libva-intel-driver \
+    xorg-x11-drv-intel \
     radeontop
 dnf5 install -y libclc
 

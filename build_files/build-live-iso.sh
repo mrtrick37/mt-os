@@ -14,7 +14,7 @@
 #
 # Host requirements:
 #   xorriso, squashfs-tools (mksquashfs), mtools, dosfstools
-#   (all available via: sudo dnf install xorriso squashfs-tools mtools dosfstools)
+#   Missing packages are installed automatically via rpm-ostree --apply-live.
 
 set -euo pipefail
 
@@ -33,7 +33,7 @@ if ! docker info &>/dev/null 2>&1; then
 fi
 
 SOURCE_TAG="${SOURCE_TAG:-latest}"
-INSTALLER_BASE_IMAGE="${INSTALLER_BASE_IMAGE:-ghcr.io/ublue-os/kinoite-main:43}"
+INSTALLER_BASE_IMAGE="${INSTALLER_BASE_IMAGE:-ghcr.io/ublue-os/kinoite-main:44}"
 if [[ "${SOURCE_TAG}" == "latest" ]]; then
     LIVE_BUILD_TAG="kyth-live:build"
 else
@@ -61,7 +61,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 OUTPUT_DIR="${REPO_ROOT}/output/live-iso"
 ISO_NAME="kyth-live-${SOURCE_TAG}.iso"
-VOLID="KythOS-43-Live"
+VOLID="KythOS-44-Live"
 
 # Hash relevant installer sources so cached container rebuilds when these files
 # change (even if the base image timestamp does not).
@@ -107,13 +107,18 @@ cleanup() {
 }
 trap cleanup EXIT
 
-for cmd in xorriso mksquashfs mkfs.fat mcopy mmd; do
-    if ! command -v "${cmd}" &>/dev/null; then
-        echo "ERROR: '${cmd}' not found." >&2
-        echo "       Install with: sudo dnf install xorriso squashfs-tools mtools dosfstools" >&2
-        exit 1
-    fi
-done
+_missing_pkgs=()
+command -v xorriso    &>/dev/null || _missing_pkgs+=(xorriso)
+command -v mksquashfs &>/dev/null || _missing_pkgs+=(squashfs-tools)
+command -v mkfs.fat   &>/dev/null || _missing_pkgs+=(dosfstools)
+command -v mcopy      &>/dev/null || _missing_pkgs+=(mtools)
+command -v mmd        &>/dev/null || [[ " ${_missing_pkgs[*]} " == *mtools* ]] || _missing_pkgs+=(mtools)
+
+if [[ ${#_missing_pkgs[@]} -gt 0 ]]; then
+    echo "==> Installing missing ISO build tools: ${_missing_pkgs[*]}"
+    sudo rpm-ostree install --apply-live --idempotent "${_missing_pkgs[@]}"
+    hash -r
+fi
 
 mkdir -p \
     "${ROOTFS}" \
@@ -211,10 +216,11 @@ sudo chmod 644 "${ISO_DIR}/images/pxeboot/"*
 # ── 4. Squashfs ───────────────────────────────────────────────────────────────
 # No OCI bundle embedded — kyth-installer pulls from the registry at install time
 # via bootc install to-disk.
-echo "==> Creating squashfs (zstd, $(nproc) cores)"
+ZSTD_LEVEL="${SQUASHFS_ZSTD_LEVEL:-3}"
+echo "==> Creating squashfs (zstd level ${ZSTD_LEVEL}, $(nproc) cores)"
 sudo mksquashfs "${ROOTFS}" "${ISO_DIR}/LiveOS/squashfs.img" \
     -comp zstd \
-    -Xcompression-level 9 \
+    -Xcompression-level "${ZSTD_LEVEL}" \
     -processors "$(nproc)" \
     -noappend \
     -no-progress \
@@ -256,7 +262,7 @@ terminal-border: "0"
     left   = 0%
     width  = 100%
     height = 50
-    text   = "KYTH 43"
+    text   = "KYTH 44"
     font   = "DejaVu Sans Bold 28"
     color  = "#61afef"
     align  = "center"
@@ -338,7 +344,7 @@ fi
 if [[ -d "${GRUB_X64_MODS}" ]] && command -v grub2-mkimage &>/dev/null; then
     GRUB_EMBED_CFG="${WORK}/grub-efi-embed.cfg"
     cat > "${GRUB_EMBED_CFG}" << 'EMBEDEOF'
-search --no-floppy --label --set=root KythOS-43-Live
+search --no-floppy --label --set=root KythOS-44-Live
 set prefix=($root)/boot/grub2
 source ($root)/boot/grub2/grub.cfg
 EMBEDEOF
@@ -439,7 +445,7 @@ if ! "${HAVE_BIOS_GRUB}" && sudo test -f "${ISOLINUX_BIN}"; then
     cat > "${ISO_DIR}/isolinux/isolinux.cfg" << ISOLINUXEOF
 default vesamenu.c32
 timeout 100
-menu title KythOS 43 Live
+menu title KythOS 44 Live
 
 menu color screen     37;40    #a0000000 #00000000 std
 menu color border     30;44    #00000000 #00000000 std

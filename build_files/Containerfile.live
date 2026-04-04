@@ -6,7 +6,7 @@
 # which calls 'bootc install to-disk' and configures hostname, timezone, and user account.
 # Built by build-live-iso.sh; not pushed to the registry.
 
-ARG BASE_IMAGE=ghcr.io/ublue-os/kinoite-main:43
+ARG BASE_IMAGE=ghcr.io/ublue-os/kinoite-main:44
 FROM ${BASE_IMAGE}
 
 ARG SOURCE_HASH=unknown
@@ -30,9 +30,9 @@ RUN dnf5 -y versionlock clear 2>/dev/null || true \
     && rpm -q chromium \
     && echo "==> All critical installer packages present"
 
-# ── Desktop, ISO tooling, and utilities (--skip-broken for optional deps) ──
+# ── Desktop, ISO tooling, and utilities (tolerate Fedora package churn) ──
 # Base image (Kinoite) already has KDE — these fill gaps for live session + ISO build.
-RUN dnf5 install -y \
+RUN dnf5 install -y --allowerasing --skip-unavailable --skip-broken \
     syslinux grub2-efi-x64 grub2-efi-x64-modules grub2-pc shim-x64 \
     gparted gdisk podman \
     plymouth-plugin-script librsvg2-tools \
@@ -53,7 +53,6 @@ RUN dnf5 install -y \
     xorg-x11-drv-amdgpu \
     plasma-workspace-x11 \
     plasma-workspace-wayland \
-    kde-settings-pulseaudio \
     kde-cli-tools \
     kde-gtk-config \
     kwin \
@@ -67,7 +66,7 @@ RUN dnf5 install -y \
     sddm-breeze \
     breeze-icon-theme \
     breeze-cursor-theme \
-    --skip-broken && dnf5 clean all
+    && dnf5 clean all
 
 # ── CachyOS kernel ────────────────────────────────────────────────────────────
 # Install the same CachyOS kernel used by the installed OS so the live and
@@ -228,7 +227,7 @@ RUN chmod +x /usr/bin/kyth-installer /usr/bin/kyth-launch-installer \
           /usr/share/icons/breeze-dark/apps/scalable/start-here.svg \
     && gtk-update-icon-cache -f /usr/share/icons/hicolor/    2>/dev/null || true \
     && gtk-update-icon-cache -f /usr/share/icons/breeze-dark/ 2>/dev/null || true \
-    && sed -i 's/^PRETTY_NAME=.*/PRETTY_NAME="KythOS 43 Live"/' /etc/os-release \
+    && sed -i 's/^PRETTY_NAME=.*/PRETTY_NAME="KythOS 44 Live"/' /etc/os-release \
     && sed -i 's/^NAME=.*/NAME="KythOS"/' /etc/os-release \
     && sed -i '/^VARIANT_ID=/d' /etc/os-release \
     && printf 'VARIANT_ID=kyth\n' >> /etc/os-release \

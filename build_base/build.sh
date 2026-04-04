@@ -11,9 +11,9 @@ sed -i 's/^SELINUX=enforcing/SELINUX=permissive/' /etc/selinux/config
 # Apply KythOS branding to the base image
 cat > /etc/os-release <<'EOF' || true
 NAME="KythOS"
-PRETTY_NAME="KythOS 43"
+PRETTY_NAME="KythOS 44"
 ID=fedora
-VERSION_ID="43"
+VERSION_ID="44"
 ANSI_COLOR="0;34"
 HOME_URL="https://github.com/mrtrick37/kyth"
 SUPPORT_URL="https://github.com/mrtrick37/kyth/discussions"

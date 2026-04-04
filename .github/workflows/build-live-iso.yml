@@ -1,6 +1,10 @@
 name: Build Live ISO
 
 on:
+  workflow_run:
+    workflows: ["Build container image"]
+    types: [completed]
+    branches: [main, testing]
   workflow_dispatch:
     inputs:
       source_tag:
@@ -12,6 +16,16 @@ on:
           - latest
           - testing
 
+concurrency:
+  group: build-live-iso-${{ github.event.workflow_run.head_branch || inputs.source_tag || 'latest' }}
+  cancel-in-progress: true
+
+env:
+  # workflow_dispatch → use the input; workflow_run → derive from triggering branch
+  SOURCE_TAG: ${{ inputs.source_tag || (github.event.workflow_run.head_branch == 'testing' && 'testing' || 'latest') }}
+  # Opt into Node.js 24 for all actions — required before June 2026 when Node 20 is dropped.
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   # ── Job 1: Build the live container and push it to GHCR ──────────────────────
   # Uses docker buildx (BuildKit) which:
@@ -19,7 +33,10 @@ jobs:
   #   • Streams layers directly to GHCR with --push, storing nothing locally
   build-live-container:
     name: Build live container
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
     permissions:
       packages: write
 
@@ -52,12 +69,15 @@ jobs:
         # SOURCE_TAG is passed so the embedded kyth-installer.env URL matches the tag.
         id: push
         run: |
-          BASE_IMAGE="ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:${{ inputs.source_tag || 'latest' }}"
+          BASE_IMAGE="ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:${{ env.SOURCE_TAG }}"
           IMAGE="ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:live-build"
+          CACHE_REF="ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:live-buildcache"
           docker buildx build \
             --tag "${IMAGE}" \
             --build-arg BASE_IMAGE="${BASE_IMAGE}" \
-            --build-arg SOURCE_TAG="${{ inputs.source_tag || 'latest' }}" \
+            --build-arg SOURCE_TAG="${{ env.SOURCE_TAG }}" \
+            --cache-from "type=registry,ref=${CACHE_REF}" \
+            --cache-to   "type=registry,ref=${CACHE_REF},mode=max" \
             -f build_files/Containerfile.live \
             --push \
             .
@@ -81,9 +101,10 @@ jobs:
   build-iso:
     name: Build ISO
     needs: build-live-container
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
+      packages: read
 
     steps:
       - name: Checkout repository
@@ -117,7 +138,7 @@ jobs:
         run: |
           echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
 
-          SOURCE_TAG="${{ inputs.source_tag || 'latest' }}"
+          SOURCE_TAG="${{ env.SOURCE_TAG }}"
           if [[ "${SOURCE_TAG}" == "latest" ]]; then
             LIVE_TAG="kyth-live:build"
           else
@@ -146,7 +167,7 @@ jobs:
         env:
           SKIP_REBUILD: "1"
         run: |
-          SOURCE_TAG="${{ inputs.source_tag || 'latest' }}"
+          SOURCE_TAG="${{ env.SOURCE_TAG }}"
           if [[ "${SOURCE_TAG}" == "latest" ]]; then
             LIVE_TAG="kyth-live:build"
           else
@@ -173,7 +194,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: kyth-live-iso
-          path: output/live-iso/kyth-live-${{ inputs.source_tag || 'latest' }}.iso
+          path: output/live-iso/kyth-live-${{ env.SOURCE_TAG }}.iso
           if-no-files-found: error
 
       - name: Upload ISO to Cloudflare R2
@@ -182,7 +203,7 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           R2_ACCOUNT_ID:         ${{ secrets.R2_ACCOUNT_ID }}
         run: |
-          ISO="output/live-iso/kyth-live-${{ inputs.source_tag || 'latest' }}.iso"
+          ISO="output/live-iso/kyth-live-${{ env.SOURCE_TAG }}.iso"
           aws s3 cp "${ISO}" \
             "s3://kyth-releases/$(basename ${ISO})" \
             --endpoint-url "https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com" \
@@ -192,8 +213,8 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          SOURCE_TAG="${{ inputs.source_tag || 'latest' }}"
-          TAG="${{ inputs.source_tag == 'testing' && 'iso-testing' || 'iso-latest' }}"
+          SOURCE_TAG="${{ env.SOURCE_TAG }}"
+          TAG="${{ env.SOURCE_TAG == 'testing' && 'iso-testing' || 'iso-latest' }}"
           ISO_URL="https://pub-9a3cc72972ea44c4ae7504ee7cda1fa6.r2.dev/kyth-live-${SOURCE_TAG}.iso"
 
           if [ "${SOURCE_TAG}" = "testing" ]; then

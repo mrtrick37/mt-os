@@ -13,15 +13,7 @@ upgrade:
     # bootc upgrade fails if any packages have been layered via rpm-ostree.
     # Detect this upfront and give a clear fix rather than a cryptic error.
     layered=$(rpm-ostree status --json 2>/dev/null \
-        | python3 -c "
-import sys, json
-try:
-    d = json.load(sys.stdin).get('deployments', [{}])[0]
-    pkgs = d.get('requested-local-packages', []) + d.get('layered-commit-packages', [])
-    print(' '.join(pkgs) if pkgs else '')
-except Exception:
-    print('')
-" 2>/dev/null || true)
+        | python3 -c "import sys,json; d=json.load(sys.stdin).get('deployments', [{}])[0]; pkgs=d.get('requested-local-packages', []) + d.get('layered-commit-packages', []); print(' '.join(pkgs) if pkgs else '')" 2>/dev/null || true)
 
     if [[ -n "${layered}" ]]; then
         echo "  ERROR: local rpm-ostree packages are layered:" >&2
@@ -111,13 +103,26 @@ game-performance +args:
     /usr/bin/game-performance {{ args }}
 
 # Set desktop/system performance mode.
-
-# Modes: gaming, performance, balanced, powersave, status
+# Modes: max, gaming, performance, balanced, powersave, status
 [group('KythOS')]
 performance-mode mode="status":
     #!/usr/bin/env bash
     set -euo pipefail
     /usr/bin/kyth-performance-mode "{{ mode }}"
+
+# Quick shortcut: switch to gaming mode (EPP=performance, half-speed animations, no blur).
+[group('KythOS')]
+gaming-mode:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    /usr/bin/kyth-performance-mode gaming
+
+# Quick shortcut: restore balanced mode (EPP=balance_performance, full animations).
+[group('KythOS')]
+balanced-mode:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    /usr/bin/kyth-performance-mode balanced
 
 # Run a command with a named temporary profile.
 [group('KythOS')]
@@ -301,6 +306,90 @@ install-heroic:
     flatpak install -y flathub com.heroicgameslauncher.hgl
     echo
     echo "Heroic installed. Launch it from the app menu."
+
+# Open the Lutris one-click installer for Battle.net.
+[group('KythOS')]
+install-battlenet:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if ! command -v lutris >/dev/null 2>&1; then
+        echo "Lutris is not installed on this system." >&2
+        exit 1
+    fi
+    nohup lutris "lutris:install/battlenet" >/dev/null 2>&1 &
+    echo
+    echo "Opened the Battle.net installer in Lutris."
+
+# Open the Lutris one-click installer for the Epic Games Launcher.
+[group('KythOS')]
+install-epic-launcher:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if ! command -v lutris >/dev/null 2>&1; then
+        echo "Lutris is not installed on this system." >&2
+        exit 1
+    fi
+
+    prefix="$HOME/Games/epic-games-store"
+    cache="$HOME/.cache/lutris/installer/epic-games-store"
+    timestamp="$(date +%Y%m%d-%H%M%S)"
+    for path in "$prefix" "$cache"; do
+        if [[ -e "$path" ]]; then
+            backup="${path}.bak-${timestamp}"
+            mv "$path" "$backup"
+            echo "Moved previous Epic installer state to: $backup"
+        fi
+    done
+
+    nohup lutris "lutris:install/epic-games-store" >/dev/null 2>&1 &
+    echo
+    echo "Opened the Epic Games Launcher installer in Lutris."
+
+# Open the Lutris one-click installer for the EA App.
+[group('KythOS')]
+install-ea-app:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if ! command -v lutris >/dev/null 2>&1; then
+        echo "Lutris is not installed on this system." >&2
+        exit 1
+    fi
+    nohup lutris "lutris:ea-app-standard" >/dev/null 2>&1 &
+    echo
+    echo "Opened the EA App installer in Lutris."
+
+# Open the Lutris one-click installer for Ubisoft Connect.
+[group('KythOS')]
+install-ubisoft-connect:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if ! command -v lutris >/dev/null 2>&1; then
+        echo "Lutris is not installed on this system." >&2
+        exit 1
+    fi
+    nohup lutris "lutris:ubisoft-connect-latest" >/dev/null 2>&1 &
+    echo
+    echo "Opened the Ubisoft Connect installer in Lutris."
+
+# Install Prism Launcher — Minecraft with modpacks and multiple instances.
+[group('KythOS')]
+install-prismlauncher:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+    flatpak install -y flathub org.prismlauncher.PrismLauncher
+    echo
+    echo "Prism Launcher installed. Launch it from the app menu."
+
+# Install Bottles — easiest GUI for running standalone Windows .exe/.msi apps.
+[group('KythOS')]
+install-bottles:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+    flatpak install -y flathub com.usebottles.bottles
+    echo
+    echo "Bottles installed. Launch it from the app menu to open .exe or .msi files."
 
 # Install OBS Studio — screen recording and live streaming.
 [group('KythOS')]
