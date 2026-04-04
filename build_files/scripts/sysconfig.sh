@@ -48,6 +48,10 @@ kernel.sched_autogroup_enabled = 1
 # Disable split-lock mitigation — some older/ported games use split-lock ops
 kernel.split_lock_mitigate = 0
 
+# MTU probing — detect and recover from MTU black holes that can cause online
+# game connections to stall silently on some ISPs and VPN paths with BBR.
+net.ipv4.tcp_mtu_probing = 1
+
 # Allow unprivileged access to CPU perf counters.
 # Fedora defaults to 2 (kernel-only). Setting 1 lets MangoHud report accurate
 # CPU frame times, enables GameMode's SCHED_FIFO eligibility checks, and
@@ -258,6 +262,27 @@ DefaultLimitNOFILE=1048576' > /etc/systemd/system.conf.d/99-kyth-limits.conf
 echo '[Manager]
 DefaultLimitNOFILE=1048576' > /etc/systemd/user.conf.d/99-kyth-limits.conf
 
+# ── Baloo file indexer — disabled by default ─────────────────────────────────
+# Baloo (KDE's file indexer) runs heavy I/O scans on first boot and after game
+# downloads, causing stutter mid-session. Disable it in the skel so new users
+# start with indexing off. Users can re-enable it from System Settings → Search.
+mkdir -p /etc/skel/.config
+cat > /etc/skel/.config/baloofilerc <<'BALOOEOF'
+[Basic Settings]
+Indexing-Enabled=false
+BALOOEOF
+
+# ── journald size cap ─────────────────────────────────────────────────────────
+# On a gaming desktop the journal can silently grow to multi-GB over time from
+# verbose game/driver output. Cap persistent storage at 500 MB and the in-memory
+# runtime journal (current boot) at 128 MB.
+mkdir -p /etc/systemd/journald.conf.d
+cat > /etc/systemd/journald.conf.d/99-kyth.conf <<'JOURNALDEOF'
+[Journal]
+SystemMaxUse=500M
+RuntimeMaxUse=128M
+JOURNALDEOF
+
 # ── MangoHud default config ───────────────────────────────────────────────────
 # Pre-configure a curated overlay: useful OOTB without being overwhelming.
 # Users can override globally via ~/.config/MangoHud/MangoHud.conf or per-game
@@ -330,6 +355,22 @@ sed '/^PrefersNonDefaultGPU=\|^X-KDE-RunOnDiscreteGpu=/d' \
 # on bootc/ostree systems and always fails with exit status 32. Mask it.
 systemctl mask systemd-remount-fs.service
 
+# ── AMD CPU Energy Performance Preference helper ─────────────────────────────
+# kyth-performance-mode calls this via sudo to set EPP on all CPU cores.
+# On amd_pstate=active systems (default on CachyOS kernel), EPP is the primary
+# frequency/voltage scaling knob — more direct than powerprofilesctl alone.
+# Valid values: performance, balance_performance, balance_power, power, default
+install -m 0755 /dev/stdin /usr/bin/kyth-set-epp <<'EPPEOF'
+#!/bin/bash
+EPP="${1:-balance_performance}"
+changed=0
+for f in /sys/devices/system/cpu/cpu*/cpufreq/energy_performance_preference; do
+    [[ -f "$f" ]] || continue
+    echo "$EPP" > "$f" 2>/dev/null && changed=1 || true
+done
+[[ $changed -eq 1 ]] || echo "kyth-set-epp: no EPP sysfs nodes found (non-AMD or pstate inactive)" >&2
+EPPEOF
+
 # ── Sudoers: passwordless safe upgrade/firmware operations ────────────────────
 # bootc upgrade/switch stages a new image but does not modify the running system —
 # a reboot is always required to activate it. fwupdmgr operations are similarly
@@ -344,6 +385,7 @@ install -m 0440 /dev/stdin /etc/sudoers.d/kyth-upgrade <<'SUDOEOF'
 %wheel ALL=(root) NOPASSWD: /usr/bin/fwupdmgr refresh *
 %wheel ALL=(root) NOPASSWD: /usr/bin/fwupdmgr update
 %wheel ALL=(root) NOPASSWD: /usr/bin/fwupdmgr get-updates
+%wheel ALL=(root) NOPASSWD: /usr/bin/kyth-set-epp *
 SUDOEOF
 
 systemctl enable rtkit-daemon.service 2>/dev/null || true

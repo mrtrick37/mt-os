@@ -252,7 +252,7 @@ build-base base_image="ghcr.io/ublue-os/kinoite-main:44":
     fi
     docker build --build-arg BASE_IMAGE={{ base_image }} --tag localhost/kyth-base:stable build_base/
 
-# Build the full KythOS image (runs build_files/build.sh on top of kyth-base).
+# Build the full KythOS image (packages → thirdparty → sysconfig → branding → GE-Proton → Mesa-git).
 # Requires build-base to have run first.
 build: build-base
     #!/usr/bin/env bash

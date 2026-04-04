@@ -39,10 +39,15 @@ save_state() {
     local blur_enabled=""
     blur_enabled=$(read_kde_value kwinrc Plugins blurEnabled)
 
+    # Save current EPP from cpu0 — all cores share the same value under ppd
+    local epp=""
+    epp=$(cat /sys/devices/system/cpu/cpu0/cpufreq/energy_performance_preference 2>/dev/null || true)
+
     cat > "$STATE_FILE" <<EOF
 POWER_PROFILE=${power_profile}
 ANIMATION_DURATION_FACTOR=${anim_factor}
 BLUR_ENABLED=${blur_enabled}
+EPP=${epp}
 EOF
 }
 
@@ -54,6 +59,17 @@ reconfigure_kwin() {
     fi
 }
 
+set_epp() {
+    local epp=$1
+    if command -v sudo >/dev/null 2>&1 && sudo -n /usr/bin/kyth-set-epp "$epp" 2>/dev/null; then
+        return 0
+    fi
+    # Fallback: try direct write (works if running as root or via polkit)
+    for f in /sys/devices/system/cpu/cpu*/cpufreq/energy_performance_preference; do
+        [[ -f "$f" ]] && echo "$epp" > "$f" 2>/dev/null || true
+    done
+}
+
 apply_mode() {
     local mode=$1
 
@@ -62,6 +78,9 @@ apply_mode() {
             if command -v powerprofilesctl >/dev/null 2>&1; then
                 powerprofilesctl set performance >/dev/null 2>&1 || true
             fi
+            # Force EPP=performance on all cores — bypasses ppd for AMD pstate-active
+            # systems where ppd may leave EPP at balance_performance even in perf mode
+            set_epp performance
             write_kde_value kdeglobals KDE AnimationDurationFactor 0.5
             write_kde_value kwinrc Plugins blurEnabled false
             ;;
@@ -69,6 +88,7 @@ apply_mode() {
             if command -v powerprofilesctl >/dev/null 2>&1; then
                 powerprofilesctl set performance >/dev/null 2>&1 || true
             fi
+            set_epp performance
             write_kde_value kdeglobals KDE AnimationDurationFactor 0.75
             write_kde_value kwinrc Plugins blurEnabled false
             ;;
@@ -76,6 +96,7 @@ apply_mode() {
             if command -v powerprofilesctl >/dev/null 2>&1; then
                 powerprofilesctl set balanced >/dev/null 2>&1 || true
             fi
+            set_epp balance_performance
             write_kde_value kdeglobals KDE AnimationDurationFactor 1
             write_kde_value kwinrc Plugins blurEnabled true
             ;;
@@ -83,6 +104,7 @@ apply_mode() {
             if command -v powerprofilesctl >/dev/null 2>&1; then
                 powerprofilesctl set power-saver >/dev/null 2>&1 || true
             fi
+            set_epp power
             write_kde_value kdeglobals KDE AnimationDurationFactor 1.25
             write_kde_value kwinrc Plugins blurEnabled true
             ;;
@@ -116,6 +138,10 @@ restore_state() {
         write_kde_value kwinrc Plugins blurEnabled "$BLUR_ENABLED"
     fi
 
+    if [[ -n "${EPP:-}" ]]; then
+        set_epp "${EPP}"
+    fi
+
     reconfigure_kwin
     rm -f "$STATE_FILE"
 }
@@ -134,7 +160,13 @@ status_mode() {
     blur_enabled=$(read_kde_value kwinrc Plugins blurEnabled)
     [[ -n "$blur_enabled" ]] || blur_enabled="default"
 
+    local epp="n/a"
+    if [[ -f /sys/devices/system/cpu/cpu0/cpufreq/energy_performance_preference ]]; then
+        epp=$(cat /sys/devices/system/cpu/cpu0/cpufreq/energy_performance_preference 2>/dev/null || echo unknown)
+    fi
+
     echo "Power profile: ${power_profile}"
+    echo "CPU EPP: ${epp}"
     echo "KDE animation factor: ${anim_factor}"
     echo "KWin blur enabled: ${blur_enabled}"
 }
