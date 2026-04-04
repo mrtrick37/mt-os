@@ -166,6 +166,9 @@ dnf5 install -y --skip-unavailable \
     libva-utils \
     mesa-va-drivers \
     mesa-vdpau-drivers \
+    intel-media-driver \
+    libva-intel-driver \
+    xorg-x11-drv-intel \
     radeontop
 dnf5 install -y libclc
 
