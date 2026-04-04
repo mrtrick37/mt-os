@@ -74,6 +74,16 @@ apply_mode() {
     local mode=$1
 
     case "$mode" in
+        max)
+            # Nuclear performance mode: all CPU cores at max EPP, animations off entirely.
+            # Use for CPU-heavy games or when you want zero compositor overhead.
+            if command -v powerprofilesctl >/dev/null 2>&1; then
+                powerprofilesctl set performance >/dev/null 2>&1 || true
+            fi
+            set_epp performance
+            write_kde_value kdeglobals KDE AnimationDurationFactor 0
+            write_kde_value kwinrc Plugins blurEnabled false
+            ;;
         gaming)
             if command -v powerprofilesctl >/dev/null 2>&1; then
                 powerprofilesctl set performance >/dev/null 2>&1 || true
@@ -110,7 +120,7 @@ apply_mode() {
             ;;
         *)
             echo "Unknown mode: $mode" >&2
-            echo "Usage: kyth-performance-mode [save|restore|status|gaming|performance|balanced|powersave]" >&2
+            echo "Usage: kyth-performance-mode [save|restore|status|max|gaming|performance|balanced|powersave]" >&2
             return 1
             ;;
     esac
@@ -182,7 +192,7 @@ case "$cmd" in
     status)
         status_mode
         ;;
-    gaming|performance|balanced|powersave)
+    max|gaming|performance|balanced|powersave)
         apply_mode "$cmd"
         ;;
     *)

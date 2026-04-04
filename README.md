@@ -36,7 +36,7 @@ KythOS is a custom bootc image. The OS is a container image built with Docker, i
 - ananicy-cpp — static per-process CPU/IO priority rules
 - NTSYNC udev rules (faster Wine sync primitives, lower-latency than esync/fsync)
 - AMD GPU high-performance power profile during gameplay (GameMode)
-- GameMode auto performance profile — switches to `performance` power profile + reduces KWin animations/blur on game launch; restores previous state on exit
+- GameMode auto performance profile — switches to `performance` power profile + reduces KWin animations/blur on game launch; restores previous state on exit (`ujust gaming-mode` / `ujust balanced-mode` / `ujust performance-mode max` for manual control)
 - GameMode soft-realtime (`SCHED_FIFO` via rtkit) + screensaver inhibit
 - MangoHud pre-configured with a curated default overlay (fps, frametimes, GPU/CPU temp/clock, VRAM — toggle `Shift_R+F12`)
 - vkBasalt pre-configured with CAS sharpening (strength 0.4, `Home` to toggle) — active when `ENABLE_VKBASALT=1`
@@ -70,13 +70,15 @@ KythOS is a custom bootc image. The OS is a container image built with Docker, i
 ### System tuning
 
 - **Memory:** vm.swappiness=10, THP=madvise, vm.max_map_count=2147483642 (Star Citizen etc.), vm.compaction_proactiveness=0, vm.page-cluster=0, vm.watermark_boost_factor=0, vm.vfs_cache_pressure=50, vm.oom_kill_allocating_task=1 (fast OOM recovery)
-- **Network:** TCP BBRv3, raised socket buffers (64 MB), TCP Fast Open, raised inotify limits
+- **Network:** TCP BBRv3, raised socket buffers (64 MB), TCP Fast Open, raised inotify limits, `tcp_mtu_probing=1` (recovers from MTU black holes on BBR + VPN paths)
 - **Audio:** PipeWire at 48 kHz / 128-sample quantum (~2.7 ms latency), min-quantum=32, allowed-rates=[44100 48000] (rate-switches instead of resampling)
 - **Storage:** I/O scheduler per device type — `none` on NVMe, `mq-deadline` on SATA SSD, `bfq` on HDD
 - **Gaming:** split-lock mitigation disabled, kernel.sched_autogroup_enabled=1, NMI watchdog disabled, kernel.perf_event_paranoid=1 (MangoHud CPU timings + perf tooling)
 - **Wine/Proton:** PROTON_FORCE_LARGE_ADDRESS_AWARE + WINE_LARGE_ADDRESS_AWARE (full 4 GB address space for 32-bit games), NTSYNC enabled, VKD3D DXR + feature level 12_2 (DXR 1.1, mesh shaders), mesa_glthread
 - zram (min(RAM/2, 8 GB), zstd compression)
 - WiFi power-save disabled system-wide; Intel WiFi BT coexistence disabled; MT7921 ASPM disabled
+- KDE Baloo file indexer disabled by default (causes I/O stutter on first boot / after large game downloads) — re-enable in System Settings → Search
+- journald capped at 500 MB persistent / 128 MB runtime (prevents multi-GB growth from verbose game/driver output)
 - spice-vdagent for automatic display resize in QEMU/KVM VMs
 - Automatic updates disabled (no surprise reboots) — update manually: `sudo bootc upgrade` (passwordless for `wheel` group via sudoers drop-in)
 
@@ -242,7 +244,8 @@ build_files/
   wallpaper/                      Desktop wallpaper (SVG)
   kyth-ge-proton-update           Weekly GE-Proton update script (+ .service/.timer)
   kyth-duperemove                 Weekly deduplication script (+ .service/.timer)
-  kyth-performance-mode           Toggle system performance profile
+  kyth-performance-mode           Toggle system performance profile (max/gaming/performance/balanced/powersave)
+  kyth-set-epp                    Set AMD CPU energy_performance_preference on all cores (called by kyth-performance-mode via sudo)
   kyth-kerver                     Print kernel/scheduler info
   kyth-device-info                Print hardware summary
   kyth-bootc-sudo                 Wrapper for bootc operations with sudo

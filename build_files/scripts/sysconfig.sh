@@ -133,9 +133,12 @@ softrealtime = auto
 # via GameMode, and restore the previous state on exit.
 # kyth-performance-mode: saves current powerprofile + KWin blur/animation state,
 # switches to performance power profile + reduced animations, then restores on exit.
-# GameMode runs these via /bin/sh -c as the game user, so D-Bus is available.
-startscript=/usr/bin/kyth-performance-mode save && /usr/bin/kyth-performance-mode gaming
-endscript=/usr/bin/kyth-performance-mode restore
+# GameMode runs startscript/endscript via /bin/sh -c as the game user.
+# DBUS_SESSION_BUS_ADDRESS may not be inherited (depends on how the game was
+# launched), so we set it explicitly via the logind socket path as a fallback.
+# unix:path=/run/user/UID/bus is guaranteed present for any logged-in user.
+startscript=export DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=/run/user/$(id -u)/bus}"; /usr/bin/kyth-performance-mode save && /usr/bin/kyth-performance-mode gaming
+endscript=DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=/run/user/$(id -u)/bus}" /usr/bin/kyth-performance-mode restore
 
 [cpu]
 park_cores = no

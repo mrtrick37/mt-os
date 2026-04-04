@@ -103,13 +103,26 @@ game-performance +args:
     /usr/bin/game-performance {{ args }}
 
 # Set desktop/system performance mode.
-
-# Modes: gaming, performance, balanced, powersave, status
+# Modes: max, gaming, performance, balanced, powersave, status
 [group('KythOS')]
 performance-mode mode="status":
     #!/usr/bin/env bash
     set -euo pipefail
     /usr/bin/kyth-performance-mode "{{ mode }}"
+
+# Quick shortcut: switch to gaming mode (EPP=performance, half-speed animations, no blur).
+[group('KythOS')]
+gaming-mode:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    /usr/bin/kyth-performance-mode gaming
+
+# Quick shortcut: restore balanced mode (EPP=balance_performance, full animations).
+[group('KythOS')]
+balanced-mode:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    /usr/bin/kyth-performance-mode balanced
 
 # Run a command with a named temporary profile.
 [group('KythOS')]

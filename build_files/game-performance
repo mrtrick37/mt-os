@@ -56,10 +56,10 @@ esac
 old_profile=""
 restore_profile() {
     if command -v kyth-performance-mode >/dev/null 2>&1; then
+        # kyth-performance-mode restore already restores the power profile from its
+        # state file — don't also call powerprofilesctl or they fight each other.
         kyth-performance-mode restore >/dev/null 2>&1 || true
-    fi
-
-    if [[ -n "${old_profile}" ]] && command -v powerprofilesctl >/dev/null 2>&1; then
+    elif [[ -n "${old_profile}" ]] && command -v powerprofilesctl >/dev/null 2>&1; then
         powerprofilesctl set "${old_profile}" >/dev/null 2>&1 || true
     fi
 }
