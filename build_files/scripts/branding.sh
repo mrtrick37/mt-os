@@ -332,6 +332,7 @@ QT_QPA_PLATFORM=offscreen python3 -c '
 import importlib.machinery
 import importlib.util
 import pathlib
+import os
 
 path = pathlib.Path("/usr/bin/kyth-welcome")
 loader = importlib.machinery.SourceFileLoader("kyth_welcome_smoke", str(path))
@@ -342,7 +343,9 @@ loader.exec_module(module)
 app = module.QApplication([])
 win = module.MainWindow()
 win.close()
-app.quit()
+# os._exit avoids hanging on background QThreads (e.g. HardwareProbeWorker)
+# that start during MainWindow.__init__ and have no event loop to finish on.
+os._exit(0)
 '
 
 install -m 0755 /ctx/game-performance /usr/bin/game-performance
