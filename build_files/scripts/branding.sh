@@ -412,6 +412,10 @@ dnf5 remove -y librsvg2-tools && dnf5 autoremove -y || true
 
 # Rebuild the initramfs to include Plymouth + the KythOS theme.
 # TMPDIR=/var/tmp avoids EXDEV cross-device rename errors.
+# Background ticker prints a heartbeat every 20 s so CI logs don't look frozen.
+echo "dracut: rebuilding initramfs for ${CACHYOS_KVER} (no-hostonly + plymouth, zstd-1) — takes several minutes…"
+( i=0; while true; do sleep 20; i=$((i + 1)); echo "  dracut: still building… $((i * 20))s elapsed"; done ) &
+_DRACUT_TICKER=$!
 TMPDIR=/var/tmp dracut \
     --no-hostonly \
     --add "plymouth" \
@@ -420,7 +424,9 @@ TMPDIR=/var/tmp dracut \
     --force \
     "/usr/lib/modules/${CACHYOS_KVER}/initramfs" \
     2> >(grep -Ev 'xattr|fail to copy' >&2)
-echo "Initramfs rebuilt with Plymouth (theme: kyth)"
+kill "$_DRACUT_TICKER" 2>/dev/null || true
+wait "$_DRACUT_TICKER" 2>/dev/null || true
+echo "dracut: initramfs rebuilt with Plymouth (theme: kyth)"
 
 # ── ujust recipes ─────────────────────────────────────────────────────────────
 # Install KythOS-specific ujust recipes so users can run e.g. "ujust rebase kyth:stable".
