@@ -3483,7 +3483,7 @@ class GamingPage(Page):
 
         for refs in self._tool_refs:
             installed = _is_flatpak_installed(refs["tool"]["flatpak"])
-            _set_badge(refs["badge"], installed)
+            _apply_install_badge(refs["badge"], installed)
             refs["install"].setVisible(not installed)
             refs["launch"].setVisible(installed)
 

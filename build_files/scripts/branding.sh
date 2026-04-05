@@ -325,6 +325,26 @@ fi
 install -m 0755 /ctx/kyth-welcome/kyth-welcome /usr/bin/kyth-welcome
 install -m 0644 /ctx/kyth-welcome/kyth-welcome.desktop \
     /usr/share/applications/kyth-welcome.desktop
+
+# Smoke-test the helper during the build so startup regressions fail the image
+# instead of surfacing only after first login.
+QT_QPA_PLATFORM=offscreen python3 -c '
+import importlib.machinery
+import importlib.util
+import pathlib
+
+path = pathlib.Path("/usr/bin/kyth-welcome")
+loader = importlib.machinery.SourceFileLoader("kyth_welcome_smoke", str(path))
+spec = importlib.util.spec_from_loader(loader.name, loader)
+module = importlib.util.module_from_spec(spec)
+loader.exec_module(module)
+
+app = module.QApplication([])
+win = module.MainWindow()
+win.close()
+app.quit()
+'
+
 install -m 0755 /ctx/game-performance /usr/bin/game-performance
 install -m 0755 /ctx/kyth-performance-mode /usr/bin/kyth-performance-mode
 install -m 0755 /ctx/zink-run /usr/bin/zink-run
