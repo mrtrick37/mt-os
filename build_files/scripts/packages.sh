@@ -80,7 +80,11 @@ dnf5 install -y --skip-unavailable \
     tmux \
     gh \
     fwupd \
-    gamescope
+    gamescope \
+    libburn \
+    libisoburn \
+    libisofs \
+    xorriso
 
 # Enable COPRs for gaming packages
 dnf5 copr enable -y ublue-os/bazzite
